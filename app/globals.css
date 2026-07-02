@@ -1,0 +1,104 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Option B — Forest Teal + Warm Stone */
+    --background: 40 32% 95%;          /* #F5F2EC warm stone */
+    --foreground: 24 10% 10%;          /* #1C1917 dark warm text */
+
+    --card: 0 0% 100%;                 /* #FFFFFF */
+    --card-foreground: 24 10% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 24 10% 10%;
+
+    --primary: 166 75% 21%;            /* #0D5C4A forest teal */
+    --primary-foreground: 0 0% 100%;   /* white on teal */
+
+    --secondary: 160 36% 93%;          /* #E8F4F0 teal-tinted muted bg */
+    --secondary-foreground: 166 75% 21%;
+
+    --muted: 38 15% 90%;               /* warm off-white muted */
+    --muted-foreground: 33 5% 32%;     /* #57534E stone gray */
+
+    --accent: 40 88% 33%;              /* #9C6C0A warm amber */
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84.2% 60.2%;     /* red — error/overdue states only */
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 38 17% 84%;              /* #DDD8CF warm border */
+    --input: 38 17% 84%;
+    --ring: 166 75% 21%;               /* teal focus ring */
+
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+
+    --card: 240 10% 3.9%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 240 10% 3.9%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 0 0% 98%;
+    --primary-foreground: 240 5.9% 10%;
+
+    --secondary: 240 3.7% 15.9%;
+    --secondary-foreground: 0 0% 98%;
+
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
+
+    --accent: 240 3.7% 15.9%;
+    --accent-foreground: 0 0% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 240 4.9% 83.9%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* ── Marketing page animations ─────────────────────────────────── */
+
+@keyframes pt-fade-up {
+  from { opacity: 0; transform: translateY(22px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pt-slide-in {
+  from { opacity: 0; transform: translateX(36px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes pt-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes pt-float {
+  0%, 100% { transform: perspective(900px) rotateY(-4deg) rotateX(2deg) translateY(0px); }
+  50%       { transform: perspective(900px) rotateY(-4deg) rotateX(2deg) translateY(-10px); }
+}
+
+.pt-fade-up   { animation: pt-fade-up  0.65s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.pt-slide-in  { animation: pt-slide-in 0.7s  cubic-bezier(0.16, 1, 0.3, 1) both; }
+.pt-fade-in   { animation: pt-fade-in  0.5s  ease both; }
+.pt-float     { animation: pt-float    5s    ease-in-out infinite; }
