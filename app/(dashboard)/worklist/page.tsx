@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { requireProfile, partyScopeWhere } from "@/lib/authz";
 import { formatINR } from "@/lib/format";
 import { AGING_BUCKETS, AGING_LABELS, agingSummary } from "@/lib/ar/aging";
-import { scoreParty } from "@/lib/ar/refresh";
+import { scoreAndPersistParty } from "@/lib/ar/refresh";
 import { refreshOverdueStatuses } from "@/lib/ar/balance";
 import {
   PageHeader,
@@ -44,7 +44,10 @@ export default async function WorklistPage() {
   );
 
   const scored = await Promise.all(
-    parties.map(async (party) => ({ party, risk: await scoreParty(party) }))
+    parties.map(async (party) => ({
+      party,
+      risk: await scoreAndPersistParty(party),
+    }))
   );
   scored.sort(
     (a, b) =>

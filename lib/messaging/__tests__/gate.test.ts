@@ -99,4 +99,20 @@ describe("evaluateGate", () => {
     const r = evaluateGate({ ...base, recentOutboundAt: old });
     expect(r.allowed).toBe(true);
   });
+
+  it("counts failed attempts toward the daily cap (no provider hammering)", () => {
+    const failedEarlierToday = new Date("2026-07-04T04:00:00Z"); // 09:30 IST same day
+    const r = evaluateGate({ ...base, recentFailedAt: [failedEarlierToday] });
+    expect(r.allowed).toBe(false);
+    if (!r.allowed) expect(r.reason).toMatch(/Daily/);
+  });
+
+  it("does not count failed attempts toward the weekly cap", () => {
+    // 3 failures on previous days would exhaust the weekly cap if counted.
+    const failedPastDays = [1, 2, 3].map(
+      (d) => new Date(NOON_IST.getTime() - d * 24 * 60 * 60 * 1000)
+    );
+    const r = evaluateGate({ ...base, recentFailedAt: failedPastDays });
+    expect(r.allowed).toBe(true);
+  });
 });

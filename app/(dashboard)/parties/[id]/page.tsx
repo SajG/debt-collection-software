@@ -15,6 +15,7 @@ import {
   statusTone,
 } from "../../_components/ui";
 import { formatDateTime } from "@/lib/format";
+import { scoreAndPersistParty } from "@/lib/ar/refresh";
 import { ComplianceControls } from "./compliance-controls";
 import { SendReminder } from "./send-reminder";
 
@@ -52,6 +53,9 @@ export default async function PartyDetailPage({
   });
 
   if (!party || !canAccessParty(profile, party)) notFound();
+
+  // Live risk score; also syncs the stored riskLevel so list badges match.
+  const risk = await scoreAndPersistParty(party);
 
   const openInvoices = party.invoices.filter(
     (i) => i.status !== "PAID" && i.status !== "CANCELLED"
@@ -92,8 +96,15 @@ export default async function PartyDetailPage({
         <Card title="Priority / Risk">
           <div className="flex gap-2 pt-1.5">
             <Badge tone={statusTone(party.priority)}>{party.priority}</Badge>
-            <Badge tone={statusTone(party.riskLevel)}>{party.riskLevel}</Badge>
+            <Badge tone={statusTone(risk.level)}>
+              {risk.level} · {risk.score}
+            </Badge>
           </div>
+          {risk.reasons.length > 0 && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              {risk.reasons.join(" · ")}
+            </p>
+          )}
         </Card>
         <Card title="Contact">
           <p className="text-sm">{party.contactPerson ?? "—"}</p>

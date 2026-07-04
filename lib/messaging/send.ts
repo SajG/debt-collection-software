@@ -80,10 +80,10 @@ export async function sendReminder(
     where: {
       partyId: party.id,
       direction: "OUTBOUND",
-      status: { in: ["QUEUED", "SENT", "DELIVERED", "READ"] },
+      status: { in: ["QUEUED", "SENT", "DELIVERED", "READ", "FAILED"] },
       createdAt: { gte: subDays(new Date(), 7) },
     },
-    select: { createdAt: true },
+    select: { createdAt: true, status: true },
   });
 
   const gate = evaluateGate({
@@ -98,7 +98,12 @@ export async function sendReminder(
       maxMessagesPerDay: settings.maxMessagesPerDay,
       maxMessagesPerWeek: settings.maxMessagesPerWeek,
     },
-    recentOutboundAt: recent.map((m) => m.createdAt),
+    recentOutboundAt: recent
+      .filter((m) => m.status !== "FAILED")
+      .map((m) => m.createdAt),
+    recentFailedAt: recent
+      .filter((m) => m.status === "FAILED")
+      .map((m) => m.createdAt),
   });
 
   const pending = invoice

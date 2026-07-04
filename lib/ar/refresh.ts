@@ -70,19 +70,32 @@ export async function scoreParty(party: Party): Promise<RiskResult> {
 }
 
 /**
+ * Score a party AND sync the stored riskLevel when it drifted, so the badge
+ * shown from the column (party list, dashboard) always matches what any
+ * live-scoring screen (worklist, party detail) just displayed.
+ * Priority stays user-controlled — only riskLevel is written.
+ */
+export async function scoreAndPersistParty(party: Party): Promise<RiskResult> {
+  const result = await scoreParty(party);
+  if (result.level !== party.riskLevel) {
+    await db.party.update({
+      where: { id: party.id },
+      data: { riskLevel: result.level },
+    });
+  }
+  return result;
+}
+
+/**
  * Persist recomputed risk levels for all active parties.
  * Idempotent; called from the cron pass and safe to run on demand.
- * Priority stays user-controlled — only riskLevel is written.
  */
 export async function refreshRiskLevels(): Promise<number> {
   const parties = await db.party.findMany({ where: { isActive: true }, take: 2000 });
   let updated = 0;
   for (const party of parties) {
-    const { level } = await scoreParty(party);
-    if (level !== party.riskLevel) {
-      await db.party.update({ where: { id: party.id }, data: { riskLevel: level } });
-      updated++;
-    }
+    const { level } = await scoreAndPersistParty(party);
+    if (level !== party.riskLevel) updated++;
   }
   return updated;
 }

@@ -29,6 +29,12 @@ export type GateInput = {
   settings: GateSettings;
   /** Timestamps of outbound messages actually sent to this party in the last 7 days. */
   recentOutboundAt: Date[];
+  /**
+   * Failed attempts (provider errors). They never reached the party, so the
+   * weekly cap ignores them — but they count toward the daily cap so a
+   * misconfigured provider can't be hammered by retries all day.
+   */
+  recentFailedAt?: Date[];
   now?: Date;
 };
 
@@ -93,10 +99,10 @@ export function evaluateGate(input: GateInput): GateResult {
     };
   }
 
-  const sentToday = withinWeek.filter(
+  const attemptsToday = [...withinWeek, ...(input.recentFailedAt ?? [])].filter(
     (t) => localTime(t, settings.timezone).dayKey === nowLocal.dayKey
   );
-  if (sentToday.length >= settings.maxMessagesPerDay) {
+  if (attemptsToday.length >= settings.maxMessagesPerDay) {
     return {
       allowed: false,
       reason: `Daily contact limit reached (${settings.maxMessagesPerDay}/day)`,
