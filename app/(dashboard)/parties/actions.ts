@@ -1,12 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { requireProfile, canAccessParty } from "@/lib/authz";
 import { partySchema, type PartyInput } from "@/lib/validation";
 
 type ActionResult = { error: string } | never;
+type MaybeError = { error: string } | undefined;
 
 export async function createPartyAction(input: PartyInput): Promise<ActionResult> {
   const profile = await requireProfile();
@@ -58,4 +60,82 @@ export async function updatePartyAction(
   revalidatePath("/parties");
   revalidatePath(`/parties/${id}`);
   redirect(`/parties/${id}`);
+}
+
+// ── Outreach compliance ─────────────────────────────────────────
+
+const consentInput = z.object({
+  partyId: z.string().min(1),
+  status: z.enum(["OPTED_IN", "OPTED_OUT", "UNKNOWN"]),
+});
+
+/** Record the party's consent decision with a timestamp (audit trail). */
+export async function setConsentAction(
+  input: z.infer<typeof consentInput>
+): Promise<MaybeError> {
+  const profile = await requireProfile();
+
+  const parsed = consentInput.safeParse(input);
+  if (!parsed.success) return { error: "Invalid consent update." };
+  const { partyId, status } = parsed.data;
+
+  const party = await db.party.findUnique({ where: { id: partyId } });
+  if (!party || !canAccessParty(profile, party)) {
+    return { error: "Party not found." };
+  }
+
+  await db.party.update({
+    where: { id: partyId },
+    data: { consentStatus: status, consentUpdatedAt: new Date() },
+  });
+
+  revalidatePath(`/parties/${partyId}`);
+  return undefined;
+}
+
+export async function pauseOutreachAction(
+  partyId: string,
+  reason: string
+): Promise<MaybeError> {
+  const profile = await requireProfile();
+
+  const party = await db.party.findUnique({ where: { id: partyId } });
+  if (!party || !canAccessParty(profile, party)) {
+    return { error: "Party not found." };
+  }
+
+  await db.party.update({
+    where: { id: partyId },
+    data: {
+      outreachPaused: true,
+      outreachPausedReason: reason.trim().slice(0, 300) || "Paused manually",
+      outreachPausedAt: new Date(),
+    },
+  });
+
+  revalidatePath(`/parties/${partyId}`);
+  return undefined;
+}
+
+/** Clearing a pause is a deliberate human decision — ADMIN only. */
+export async function resumeOutreachAction(partyId: string): Promise<MaybeError> {
+  const profile = await requireProfile();
+  if (profile.role !== "ADMIN") {
+    return { error: "Only an admin can resume outreach after a pause." };
+  }
+
+  const party = await db.party.findUnique({ where: { id: partyId } });
+  if (!party) return { error: "Party not found." };
+
+  await db.party.update({
+    where: { id: partyId },
+    data: {
+      outreachPaused: false,
+      outreachPausedReason: null,
+      outreachPausedAt: null,
+    },
+  });
+
+  revalidatePath(`/parties/${partyId}`);
+  return undefined;
 }

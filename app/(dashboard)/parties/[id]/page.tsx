@@ -14,6 +14,8 @@ import {
   EmptyRow,
   statusTone,
 } from "../../_components/ui";
+import { formatDateTime } from "@/lib/format";
+import { ComplianceControls } from "./compliance-controls";
 
 export default async function PartyDetailPage({
   params,
@@ -93,6 +95,34 @@ export default async function PartyDetailPage({
             {party.phone ?? party.email ?? "No contact info"}
           </p>
         </Card>
+      </div>
+
+      {/* Outreach compliance — consent + pause state gate every send */}
+      <div className="mb-6 rounded-xl border border-border bg-card p-6 shadow-sm">
+        <div className="mb-3 flex items-center gap-3">
+          <h2 className="text-sm font-semibold text-foreground">
+            Messaging consent
+          </h2>
+          <Badge tone={statusTone(party.consentStatus)}>
+            {party.consentStatus === "UNKNOWN"
+              ? "NO CONSENT RECORDED"
+              : party.consentStatus.replace("_", " ")}
+          </Badge>
+          {party.outreachPaused && <Badge tone="amber">OUTREACH PAUSED</Badge>}
+        </div>
+        <p className="mb-4 text-xs text-muted-foreground">
+          {party.consentUpdatedAt
+            ? `Consent last updated ${formatDateTime(party.consentUpdatedAt)}. `
+            : "Automated reminders stay off until an opt-in is recorded. "}
+          {party.outreachPaused &&
+            `Paused${party.outreachPausedAt ? ` ${formatDateTime(party.outreachPausedAt)}` : ""}: ${party.outreachPausedReason ?? "no reason recorded"}.`}
+        </p>
+        <ComplianceControls
+          partyId={party.id}
+          consentStatus={party.consentStatus}
+          outreachPaused={party.outreachPaused}
+          isAdmin={profile.role === "ADMIN"}
+        />
       </div>
 
       <div className="space-y-6">
