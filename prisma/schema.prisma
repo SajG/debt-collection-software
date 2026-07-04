@@ -110,6 +110,33 @@ enum SyncStatus {
   PARTIAL
 }
 
+enum ConsentStatus {
+  UNKNOWN
+  OPTED_IN
+  OPTED_OUT
+}
+
+enum MessageChannel {
+  WHATSAPP
+  SMS
+  EMAIL
+}
+
+enum MessageDirection {
+  OUTBOUND
+  INBOUND
+}
+
+enum MessageStatus {
+  BLOCKED // stopped by the sending gate; never left the system
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+  RECEIVED // inbound
+}
+
 // ─────────────────────────────────────────────────────────────────
 // PROFILE  (auth identity lives in Supabase auth.users)
 // ─────────────────────────────────────────────────────────────────
@@ -130,6 +157,7 @@ model Profile {
   performedActions Action[]          @relation("ActionPerformer")
   createdProformas ProformaInvoice[] @relation("ProformaCreator")
   triggeredSyncs   SyncLog[]         @relation("SyncTrigger")
+  sentMessages     Message[]         @relation("MessageSender")
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -152,6 +180,14 @@ model BusinessSettings {
 
   // AR defaults
   defaultCreditDays Int?
+
+  // Outreach guardrails (enforced by the deterministic sending gate)
+  timezone             String  @default("Asia/Kolkata") // IANA tz for quiet hours
+  quietHoursStart      Int     @default(8) // local hour — no sends before this
+  quietHoursEnd        Int     @default(19) // local hour — no sends at/after this
+  maxMessagesPerDay    Int     @default(1) // per party, per calendar day
+  maxMessagesPerWeek   Int     @default(3) // per party, rolling 7 days
+  autoRemindersEnabled Boolean @default(false) // cron-driven reminder pass
 
   // Proforma number sequence
   // Incremented atomically on each proforma creation.
@@ -210,13 +246,26 @@ model Party {
   // Deduplication key for Tally sync; null for manually-added parties
   tallyRef String? @unique
 
+  // ── Outreach compliance ────────────────────────────────────────
+  // No automated message may be sent unless consentStatus is OPTED_IN.
+  consentStatus    ConsentStatus @default(UNKNOWN)
+  consentUpdatedAt DateTime?
+
+  // Set when a DISPUTED outcome is recorded (or manually). Blocks ALL
+  // outbound messages until a human clears it.
+  outreachPaused       Boolean   @default(false)
+  outreachPausedReason String?
+  outreachPausedAt     DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  invoices  Invoice[]
-  payments  Payment[]
-  actions   Action[]
-  proformas ProformaInvoice[]
+  invoices     Invoice[]
+  payments     Payment[]
+  actions      Action[]
+  proformas    ProformaInvoice[]
+  messages     Message[]
+  paymentLinks PaymentLink[]
 
   @@index([assignedToId])
   @@index([isActive, priority])
@@ -245,8 +294,10 @@ model Invoice {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  party    Party     @relation(fields: [partyId], references: [id], onDelete: Restrict)
-  payments Payment[]
+  party        Party         @relation(fields: [partyId], references: [id], onDelete: Restrict)
+  payments     Payment[]
+  messages     Message[]
+  paymentLinks PaymentLink[]
 
   // Invoice numbers are unique per party, not globally
   // (mirrors Tally's behaviour across companies)
@@ -397,6 +448,66 @@ model SyncLog {
 
   @@index([syncType, startedAt])
   @@index([status])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// MESSAGE  (exportable audit trail of every outreach attempt,
+// including gate-blocked attempts and inbound replies)
+// ─────────────────────────────────────────────────────────────────
+
+model Message {
+  id        String           @id @default(cuid())
+  partyId   String
+  invoiceId String?
+  channel   MessageChannel
+  direction MessageDirection
+  status    MessageStatus
+
+  templateName String? // WhatsApp utility template used, if any
+  body         String // exact content sent or received
+  gateResult   String? // why the gate blocked this attempt (status BLOCKED)
+
+  providerMessageId String? // BSP/provider id for delivery-status webhooks
+  error             String? // provider error for status FAILED
+  paymentLinkUrl    String?
+
+  sentById String? @db.Uuid // null for automated (cron) or inbound messages
+
+  createdAt   DateTime  @default(now())
+  sentAt      DateTime?
+  deliveredAt DateTime?
+
+  party   Party    @relation(fields: [partyId], references: [id], onDelete: Restrict)
+  invoice Invoice? @relation(fields: [invoiceId], references: [id])
+  sentBy  Profile? @relation("MessageSender", fields: [sentById], references: [id])
+
+  @@index([partyId, createdAt])
+  @@index([status])
+  @@index([providerMessageId])
+  @@index([channel, direction, createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// PAYMENT LINK  (Razorpay payment links embedded in reminders)
+// ─────────────────────────────────────────────────────────────────
+
+model PaymentLink {
+  id             String  @id @default(cuid())
+  partyId        String
+  invoiceId      String?
+  provider       String  @default("RAZORPAY")
+  providerLinkId String  @unique
+  shortUrl       String
+  amount         Decimal @db.Decimal(12, 2)
+  status         String  @default("created") // Razorpay: created/partially_paid/paid/cancelled/expired
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  party   Party    @relation(fields: [partyId], references: [id], onDelete: Restrict)
+  invoice Invoice? @relation(fields: [invoiceId], references: [id])
+
+  @@index([partyId])
 }
 
 // ─────────────────────────────────────────────────────────────────
