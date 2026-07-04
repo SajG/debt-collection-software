@@ -16,7 +16,7 @@ Each customer gets their own deployment pointing at their own Supabase project. 
 | Language | TypeScript |
 | Styling | Tailwind CSS + shadcn/ui |
 | ORM | Prisma → Supabase Postgres |
-| Auth | NextAuth.js v4 (Credentials + JWT) |
+| Auth | Supabase Auth (SSR cookie sessions via `@supabase/ssr`) |
 | Forms | React Hook Form + Zod |
 | Charts | Recharts |
 | Toasts | Sonner |
@@ -46,3 +46,12 @@ See `.env.example`. Two connection strings are required for Prisma + Supabase:
 
 - `DATABASE_URL` — pooled connection (pgBouncer, port 6543) — used at runtime
 - `DIRECT_URL` — direct connection (port 5432) — used by Prisma for migrations only
+
+Auth uses the same Supabase project (`NEXT_PUBLIC_SUPABASE_URL`,
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`, plus server-only
+`SUPABASE_SERVICE_ROLE_KEY` for signup).
+
+`APP_ENCRYPTION_KEY` (32 bytes, base64 — `openssl rand -base64 32`) encrypts
+stored secrets such as the WhatsApp API token at rest. Messaging, payment
+links, and the reminder cron have their own keys — all documented in
+`.env.example`.

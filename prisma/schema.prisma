@@ -166,7 +166,8 @@ model BusinessSettings {
   tallyCompanyName String?
 
   // WhatsApp Business API config
-  // TODO: encrypt whatsappApiToken at rest in a later phase
+  // whatsappApiToken is AES-256-GCM encrypted at rest (lib/crypto.ts).
+  // Decrypt server-side only; never select it into a client payload.
   whatsappPhoneNumberId     String?
   whatsappBusinessAccountId String?
   whatsappApiToken          String?
