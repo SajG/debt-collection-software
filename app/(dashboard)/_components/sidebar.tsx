@@ -9,6 +9,8 @@ import {
   CreditCard,
   Phone,
   ClipboardList,
+  ListOrdered,
+  Upload,
   Settings,
   LogOut,
 } from "lucide-react";
@@ -16,11 +18,13 @@ import { createClient } from "@/lib/supabase/client";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/worklist", label: "Worklist", icon: ListOrdered },
   { href: "/parties", label: "Parties", icon: Users },
   { href: "/invoices", label: "Invoices", icon: FileText },
   { href: "/payments", label: "Payments", icon: CreditCard },
   { href: "/actions", label: "Follow-ups", icon: Phone },
   { href: "/proformas", label: "Proformas", icon: ClipboardList },
+  { href: "/import", label: "Import", icon: Upload },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

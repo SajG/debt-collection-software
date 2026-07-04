@@ -1,34 +1,81 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import { db } from "@/lib/db";
+import { addDays } from "date-fns";
 import { AlertTriangle, Clock, IndianRupee, Users } from "lucide-react";
+import { db } from "@/lib/db";
+import { requireProfile, partyScopeWhere } from "@/lib/authz";
+import { refreshOverdueStatuses, startOfToday } from "@/lib/ar/balance";
+import { formatINR, formatDate } from "@/lib/format";
+import { Badge, statusTone } from "../_components/ui";
 
 export default async function DashboardPage() {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const profile = await requireProfile();
 
-  if (!user) redirect("/login");
+  const settings = await db.businessSettings.findUnique({
+    where: { profileId: profile.id },
+    select: { onboardingDone: true },
+  });
+  if (!settings?.onboardingDone) redirect("/onboarding");
 
-  const [settings, profile] = await Promise.all([
-    db.businessSettings.findUnique({
-      where: { profileId: user.id },
-      select: { onboardingDone: true },
+  // Keep OVERDUE statuses honest before aggregating (idempotent updateMany).
+  await db.$transaction((tx) => refreshOverdueStatuses(tx));
+
+  const scope = partyScopeWhere(profile);
+  const today = startOfToday();
+  const weekAhead = addDays(today, 7);
+
+  const [
+    outstandingAgg,
+    overduePartyCount,
+    dueThisWeek,
+    activePartyCount,
+    overdueInvoices,
+    todaysFollowUps,
+  ] = await Promise.all([
+    db.party.aggregate({
+      where: scope,
+      _sum: { totalOutstanding: true },
     }),
-    db.profile.findUnique({
-      where: { id: user.id },
-      select: { ownerName: true },
+    db.party.count({
+      where: { ...scope, invoices: { some: { status: "OVERDUE" } } },
+    }),
+    db.invoice.aggregate({
+      where: {
+        party: scope,
+        status: { in: ["UNPAID", "PARTIAL"] },
+        dueDate: { gte: today, lt: weekAhead },
+      },
+      _sum: { totalAmount: true, paidAmount: true },
+    }),
+    db.party.count({ where: { ...scope, isActive: true } }),
+    db.invoice.findMany({
+      where: { party: scope, status: "OVERDUE" },
+      include: { party: { select: { id: true, name: true } } },
+      orderBy: { dueDate: "asc" },
+      take: 6,
+    }),
+    db.action.findMany({
+      where: {
+        party: scope,
+        nextFollowUpDate: { gte: today, lt: addDays(today, 1) },
+      },
+      include: {
+        party: { select: { id: true, name: true, totalOutstanding: true } },
+      },
+      orderBy: { nextFollowUpDate: "asc" },
+      take: 6,
     }),
   ]);
 
-  if (!settings?.onboardingDone) redirect("/onboarding");
+  const totalOutstanding = outstandingAgg._sum.totalOutstanding ?? 0;
+  const dueWeekAmount =
+    Number(dueThisWeek._sum.totalAmount ?? 0) -
+    Number(dueThisWeek._sum.paidAmount ?? 0);
 
-  const firstName = profile?.ownerName?.split(" ")[0] ?? "there";
+  const firstName = profile.ownerName.split(" ")[0];
 
   return (
     <div className="p-8">
-      {/* Page header */}
       <div className="mb-8">
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">
           Good morning, {firstName}
@@ -38,38 +85,95 @@ export default async function DashboardPage() {
         </p>
       </div>
 
-      {/* Stat cards — placeholder values until data layer is built */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 mb-8">
         <StatCard
           label="Total outstanding"
-          value="₹0"
+          value={formatINR(totalOutstanding)}
           icon={IndianRupee}
           accent="primary"
         />
         <StatCard
           label="Overdue parties"
-          value="0"
+          value={String(overduePartyCount)}
           icon={AlertTriangle}
           accent="danger"
         />
         <StatCard
           label="Due this week"
-          value="₹0"
+          value={formatINR(dueWeekAmount)}
           icon={Clock}
           accent="amber"
         />
         <StatCard
           label="Active parties"
-          value="0"
+          value={String(activePartyCount)}
           icon={Users}
           accent="neutral"
         />
       </div>
 
-      {/* Placeholder panels */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <PlaceholderPanel title="Overdue invoices" />
-        <PlaceholderPanel title="Today's follow-ups" />
+        <Panel title="Overdue invoices" viewAllHref="/invoices?filter=overdue">
+          {overdueInvoices.length === 0 ? (
+            <PanelEmpty message="No overdue invoices. Well collected!" />
+          ) : (
+            <ul className="divide-y divide-border/60">
+              {overdueInvoices.map((inv) => (
+                <li key={inv.id} className="flex items-center justify-between py-2.5">
+                  <div>
+                    <Link
+                      href={`/invoices/${inv.id}`}
+                      className="text-sm font-medium hover:underline"
+                    >
+                      {inv.invoiceNumber}
+                    </Link>
+                    <p className="text-xs text-muted-foreground">
+                      <Link href={`/parties/${inv.party.id}`} className="hover:underline">
+                        {inv.party.name}
+                      </Link>{" "}
+                      · due {formatDate(inv.dueDate)}
+                    </p>
+                  </div>
+                  <span className="text-sm font-semibold">
+                    {formatINR(inv.totalAmount.minus(inv.paidAmount))}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
+
+        <Panel title="Today's follow-ups" viewAllHref="/actions">
+          {todaysFollowUps.length === 0 ? (
+            <PanelEmpty message="No follow-ups scheduled for today." />
+          ) : (
+            <ul className="divide-y divide-border/60">
+              {todaysFollowUps.map((a) => (
+                <li key={a.id} className="flex items-center justify-between py-2.5">
+                  <div>
+                    <Link
+                      href={`/parties/${a.party.id}`}
+                      className="text-sm font-medium hover:underline"
+                    >
+                      {a.party.name}
+                    </Link>
+                    <p className="text-xs text-muted-foreground">
+                      {a.outcome ? (
+                        <Badge tone={statusTone(a.outcome)}>{a.outcome}</Badge>
+                      ) : (
+                        a.type
+                      )}
+                      {a.notes ? ` · ${a.notes.slice(0, 60)}` : ""}
+                    </p>
+                  </div>
+                  <span className="text-sm font-semibold">
+                    {formatINR(a.party.totalOutstanding)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
       </div>
     </div>
   );
@@ -114,15 +218,32 @@ function StatCard({
   );
 }
 
-function PlaceholderPanel({ title }: { title: string }) {
+function Panel({
+  title,
+  viewAllHref,
+  children,
+}: {
+  title: string;
+  viewAllHref: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-      <h2 className="text-sm font-semibold text-foreground mb-4">{title}</h2>
-      <div className="flex flex-col items-center justify-center py-10 text-center">
-        <p className="text-sm text-muted-foreground">
-          Data will appear here once parties and invoices are added.
-        </p>
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+        <Link href={viewAllHref} className="text-xs text-primary hover:underline">
+          View all
+        </Link>
       </div>
+      {children}
+    </div>
+  );
+}
+
+function PanelEmpty({ message }: { message: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-10 text-center">
+      <p className="text-sm text-muted-foreground">{message}</p>
     </div>
   );
 }
