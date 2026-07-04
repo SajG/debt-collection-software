@@ -16,6 +16,7 @@ import {
 } from "../../_components/ui";
 import { formatDateTime } from "@/lib/format";
 import { ComplianceControls } from "./compliance-controls";
+import { SendReminder } from "./send-reminder";
 
 export default async function PartyDetailPage({
   params,
@@ -41,6 +42,11 @@ export default async function PartyDetailPage({
         orderBy: { performedAt: "desc" },
         take: 10,
         include: { performedBy: { select: { ownerName: true } } },
+      },
+      messages: {
+        orderBy: { createdAt: "desc" },
+        take: 10,
+        include: { invoice: { select: { invoiceNumber: true } } },
       },
     },
   });
@@ -124,6 +130,47 @@ export default async function PartyDetailPage({
           isAdmin={profile.role === "ADMIN"}
         />
       </div>
+
+      {/* Send reminder — goes through the same gate as automated sends */}
+      <div className="mb-6 rounded-xl border border-border bg-card p-6 shadow-sm">
+        <h2 className="mb-3 text-sm font-semibold text-foreground">
+          Send payment reminder
+        </h2>
+        <SendReminder
+          partyId={party.id}
+          openInvoices={openInvoices.map((inv) => ({
+            id: inv.id,
+            label: `${inv.invoiceNumber} — ${formatINR(
+              inv.totalAmount.minus(inv.paidAmount)
+            )} pending`,
+          }))}
+        />
+      </div>
+
+      {/* Outreach history */}
+      {party.messages.length > 0 && (
+        <div className="mb-6 rounded-xl border border-border bg-card p-6 shadow-sm">
+          <h2 className="mb-3 text-sm font-semibold text-foreground">
+            Message history
+          </h2>
+          <ul className="divide-y divide-border/60">
+            {party.messages.map((m) => (
+              <li key={m.id} className="flex items-start justify-between gap-4 py-2.5">
+                <div className="min-w-0">
+                  <p className="truncate text-sm text-foreground">{m.body}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {formatDateTime(m.createdAt)} · {m.channel}
+                    {m.invoice ? ` · ${m.invoice.invoiceNumber}` : ""}
+                    {m.gateResult ? ` · ${m.gateResult}` : ""}
+                    {m.error ? ` · ${m.error}` : ""}
+                  </p>
+                </div>
+                <Badge tone={statusTone(m.status)}>{m.status}</Badge>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="space-y-6">
         <section>

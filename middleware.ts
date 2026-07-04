@@ -3,7 +3,15 @@ import { type NextRequest, NextResponse } from "next/server";
 
 // Routes that do NOT require a session
 const PUBLIC_PATHS = new Set(["/", "/login", "/signup"]);
-const PUBLIC_PREFIXES = ["/auth/", "/_next/", "/favicon"];
+// /api/cron and /api/webhooks authenticate themselves (CRON_SECRET bearer,
+// Meta verify token) — no browser session exists on those requests.
+const PUBLIC_PREFIXES = [
+  "/auth/",
+  "/_next/",
+  "/favicon",
+  "/api/cron/",
+  "/api/webhooks/",
+];
 
 function isPublic(pathname: string): boolean {
   if (PUBLIC_PATHS.has(pathname)) return true;

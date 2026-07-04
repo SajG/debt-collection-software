@@ -49,7 +49,7 @@ export function ActionForm({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    const input = values as ActionInput;
+    const input = values as unknown as ActionInput;
     startTransition(async () => {
       const result = actionId
         ? await updateFollowUpAction(actionId, input)

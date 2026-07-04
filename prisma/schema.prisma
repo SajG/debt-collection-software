@@ -207,6 +207,9 @@ model BusinessSettings {
   whatsappPhoneNumberId     String?
   whatsappBusinessAccountId String?
   whatsappApiToken          String?
+  // Pre-approved UTILITY-category template used for reminders.
+  // Marketing-category templates must never be used for payment follow-ups.
+  whatsappTemplateName      String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
