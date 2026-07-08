@@ -122,7 +122,7 @@ export function Th({
 }) {
   return (
     <th
-      className={`px-4 py-3 text-xs font-medium uppercase tracking-wide text-muted-foreground ${align === "right" ? "text-right" : "text-left"} border-b border-border bg-muted/40`}
+      className={`px-3 py-2.5 sm:px-4 sm:py-3 text-xs font-medium uppercase tracking-wide text-muted-foreground ${align === "right" ? "text-right" : "text-left"} border-b border-border bg-muted/40`}
     >
       {children}
     </th>
@@ -138,7 +138,7 @@ export function Td({
 }) {
   return (
     <td
-      className={`px-4 py-3 ${align === "right" ? "text-right" : "text-left"} border-b border-border/60 align-top`}
+      className={`px-3 py-2.5 sm:px-4 sm:py-3 ${align === "right" ? "text-right" : "text-left"} border-b border-border/60 align-top`}
     >
       {children}
     </td>
@@ -259,7 +259,7 @@ export function PageSkeleton({
   statCards?: number;
 }) {
   return (
-    <div className="p-8 animate-pulse" aria-busy="true" aria-label="Loading">
+    <div className="p-4 sm:p-8 animate-pulse" aria-busy="true" aria-label="Loading">
       <div className="mb-6">
         <div className="h-7 w-48 rounded bg-muted" />
         <div className="mt-2 h-4 w-72 rounded bg-muted/70" />

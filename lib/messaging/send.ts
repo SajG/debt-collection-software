@@ -8,6 +8,7 @@ import { subDays, subHours } from "date-fns";
 import type { MessageChannel, Party, BusinessSettings } from "@prisma/client";
 import { db } from "@/lib/db";
 import { decryptSecret } from "@/lib/crypto";
+import { captureError } from "@/lib/monitoring";
 import { formatINR, formatDate } from "@/lib/format";
 import { getOrCreatePaymentLink, razorpayConfigured } from "@/lib/payments/razorpay";
 import { evaluateGate } from "./gate";
@@ -122,7 +123,9 @@ export async function sendReminder(
   });
 
   const pending = invoice
-    ? Number(invoice.totalAmount.minus(invoice.paidAmount))
+    ? Number(
+        invoice.totalAmount.minus(invoice.paidAmount).minus(invoice.creditedAmount)
+      )
     : Number(party.totalOutstanding);
   const pendingText = formatINR(pending);
   const invoiceText = invoice ? `invoice ${invoice.invoiceNumber}` : "your account";
@@ -256,6 +259,17 @@ export async function sendReminder(
       sentAt: outcome.ok ? new Date() : null,
     },
   });
+
+  if (!outcome.ok) {
+    await captureError(new Error(outcome.error), {
+      scope: "messaging.send",
+      channel: params.channel,
+      partyId: party.id,
+      invoiceId: invoice?.id ?? null,
+      messageId: message.id,
+      automated: params.sentById === null,
+    });
+  }
 
   return outcome.ok
     ? { status: "sent", messageId: message.id }

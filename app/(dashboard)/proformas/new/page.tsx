@@ -17,7 +17,7 @@ export default async function NewProformaPage({
   });
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <PageHeader title="New proforma invoice" />
       <ProformaForm
         parties={parties}

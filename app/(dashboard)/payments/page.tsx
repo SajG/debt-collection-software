@@ -39,7 +39,7 @@ export default async function PaymentsPage({
   const { rows: payments, hasNext, nextCursor } = pageResult(fetched, page);
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <PageHeader
         title="Payments"
         subtitle="Payments received from your parties."

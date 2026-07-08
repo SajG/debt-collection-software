@@ -177,6 +177,20 @@ export type ProformaInput = {
   lineItems: ProformaLineItemInput[];
 };
 
+// ── Credit note ──────────────────────────────────────────────────
+
+export const creditNoteSchema = z.object({
+  invoiceId: z.string().min(1),
+  amount: money,
+  reason: z.string().trim().min(3, "Give a reason for the credit").max(500),
+});
+
+export type CreditNoteInput = {
+  invoiceId: string;
+  amount: string;
+  reason: string;
+};
+
 // ── Action / follow-up ───────────────────────────────────────────
 
 export const actionSchema = z.object({

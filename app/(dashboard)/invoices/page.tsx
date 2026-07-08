@@ -48,6 +48,7 @@ export default async function InvoicesPage({
       dueDate: true,
       totalAmount: true,
       paidAmount: true,
+      creditedAmount: true,
       status: true,
       party: { select: { id: true, name: true } },
     },
@@ -59,7 +60,7 @@ export default async function InvoicesPage({
   const now = new Date();
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <PageHeader
         title="Invoices"
         subtitle="Outstanding and settled invoices across all parties."
@@ -128,7 +129,11 @@ export default async function InvoicesPage({
                   <Td align="right">{formatINR(inv.totalAmount)}</Td>
                   <Td align="right">
                     <span className="font-semibold">
-                      {formatINR(inv.totalAmount.minus(inv.paidAmount))}
+                      {formatINR(
+                        inv.totalAmount
+                          .minus(inv.paidAmount)
+                          .minus(inv.creditedAmount)
+                      )}
                     </span>
                   </Td>
                   <Td>

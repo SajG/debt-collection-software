@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireProfileApi } from "@/lib/authz";
 import { db } from "@/lib/db";
+import { toCsv, csvResponse } from "@/lib/export";
 
 export const dynamic = "force-dynamic";
 
@@ -62,19 +63,5 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const headers = Object.keys(
-    rows[0] ?? { id: "", createdAt: "" }
-  ) as (keyof (typeof rows)[number])[];
-  const escape = (v: string) => `"${String(v).replace(/"/g, '""')}"`;
-  const csv = [
-    headers.join(","),
-    ...rows.map((r) => headers.map((h) => escape(String(r[h]))).join(",")),
-  ].join("\r\n");
-
-  return new NextResponse(csv, {
-    headers: {
-      "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="messages-${stamp}.csv"`,
-    },
-  });
+  return csvResponse(toCsv(rows), `messages-${stamp}.csv`);
 }

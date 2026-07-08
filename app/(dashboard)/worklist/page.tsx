@@ -40,7 +40,12 @@ export default async function WorklistPage({
         party: scope,
         status: { in: ["UNPAID", "PARTIAL", "OVERDUE"] },
       },
-      select: { dueDate: true, totalAmount: true, paidAmount: true },
+      select: {
+        dueDate: true,
+        totalAmount: true,
+        paidAmount: true,
+        creditedAmount: true,
+      },
     }),
     db.party.findMany({
       where: { ...scope, isActive: true, totalOutstanding: { gt: 0 } },
@@ -55,7 +60,9 @@ export default async function WorklistPage({
   const aging = agingSummary(
     openInvoices.map((inv) => ({
       dueDate: inv.dueDate,
-      pending: Number(inv.totalAmount.minus(inv.paidAmount)),
+      pending: Number(
+        inv.totalAmount.minus(inv.paidAmount).minus(inv.creditedAmount)
+      ),
     }))
   );
 
@@ -72,7 +79,7 @@ export default async function WorklistPage({
   );
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <PageHeader
         title="Worklist"
         subtitle="Who to follow up with today, ordered by risk and amount at stake."

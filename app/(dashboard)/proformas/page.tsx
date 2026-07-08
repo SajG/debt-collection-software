@@ -39,7 +39,7 @@ export default async function ProformasPage({
   const { rows: proformas, hasNext, nextCursor } = pageResult(fetched, page);
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <PageHeader
         title="Proforma invoices"
         subtitle="Draft, send, confirm, and convert proformas into invoices."

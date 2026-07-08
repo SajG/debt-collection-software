@@ -42,7 +42,7 @@ export default async function EditPartyPage({
   };
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <PageHeader title={`Edit ${party.name}`} />
       <PartyForm partyId={party.id} initial={initial} assignees={assignees} />
     </div>

@@ -18,7 +18,7 @@ export default async function EditActionPage({
   if (!action || !canAccessParty(profile, action.party)) notFound();
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <PageHeader title="Edit follow-up" subtitle={action.party.name} />
       <ActionForm
         actionId={action.id}

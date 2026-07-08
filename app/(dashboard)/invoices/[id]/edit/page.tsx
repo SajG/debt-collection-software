@@ -18,7 +18,7 @@ export default async function EditInvoicePage({
   if (!invoice || !canAccessParty(profile, invoice.party)) notFound();
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <PageHeader
         title={`Edit invoice ${invoice.invoiceNumber}`}
         subtitle={invoice.party.name}

@@ -17,7 +17,7 @@ export default async function NewPartyPage() {
       : undefined;
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <PageHeader title="Add party" subtitle="A customer you sell to on credit." />
       <PartyForm assignees={assignees} />
     </div>

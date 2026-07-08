@@ -33,7 +33,10 @@ export default async function NewPaymentPage({
       openInvoices = invoices.map((inv) => ({
         id: inv.id,
         invoiceNumber: inv.invoiceNumber,
-        pending: inv.totalAmount.minus(inv.paidAmount).toString(),
+        pending: inv.totalAmount
+          .minus(inv.paidAmount)
+          .minus(inv.creditedAmount)
+          .toString(),
       }));
     }
   }
@@ -44,7 +47,7 @@ export default async function NewPaymentPage({
       : undefined;
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <PageHeader title="Record payment" />
       <PaymentForm
         parties={parties.map(({ id, name }) => ({ id, name }))}

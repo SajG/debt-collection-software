@@ -19,7 +19,7 @@ export default async function EditPaymentPage({
   if (!payment || !canAccessParty(profile, payment.party)) notFound();
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <PageHeader
         title={`Edit payment — ${formatINR(payment.amount)}`}
         subtitle={`${payment.party.name} · ${formatDate(payment.paymentDate)}. Amount, date, and allocation are fixed once recorded; only method, reference, and notes can change.`}

@@ -32,7 +32,7 @@ export default async function ProformaDetailPage({
   if (!proforma || !canAccessParty(profile, proforma.party)) notFound();
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <PageHeader
         title={proforma.proformaNumber}
         subtitle={`${proforma.party.name} · created by ${proforma.createdBy.ownerName}`}

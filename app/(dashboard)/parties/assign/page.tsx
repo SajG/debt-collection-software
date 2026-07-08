@@ -33,7 +33,7 @@ export default async function BulkAssignPage() {
   }));
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <PageHeader
         title="Assign parties"
         subtitle="Reassign multiple parties to a team member at once. Staff see their assigned parties plus unassigned ones."

@@ -90,9 +90,10 @@ export async function updateInvoiceAction(
   const data = parsed.data;
 
   const total = new Prisma.Decimal(data.totalAmount);
-  if (total.lessThan(existing.paidAmount)) {
+  const settled = existing.paidAmount.plus(existing.creditedAmount);
+  if (total.lessThan(settled)) {
     return {
-      error: `Total cannot be below the amount already paid (${existing.paidAmount}).`,
+      error: `Total cannot be below the amount already paid or credited (${settled}).`,
     };
   }
 
@@ -106,7 +107,7 @@ export async function updateInvoiceAction(
           dueDate: data.dueDate,
           totalAmount: total,
           notes: data.notes,
-          status: deriveInvoiceStatus(total, existing.paidAmount, data.dueDate),
+          status: deriveInvoiceStatus(total, settled, data.dueDate),
         },
       });
       await recomputePartyOutstanding(tx, existing.partyId);
@@ -185,6 +186,12 @@ export async function cancelInvoiceAction(id: string): Promise<ActionResult> {
   }
   if (existing.paidAmount.greaterThan(0)) {
     return { error: "Invoices with payments against them cannot be cancelled." };
+  }
+  if (existing.creditedAmount.greaterThan(0)) {
+    return {
+      error:
+        "Invoices with credit notes cannot be cancelled. Cancel the credit notes first.",
+    };
   }
 
   await db.$transaction(async (tx) => {

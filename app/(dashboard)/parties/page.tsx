@@ -56,7 +56,7 @@ export default async function PartiesPage({
   const { rows: parties, hasNext, nextCursor } = pageResult(fetched, page);
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <PageHeader
         title="Parties"
         subtitle="Your customers and their outstanding balances."

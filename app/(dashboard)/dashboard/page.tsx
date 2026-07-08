@@ -45,7 +45,7 @@ export default async function DashboardPage() {
         status: { in: ["UNPAID", "PARTIAL"] },
         dueDate: { gte: today, lt: weekAhead },
       },
-      _sum: { totalAmount: true, paidAmount: true },
+      _sum: { totalAmount: true, paidAmount: true, creditedAmount: true },
     }),
     db.party.count({ where: { ...scope, isActive: true } }),
     db.invoice.findMany({
@@ -56,6 +56,7 @@ export default async function DashboardPage() {
         dueDate: true,
         totalAmount: true,
         paidAmount: true,
+        creditedAmount: true,
         party: { select: { id: true, name: true } },
       },
       orderBy: { dueDate: "asc" },
@@ -81,12 +82,13 @@ export default async function DashboardPage() {
   const totalOutstanding = outstandingAgg._sum.totalOutstanding ?? 0;
   const dueWeekAmount =
     Number(dueThisWeek._sum.totalAmount ?? 0) -
-    Number(dueThisWeek._sum.paidAmount ?? 0);
+    Number(dueThisWeek._sum.paidAmount ?? 0) -
+    Number(dueThisWeek._sum.creditedAmount ?? 0);
 
   const firstName = profile.ownerName.split(" ")[0];
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">
@@ -149,7 +151,9 @@ export default async function DashboardPage() {
                     </p>
                   </div>
                   <span className="text-sm font-semibold">
-                    {formatINR(inv.totalAmount.minus(inv.paidAmount))}
+                    {formatINR(
+                      inv.totalAmount.minus(inv.paidAmount).minus(inv.creditedAmount)
+                    )}
                   </span>
                 </li>
               ))}

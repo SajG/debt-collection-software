@@ -33,7 +33,7 @@ export default async function ImportPage() {
   });
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <PageHeader
         title="Import data"
         subtitle="Bring in parties and invoices from Tally, Zoho Books, or Excel via CSV export."

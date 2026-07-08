@@ -14,7 +14,12 @@ import {
   EmptyRow,
   statusTone,
 } from "../../_components/ui";
+import { invoicePending } from "@/lib/ar/balance";
 import { InvoicePdfActions } from "./invoice-pdf-actions";
+import {
+  IssueCreditNoteForm,
+  CancelCreditNoteButton,
+} from "./credit-note-controls";
 
 export default async function InvoiceDetailPage({
   params,
@@ -31,14 +36,18 @@ export default async function InvoiceDetailPage({
         orderBy: { paymentDate: "desc" },
         include: { recordedBy: { select: { ownerName: true } } },
       },
+      creditNotes: {
+        orderBy: { issuedAt: "desc" },
+        include: { issuedBy: { select: { ownerName: true } } },
+      },
     },
   });
   if (!invoice || !canAccessParty(profile, invoice.party)) notFound();
 
-  const pending = invoice.totalAmount.minus(invoice.paidAmount);
+  const pending = invoicePending(invoice);
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <PageHeader
         title={`Invoice ${invoice.invoiceNumber}`}
         subtitle={invoice.party.name}
@@ -47,6 +56,14 @@ export default async function InvoiceDetailPage({
             <LinkButton href={`/invoices/${invoice.id}/edit`} variant="secondary">
               Edit
             </LinkButton>
+            {invoice.status !== "CANCELLED" && (
+              <LinkButton
+                href={`/invoices/new?from=${invoice.id}`}
+                variant="secondary"
+              >
+                Duplicate for next month
+              </LinkButton>
+            )}
             {pending.greaterThan(0) && invoice.status !== "CANCELLED" && (
               <LinkButton
                 href={`/payments/new?partyId=${invoice.partyId}&invoiceId=${invoice.id}`}
@@ -73,6 +90,11 @@ export default async function InvoiceDetailPage({
         </Card>
         <Card title="Paid">
           <p className="text-2xl font-semibold">{formatINR(invoice.paidAmount)}</p>
+          {invoice.creditedAmount.greaterThan(0) && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              + {formatINR(invoice.creditedAmount)} credited
+            </p>
+          )}
         </Card>
         <Card title="Pending">
           <p className="text-2xl font-semibold">{formatINR(pending)}</p>
@@ -103,6 +125,61 @@ export default async function InvoiceDetailPage({
           </Card>
         </div>
       )}
+
+      <section className="mb-8">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold text-foreground">Credit notes</h2>
+          {pending.greaterThan(0) && invoice.status !== "CANCELLED" && (
+            <IssueCreditNoteForm
+              invoiceId={invoice.id}
+              pending={pending.toFixed(2)}
+            />
+          )}
+        </div>
+        <Table>
+          <thead>
+            <tr>
+              <Th>Number</Th>
+              <Th>Date</Th>
+              <Th align="right">Amount</Th>
+              <Th>Reason</Th>
+              <Th>Issued by</Th>
+              <Th>Status</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {invoice.creditNotes.length === 0 ? (
+              <EmptyRow colSpan={6} message="No credit notes on this invoice." />
+            ) : (
+              invoice.creditNotes.map((cn) => (
+                <tr key={cn.id}>
+                  <Td>
+                    <span className="font-medium">{cn.creditNoteNumber}</span>
+                  </Td>
+                  <Td>{formatDate(cn.issuedAt)}</Td>
+                  <Td align="right">
+                    <span className="font-semibold">{formatINR(cn.amount)}</span>
+                  </Td>
+                  <Td>
+                    <span className="text-muted-foreground">{cn.reason}</span>
+                  </Td>
+                  <Td>{cn.issuedBy.ownerName}</Td>
+                  <Td>
+                    <div className="flex items-center gap-2">
+                      <Badge tone={cn.status === "ISSUED" ? "success" : "neutral"}>
+                        {cn.status}
+                      </Badge>
+                      {cn.status === "ISSUED" && profile.role === "ADMIN" && (
+                        <CancelCreditNoteButton creditNoteId={cn.id} />
+                      )}
+                    </div>
+                  </Td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </Table>
+      </section>
 
       <section>
         <h2 className="mb-3 text-sm font-semibold text-foreground">
