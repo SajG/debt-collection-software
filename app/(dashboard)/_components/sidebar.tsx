@@ -54,14 +54,16 @@ export function Sidebar({
     .toUpperCase();
 
   return (
+    // Icon-only rail below md so phone users keep their screen width.
     <aside
-      className="flex h-screen w-56 shrink-0 flex-col"
+      className="flex h-screen w-14 shrink-0 flex-col md:w-56"
       style={{ backgroundColor: DARK }}
     >
       {/* Brand */}
-      <div className="flex h-14 items-center px-5 border-b border-white/10">
+      <div className="flex h-14 items-center justify-center border-b border-white/10 md:justify-start md:px-5">
         <span className="text-lg font-bold tracking-tight text-white font-display">
-          PayTrack
+          <span className="md:hidden">P</span>
+          <span className="hidden md:inline">PayTrack</span>
         </span>
       </div>
 
@@ -76,14 +78,15 @@ export function Sidebar({
               key={href}
               href={href}
               className={[
-                "flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors mb-0.5",
+                "flex items-center justify-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors mb-0.5 md:justify-start",
                 active
                   ? "bg-white/15 text-white"
                   : "text-white/55 hover:bg-white/10 hover:text-white/85",
               ].join(" ")}
+              title={label}
             >
               <Icon size={16} strokeWidth={1.75} />
-              {label}
+              <span className="hidden md:inline">{label}</span>
             </Link>
           );
         })}
@@ -91,14 +94,15 @@ export function Sidebar({
 
       {/* User footer */}
       <div className="border-t border-white/10 p-2.5">
-        <div className="flex items-center gap-3 rounded-md px-3 py-2.5">
+        <div className="flex flex-col items-center gap-2 rounded-md px-1 py-2.5 md:flex-row md:gap-3 md:px-3">
           <div
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white"
             style={{ backgroundColor: "rgba(255,255,255,0.15)" }}
+            title={`${ownerName} — ${businessName}`}
           >
             {initials}
           </div>
-          <div className="min-w-0 flex-1">
+          <div className="hidden min-w-0 flex-1 md:block">
             <p className="truncate text-xs font-medium text-white/90">
               {ownerName}
             </p>

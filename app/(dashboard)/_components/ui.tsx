@@ -122,7 +122,7 @@ export function Th({
 }) {
   return (
     <th
-      className={`px-4 py-3 text-xs font-medium uppercase tracking-wide text-muted-foreground ${align === "right" ? "text-right" : "text-left"} border-b border-border bg-muted/40`}
+      className={`px-3 py-2.5 sm:px-4 sm:py-3 text-xs font-medium uppercase tracking-wide text-muted-foreground ${align === "right" ? "text-right" : "text-left"} border-b border-border bg-muted/40`}
     >
       {children}
     </th>
@@ -138,7 +138,7 @@ export function Td({
 }) {
   return (
     <td
-      className={`px-4 py-3 ${align === "right" ? "text-right" : "text-left"} border-b border-border/60 align-top`}
+      className={`px-3 py-2.5 sm:px-4 sm:py-3 ${align === "right" ? "text-right" : "text-left"} border-b border-border/60 align-top`}
     >
       {children}
     </td>
@@ -172,6 +172,123 @@ export function Field({
       </span>
       {children}
     </label>
+  );
+}
+
+/**
+ * Cursor-pagination footer for list pages. `params` carries filters (q,
+ * filter, …) to preserve across page moves; page-size changes restart
+ * from the first page.
+ */
+export function Pagination({
+  pathname,
+  params,
+  pageSize,
+  pageSizes,
+  hasNext,
+  nextCursor,
+  onFirstPage,
+}: {
+  pathname: string;
+  params: Record<string, string | undefined>;
+  pageSize: number;
+  pageSizes: readonly number[];
+  hasNext: boolean;
+  nextCursor: string | null;
+  onFirstPage: boolean;
+}) {
+  const href = (overrides: Record<string, string | undefined>) => {
+    const merged = { ...params, ...overrides };
+    const qs = Object.entries(merged)
+      .filter(([, v]) => v)
+      .map(([k, v]) => `${k}=${encodeURIComponent(v!)}`)
+      .join("&");
+    return qs ? `${pathname}?${qs}` : pathname;
+  };
+
+  if (onFirstPage && !hasNext) return null;
+
+  return (
+    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
+      <div className="flex items-center gap-2 text-muted-foreground">
+        <span className="text-xs">Rows per page:</span>
+        {pageSizes.map((s) => (
+          <Link
+            key={s}
+            href={href({ size: String(s), cursor: undefined })}
+            className={
+              s === pageSize
+                ? "font-semibold text-foreground"
+                : "hover:text-foreground"
+            }
+          >
+            {s}
+          </Link>
+        ))}
+      </div>
+      <div className="flex items-center gap-3">
+        {!onFirstPage && (
+          <Link
+            href={href({ cursor: undefined })}
+            className="text-primary hover:underline"
+          >
+            ← First page
+          </Link>
+        )}
+        {hasNext && nextCursor && (
+          <Link
+            href={href({ cursor: nextCursor })}
+            className="text-primary hover:underline"
+          >
+            Next →
+          </Link>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Suspense-fallback skeleton matching PageHeader + Table. */
+export function PageSkeleton({
+  rows = 8,
+  cols = 5,
+  statCards = 0,
+}: {
+  rows?: number;
+  cols?: number;
+  statCards?: number;
+}) {
+  return (
+    <div className="p-4 sm:p-8 animate-pulse" aria-busy="true" aria-label="Loading">
+      <div className="mb-6">
+        <div className="h-7 w-48 rounded bg-muted" />
+        <div className="mt-2 h-4 w-72 rounded bg-muted/70" />
+      </div>
+      {statCards > 0 && (
+        <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {Array.from({ length: statCards }).map((_, i) => (
+            <div key={i} className="h-24 rounded-xl border border-border bg-card" />
+          ))}
+        </div>
+      )}
+      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <div className="h-10 border-b border-border bg-muted/40" />
+        {Array.from({ length: rows }).map((_, r) => (
+          <div
+            key={r}
+            className="flex gap-4 border-b border-border/60 px-4 py-3.5"
+          >
+            {Array.from({ length: cols }).map((_, c) => (
+              <div
+                key={c}
+                className="h-4 flex-1 rounded bg-muted/70"
+                style={{ maxWidth: c === 0 ? 180 : 120 }}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

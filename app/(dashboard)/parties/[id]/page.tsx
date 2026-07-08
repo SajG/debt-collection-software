@@ -62,7 +62,7 @@ export default async function PartyDetailPage({
   );
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <PageHeader
         title={party.name}
         subtitle={[party.code, party.city, party.gstNumber]
@@ -152,7 +152,7 @@ export default async function PartyDetailPage({
           openInvoices={openInvoices.map((inv) => ({
             id: inv.id,
             label: `${inv.invoiceNumber} — ${formatINR(
-              inv.totalAmount.minus(inv.paidAmount)
+              inv.totalAmount.minus(inv.paidAmount).minus(inv.creditedAmount)
             )} pending`,
           }))}
         />
@@ -218,7 +218,11 @@ export default async function PartyDetailPage({
                     <Td align="right">{formatINR(inv.paidAmount)}</Td>
                     <Td align="right">
                       <span className="font-semibold">
-                        {formatINR(inv.totalAmount.minus(inv.paidAmount))}
+                        {formatINR(
+                          inv.totalAmount
+                            .minus(inv.paidAmount)
+                            .minus(inv.creditedAmount)
+                        )}
                       </span>
                     </Td>
                     <Td>

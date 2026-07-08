@@ -131,6 +131,66 @@ export type PaymentInput = {
   invoiceId?: string;
 };
 
+// ── Proforma invoice ─────────────────────────────────────────────
+
+const proformaLineItemSchema = z.object({
+  description: z.string().trim().min(1, "Line items need a description").max(300),
+  quantity: z.coerce
+    .number()
+    .positive("Quantity must be greater than zero")
+    .max(1_000_000),
+  unit: optionalTrimmed(20),
+  unitPrice: z.coerce.number().min(0).max(10_000_000_000),
+  taxRate: z.coerce
+    .number()
+    .min(0)
+    .max(100, "Tax rate is a percentage (0–100)"),
+});
+
+export const proformaSchema = z.object({
+  partyId: z.string().min(1, "Pick a party"),
+  issueDate: z.coerce.date(),
+  validUntil: optionalDate,
+  notes: optionalTrimmed(1000),
+  termsConditions: optionalTrimmed(2000),
+  lineItems: z
+    .array(proformaLineItemSchema)
+    .min(1, "Add at least one line item")
+    .max(50),
+});
+
+// Form-facing input shape: forms submit strings; z.coerce handles conversion.
+export type ProformaLineItemInput = {
+  description: string;
+  quantity: string;
+  unit?: string;
+  unitPrice: string;
+  taxRate: string;
+};
+
+export type ProformaInput = {
+  partyId: string;
+  issueDate: string;
+  validUntil?: string;
+  notes?: string;
+  termsConditions?: string;
+  lineItems: ProformaLineItemInput[];
+};
+
+// ── Credit note ──────────────────────────────────────────────────
+
+export const creditNoteSchema = z.object({
+  invoiceId: z.string().min(1),
+  amount: money,
+  reason: z.string().trim().min(3, "Give a reason for the credit").max(500),
+});
+
+export type CreditNoteInput = {
+  invoiceId: string;
+  amount: string;
+  reason: string;
+};
+
 // ── Action / follow-up ───────────────────────────────────────────
 
 export const actionSchema = z.object({

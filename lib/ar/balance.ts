@@ -14,22 +14,33 @@ export function startOfToday(now = new Date()): Date {
 /**
  * Single source of truth for invoice status. OVERDUE wins over PARTIAL when
  * both apply — the remaining paid/pending split stays visible via paidAmount.
+ * `settledAmount` = paidAmount + creditedAmount: credit notes settle an
+ * invoice the same way payments do, without touching payment rows.
  */
 export function deriveInvoiceStatus(
   totalAmount: Dec,
-  paidAmount: Dec,
+  settledAmount: Dec,
   dueDate: Date,
   now = new Date()
 ): InvoiceStatus {
-  if (paidAmount.greaterThanOrEqualTo(totalAmount)) return "PAID";
+  if (settledAmount.greaterThanOrEqualTo(totalAmount)) return "PAID";
   if (dueDate < startOfToday(now)) return "OVERDUE";
-  return paidAmount.greaterThan(0) ? "PARTIAL" : "UNPAID";
+  return settledAmount.greaterThan(0) ? "PARTIAL" : "UNPAID";
+}
+
+/** Pending balance on an invoice: total − paid − credited. */
+export function invoicePending(inv: {
+  totalAmount: Dec;
+  paidAmount: Dec;
+  creditedAmount: Dec;
+}): Dec {
+  return inv.totalAmount.minus(inv.paidAmount).minus(inv.creditedAmount);
 }
 
 /**
  * Recompute the cached Party.totalOutstanding:
- *   Σ(total − paid) over non-cancelled invoices − Σ(unallocated payments).
- * Call inside the same transaction as any invoice/payment mutation.
+ *   Σ(total − paid − credited) over non-cancelled invoices − Σ(unallocated payments).
+ * Call inside the same transaction as any invoice/payment/credit-note mutation.
  */
 export async function recomputePartyOutstanding(
   tx: Tx,
@@ -38,7 +49,7 @@ export async function recomputePartyOutstanding(
   const [inv, onAccount] = await Promise.all([
     tx.invoice.aggregate({
       where: { partyId, status: { not: "CANCELLED" } },
-      _sum: { totalAmount: true, paidAmount: true },
+      _sum: { totalAmount: true, paidAmount: true, creditedAmount: true },
     }),
     tx.payment.aggregate({
       where: { partyId, invoiceId: null },
@@ -48,6 +59,7 @@ export async function recomputePartyOutstanding(
 
   const outstanding = (inv._sum.totalAmount ?? new D(0))
     .minus(inv._sum.paidAmount ?? new D(0))
+    .minus(inv._sum.creditedAmount ?? new D(0))
     .minus(onAccount._sum.amount ?? new D(0));
 
   await tx.party.update({

@@ -11,6 +11,14 @@ export type SendRequest = {
   templateName?: string;
   /** Positional template parameters (WhatsApp only). */
   templateParams?: string[];
+  /** Document attachment (email only). */
+  attachment?: { filename: string; contentBase64: string };
+  /**
+   * WhatsApp only. "text" (free-form body) is allowed solely inside
+   * Meta's 24-hour customer-service window after an inbound message —
+   * sendReminder() decides this; providers never do.
+   */
+  whatsappMessageType?: "template" | "text";
 };
 
 export type SendOutcome =

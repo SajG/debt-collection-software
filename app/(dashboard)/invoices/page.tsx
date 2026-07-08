@@ -4,6 +4,7 @@ import { requireProfile, partyScopeWhere } from "@/lib/authz";
 import { formatINR, formatDate } from "@/lib/format";
 import { differenceInCalendarDays } from "date-fns";
 import type { InvoiceStatus } from "@prisma/client";
+import { PAGE_SIZES, parsePageParams, pageArgs, pageResult } from "@/lib/pagination";
 import {
   PageHeader,
   LinkButton,
@@ -12,6 +13,7 @@ import {
   Td,
   Badge,
   EmptyRow,
+  Pagination,
   statusTone,
 } from "../_components/ui";
 
@@ -29,25 +31,36 @@ const FILTERS: { key: string; label: string; statuses: InvoiceStatus[] }[] = [
 export default async function InvoicesPage({
   searchParams,
 }: {
-  searchParams: { filter?: string };
+  searchParams: { filter?: string; cursor?: string; size?: string };
 }) {
   const profile = await requireProfile();
   const filter = FILTERS.find((f) => f.key === searchParams.filter) ?? FILTERS[0];
+  const page = parsePageParams(searchParams);
 
-  const invoices = await db.invoice.findMany({
+  const fetched = await db.invoice.findMany({
     where: {
       status: { in: filter.statuses },
       party: partyScopeWhere(profile),
     },
-    include: { party: { select: { id: true, name: true } } },
-    orderBy: [{ dueDate: "asc" }],
-    take: 300,
+    select: {
+      id: true,
+      invoiceNumber: true,
+      dueDate: true,
+      totalAmount: true,
+      paidAmount: true,
+      creditedAmount: true,
+      status: true,
+      party: { select: { id: true, name: true } },
+    },
+    orderBy: [{ dueDate: "asc" }, { id: "asc" }],
+    ...pageArgs(page),
   });
+  const { rows: invoices, hasNext, nextCursor } = pageResult(fetched, page);
 
   const now = new Date();
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <PageHeader
         title="Invoices"
         subtitle="Outstanding and settled invoices across all parties."
@@ -116,7 +129,11 @@ export default async function InvoicesPage({
                   <Td align="right">{formatINR(inv.totalAmount)}</Td>
                   <Td align="right">
                     <span className="font-semibold">
-                      {formatINR(inv.totalAmount.minus(inv.paidAmount))}
+                      {formatINR(
+                        inv.totalAmount
+                          .minus(inv.paidAmount)
+                          .minus(inv.creditedAmount)
+                      )}
                     </span>
                   </Td>
                   <Td>
@@ -128,6 +145,16 @@ export default async function InvoicesPage({
           )}
         </tbody>
       </Table>
+
+      <Pagination
+        pathname="/invoices"
+        params={{ filter: searchParams.filter, size: searchParams.size }}
+        pageSize={page.size}
+        pageSizes={PAGE_SIZES}
+        hasNext={hasNext}
+        nextCursor={nextCursor}
+        onFirstPage={!page.cursor}
+      />
     </div>
   );
 }

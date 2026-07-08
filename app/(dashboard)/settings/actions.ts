@@ -5,6 +5,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/authz";
 import { encryptSecret } from "@/lib/crypto";
+import { uploadCompanyLogo, LOGO_MAX_BYTES } from "@/lib/storage";
 
 const optional = (max = 200) =>
   z
@@ -37,6 +38,34 @@ const settingsSchema = z
     whatsappTemplateName: optional(128),
     /** Blank = keep the currently stored (encrypted) token. */
     whatsappApiToken: z.string().trim().max(512).optional(),
+
+    // Company branding & bank details (rendered on PDFs)
+    bankAccountName: optional(120),
+    /** Blank = keep the currently stored (encrypted) account number. */
+    bankAccountNumber: z
+      .string()
+      .trim()
+      .regex(/^\d{9,18}$/, "Bank account number must be 9–18 digits")
+      .optional()
+      .or(z.literal("")),
+    bankIfscCode: z
+      .string()
+      .trim()
+      .toUpperCase()
+      .regex(/^[A-Z]{4}0[A-Z0-9]{6}$/, "Enter a valid 11-character IFSC code")
+      .optional()
+      .or(z.literal(""))
+      .transform((v) => (v ? v : null)),
+    bankName: optional(120),
+    bankBranch: optional(120),
+    invoicePrefix: z
+      .string()
+      .trim()
+      .toUpperCase()
+      .regex(/^[A-Z0-9-]{0,10}$/, "Prefix may contain letters, digits, and dashes")
+      .optional()
+      .transform((v) => (v ? v : null)),
+    authorizedSignatoryName: optional(120),
   })
   .refine((d) => d.quietHoursEnd > d.quietHoursStart, {
     message: "Quiet-hours end must be after the start",
@@ -71,6 +100,13 @@ export type SettingsInput = {
   whatsappBusinessAccountId?: string;
   whatsappTemplateName?: string;
   whatsappApiToken?: string;
+  bankAccountName?: string;
+  bankAccountNumber?: string;
+  bankIfscCode?: string;
+  bankName?: string;
+  bankBranch?: string;
+  invoicePrefix?: string;
+  authorizedSignatoryName?: string;
 };
 
 export async function updateSettingsAction(
@@ -82,7 +118,13 @@ export async function updateSettingsAction(
   if (!parsed.success) {
     return { error: parsed.error.errors[0].message };
   }
-  const { whatsappApiToken, ...data } = parsed.data;
+  const { whatsappApiToken, bankAccountNumber, ...data } = parsed.data;
+
+  // Both secrets are write-only: blank means "keep existing".
+  const secrets = {
+    ...(whatsappApiToken ? { whatsappApiToken: encryptSecret(whatsappApiToken) } : {}),
+    ...(bankAccountNumber ? { bankAccountNumber: encryptSecret(bankAccountNumber) } : {}),
+  };
 
   await db.businessSettings.upsert({
     where: { profileId: profile.id },
@@ -90,13 +132,46 @@ export async function updateSettingsAction(
       profileId: profile.id,
       onboardingDone: true,
       ...data,
-      ...(whatsappApiToken ? { whatsappApiToken: encryptSecret(whatsappApiToken) } : {}),
+      ...secrets,
     },
     update: {
       ...data,
-      // Token is write-only: blank means "keep existing".
-      ...(whatsappApiToken ? { whatsappApiToken: encryptSecret(whatsappApiToken) } : {}),
+      ...secrets,
     },
+  });
+
+  revalidatePath("/settings");
+  return { saved: true };
+}
+
+export async function uploadLogoAction(
+  formData: FormData
+): Promise<{ error: string } | { saved: true }> {
+  const profile = await requireAdmin();
+
+  const file = formData.get("logo");
+  if (!(file instanceof File) || file.size === 0) {
+    return { error: "Choose a logo file to upload." };
+  }
+  if (file.size > LOGO_MAX_BYTES) {
+    return { error: "Logo must be 2MB or smaller." };
+  }
+
+  const settings = await db.businessSettings.findUnique({
+    where: { profileId: profile.id },
+    select: { companyLogoPath: true },
+  });
+
+  const result = await uploadCompanyLogo(
+    { bytes: Buffer.from(await file.arrayBuffer()), contentType: file.type },
+    settings?.companyLogoPath ?? null
+  );
+  if ("error" in result) return result;
+
+  await db.businessSettings.upsert({
+    where: { profileId: profile.id },
+    create: { profileId: profile.id, companyLogoPath: result.path },
+    update: { companyLogoPath: result.path },
   });
 
   revalidatePath("/settings");

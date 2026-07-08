@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { refreshOverdueStatuses } from "@/lib/ar/balance";
 import { refreshRiskLevels } from "@/lib/ar/refresh";
 import { sendReminder } from "@/lib/messaging/send";
+import { captureError } from "@/lib/monitoring";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -20,6 +21,18 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   }
 
+  try {
+    return await runCronPass();
+  } catch (e) {
+    // The scheduler only sees an HTTP status — without this, a crashed pass
+    // (DB down, provider misconfigured) is invisible until someone notices
+    // reminders stopped going out.
+    await captureError(e, { scope: "cron.reminders" });
+    return NextResponse.json({ error: "Cron pass failed" }, { status: 500 });
+  }
+}
+
+async function runCronPass() {
   const overdueMarked = await db.$transaction((tx) => refreshOverdueStatuses(tx));
   const riskUpdated = await refreshRiskLevels();
 

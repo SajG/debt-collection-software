@@ -139,3 +139,45 @@ export async function resumeOutreachAction(partyId: string): Promise<MaybeError>
   revalidatePath(`/parties/${partyId}`);
   return undefined;
 }
+
+const bulkAssignSchema = z.object({
+  partyIds: z.array(z.string().min(1)).min(1, "Select at least one party").max(500),
+  // null / "" = unassign
+  assignedToId: z
+    .string()
+    .uuid()
+    .nullable()
+    .or(z.literal(""))
+    .transform((v) => (v ? v : null)),
+});
+
+/** Bulk reassignment is a management task — ADMIN only. */
+export async function bulkAssignPartiesAction(input: {
+  partyIds: string[];
+  assignedToId: string | null;
+}): Promise<{ error: string } | { updated: number }> {
+  const profile = await requireProfile();
+  if (profile.role !== "ADMIN") return { error: "Admin access required." };
+
+  const parsed = bulkAssignSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.errors[0].message };
+  }
+
+  if (parsed.data.assignedToId) {
+    const target = await db.profile.findUnique({
+      where: { id: parsed.data.assignedToId },
+      select: { id: true },
+    });
+    if (!target) return { error: "Selected team member not found." };
+  }
+
+  const result = await db.party.updateMany({
+    where: { id: { in: parsed.data.partyIds } },
+    data: { assignedToId: parsed.data.assignedToId },
+  });
+
+  revalidatePath("/parties");
+  revalidatePath("/parties/assign");
+  return { updated: result.count };
+}

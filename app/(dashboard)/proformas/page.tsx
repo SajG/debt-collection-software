@@ -2,31 +2,48 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import { requireProfile, partyScopeWhere } from "@/lib/authz";
 import { formatINR, formatDate } from "@/lib/format";
+import { PAGE_SIZES, parsePageParams, pageArgs, pageResult } from "@/lib/pagination";
 import {
   PageHeader,
+  LinkButton,
   Table,
   Th,
   Td,
   Badge,
   EmptyRow,
+  Pagination,
   statusTone,
 } from "../_components/ui";
 
-export default async function ProformasPage() {
+export default async function ProformasPage({
+  searchParams,
+}: {
+  searchParams: { cursor?: string; size?: string };
+}) {
   const profile = await requireProfile();
+  const page = parsePageParams(searchParams);
 
-  const proformas = await db.proformaInvoice.findMany({
+  const fetched = await db.proformaInvoice.findMany({
     where: { party: partyScopeWhere(profile) },
-    include: { party: { select: { id: true, name: true } } },
-    orderBy: { issueDate: "desc" },
-    take: 100,
+    select: {
+      id: true,
+      proformaNumber: true,
+      issueDate: true,
+      totalAmount: true,
+      status: true,
+      party: { select: { id: true, name: true } },
+    },
+    orderBy: [{ issueDate: "desc" }, { id: "asc" }],
+    ...pageArgs(page),
   });
+  const { rows: proformas, hasNext, nextCursor } = pageResult(fetched, page);
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <PageHeader
         title="Proforma invoices"
-        subtitle="Creating and converting proformas is coming in a later release."
+        subtitle="Draft, send, confirm, and convert proformas into invoices."
+        action={<LinkButton href="/proformas/new">New proforma</LinkButton>}
       />
 
       <Table>
@@ -46,7 +63,12 @@ export default async function ProformasPage() {
             proformas.map((p) => (
               <tr key={p.id}>
                 <Td>
-                  <span className="font-medium">{p.proformaNumber}</span>
+                  <Link
+                    href={`/proformas/${p.id}`}
+                    className="font-medium hover:underline"
+                  >
+                    {p.proformaNumber}
+                  </Link>
                 </Td>
                 <Td>
                   <Link href={`/parties/${p.party.id}`} className="hover:underline">
@@ -63,6 +85,16 @@ export default async function ProformasPage() {
           )}
         </tbody>
       </Table>
+
+      <Pagination
+        pathname="/proformas"
+        params={{ size: searchParams.size }}
+        pageSize={page.size}
+        pageSizes={PAGE_SIZES}
+        hasNext={hasNext}
+        nextCursor={nextCursor}
+        onFirstPage={!page.cursor}
+      />
     </div>
   );
 }

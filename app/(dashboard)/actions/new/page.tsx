@@ -17,7 +17,7 @@ export default async function NewActionPage({
   });
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <PageHeader
         title="Log follow-up"
         subtitle="Record a call, visit, or note about a payment conversation."

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import { requireProfile, partyScopeWhere } from "@/lib/authz";
 import { formatINR } from "@/lib/format";
+import { PAGE_SIZES, parsePageParams, pageArgs, pageResult } from "@/lib/pagination";
 import {
   PageHeader,
   LinkButton,
@@ -10,6 +11,7 @@ import {
   Td,
   Badge,
   EmptyRow,
+  Pagination,
   statusTone,
   inputCls,
 } from "../_components/ui";
@@ -17,12 +19,13 @@ import {
 export default async function PartiesPage({
   searchParams,
 }: {
-  searchParams: { q?: string };
+  searchParams: { q?: string; cursor?: string; size?: string };
 }) {
   const profile = await requireProfile();
   const q = searchParams.q?.trim() ?? "";
+  const page = parsePageParams(searchParams);
 
-  const parties = await db.party.findMany({
+  const fetched = await db.party.findMany({
     where: {
       ...partyScopeWhere(profile),
       ...(q
@@ -35,17 +38,38 @@ export default async function PartiesPage({
           }
         : {}),
     },
-    include: { assignedTo: { select: { ownerName: true } } },
-    orderBy: [{ totalOutstanding: "desc" }, { name: "asc" }],
-    take: 200,
+    select: {
+      id: true,
+      name: true,
+      code: true,
+      phone: true,
+      email: true,
+      totalOutstanding: true,
+      priority: true,
+      riskLevel: true,
+      isActive: true,
+      assignedTo: { select: { ownerName: true } },
+    },
+    orderBy: [{ totalOutstanding: "desc" }, { name: "asc" }, { id: "asc" }],
+    ...pageArgs(page),
   });
+  const { rows: parties, hasNext, nextCursor } = pageResult(fetched, page);
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <PageHeader
         title="Parties"
         subtitle="Your customers and their outstanding balances."
-        action={<LinkButton href="/parties/new">Add party</LinkButton>}
+        action={
+          <div className="flex gap-2">
+            {profile.role === "ADMIN" && (
+              <LinkButton href="/parties/assign" variant="secondary">
+                Assign parties
+              </LinkButton>
+            )}
+            <LinkButton href="/parties/new">Add party</LinkButton>
+          </div>
+        }
       />
 
       <form className="mb-4 max-w-sm">
@@ -129,6 +153,16 @@ export default async function PartiesPage({
           )}
         </tbody>
       </Table>
+
+      <Pagination
+        pathname="/parties"
+        params={{ q: q || undefined, size: searchParams.size }}
+        pageSize={page.size}
+        pageSizes={PAGE_SIZES}
+        hasNext={hasNext}
+        nextCursor={nextCursor}
+        onFirstPage={!page.cursor}
+      />
     </div>
   );
 }

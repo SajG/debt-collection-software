@@ -4,9 +4,10 @@ import { addDays } from "date-fns";
 import { AlertTriangle, Clock, IndianRupee, Users } from "lucide-react";
 import { db } from "@/lib/db";
 import { requireProfile, partyScopeWhere } from "@/lib/authz";
-import { refreshOverdueStatuses, startOfToday } from "@/lib/ar/balance";
+import { startOfToday } from "@/lib/ar/balance";
 import { formatINR, formatDate } from "@/lib/format";
 import { Badge, statusTone } from "../_components/ui";
+import { RefreshStatusesButton } from "./refresh-button";
 
 export default async function DashboardPage() {
   const profile = await requireProfile();
@@ -17,9 +18,8 @@ export default async function DashboardPage() {
   });
   if (!settings?.onboardingDone) redirect("/onboarding");
 
-  // Keep OVERDUE statuses honest before aggregating (idempotent updateMany).
-  await db.$transaction((tx) => refreshOverdueStatuses(tx));
-
+  // OVERDUE statuses are maintained by the daily cron pass; the header's
+  // refresh button recomputes on demand. No writes in the render path.
   const scope = partyScopeWhere(profile);
   const today = startOfToday();
   const weekAhead = addDays(today, 7);
@@ -45,12 +45,20 @@ export default async function DashboardPage() {
         status: { in: ["UNPAID", "PARTIAL"] },
         dueDate: { gte: today, lt: weekAhead },
       },
-      _sum: { totalAmount: true, paidAmount: true },
+      _sum: { totalAmount: true, paidAmount: true, creditedAmount: true },
     }),
     db.party.count({ where: { ...scope, isActive: true } }),
     db.invoice.findMany({
       where: { party: scope, status: "OVERDUE" },
-      include: { party: { select: { id: true, name: true } } },
+      select: {
+        id: true,
+        invoiceNumber: true,
+        dueDate: true,
+        totalAmount: true,
+        paidAmount: true,
+        creditedAmount: true,
+        party: { select: { id: true, name: true } },
+      },
       orderBy: { dueDate: "asc" },
       take: 6,
     }),
@@ -59,7 +67,11 @@ export default async function DashboardPage() {
         party: scope,
         nextFollowUpDate: { gte: today, lt: addDays(today, 1) },
       },
-      include: {
+      select: {
+        id: true,
+        type: true,
+        outcome: true,
+        notes: true,
         party: { select: { id: true, name: true, totalOutstanding: true } },
       },
       orderBy: { nextFollowUpDate: "asc" },
@@ -70,19 +82,23 @@ export default async function DashboardPage() {
   const totalOutstanding = outstandingAgg._sum.totalOutstanding ?? 0;
   const dueWeekAmount =
     Number(dueThisWeek._sum.totalAmount ?? 0) -
-    Number(dueThisWeek._sum.paidAmount ?? 0);
+    Number(dueThisWeek._sum.paidAmount ?? 0) -
+    Number(dueThisWeek._sum.creditedAmount ?? 0);
 
   const firstName = profile.ownerName.split(" ")[0];
 
   return (
-    <div className="p-8">
-      <div className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-          Good morning, {firstName}
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Here&apos;s your accounts receivable summary for today.
-        </p>
+    <div className="p-4 sm:p-8">
+      <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            Good morning, {firstName}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Here&apos;s your accounts receivable summary for today.
+          </p>
+        </div>
+        <RefreshStatusesButton />
       </div>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 mb-8">
@@ -135,7 +151,9 @@ export default async function DashboardPage() {
                     </p>
                   </div>
                   <span className="text-sm font-semibold">
-                    {formatINR(inv.totalAmount.minus(inv.paidAmount))}
+                    {formatINR(
+                      inv.totalAmount.minus(inv.paidAmount).minus(inv.creditedAmount)
+                    )}
                   </span>
                 </li>
               ))}

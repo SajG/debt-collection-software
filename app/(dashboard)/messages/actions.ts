@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireProfile, canAccessParty } from "@/lib/authz";
+import { checkSendRateLimit } from "@/lib/rate-limit";
 import { sendReminder, type SendReminderResult } from "@/lib/messaging/send";
 
 const sendInput = z.object({
@@ -35,6 +36,14 @@ export async function sendReminderAction(
   const party = await db.party.findUnique({ where: { id: partyId } });
   if (!party || !canAccessParty(profile, party)) {
     return { status: "failed", error: "Party not found." };
+  }
+
+  const { limited } = await checkSendRateLimit(profile.id);
+  if (limited) {
+    return {
+      status: "failed",
+      error: "Too many sends in a short time — wait a minute and try again.",
+    };
   }
 
   const result = await sendReminder({

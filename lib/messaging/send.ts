@@ -4,10 +4,11 @@
 // and writes an audit Message row for every attempt, including blocked ones.
 // Nothing else in the codebase may call a ChannelProvider directly.
 
-import { subDays } from "date-fns";
+import { subDays, subHours } from "date-fns";
 import type { MessageChannel, Party, BusinessSettings } from "@prisma/client";
 import { db } from "@/lib/db";
 import { decryptSecret } from "@/lib/crypto";
+import { captureError } from "@/lib/monitoring";
 import { formatINR, formatDate } from "@/lib/format";
 import { getOrCreatePaymentLink, razorpayConfigured } from "@/lib/payments/razorpay";
 import { evaluateGate } from "./gate";
@@ -23,6 +24,17 @@ export type SendReminderParams = {
   invoiceId?: string | null;
   /** Profile id for manual sends; null for the automated cron pass. */
   sentById: string | null;
+  /**
+   * Attach a document PDF (EMAIL only). The body becomes a document cover
+   * note instead of a payment reminder; everything else — the gate, the
+   * audit Message row, the provider path — is identical.
+   */
+  document?: {
+    type: "PROFORMA" | "INVOICE";
+    number: string;
+    filename: string;
+    contentBase64: string;
+  };
 };
 
 export type SendReminderResult =
@@ -57,6 +69,10 @@ function destinationFor(channel: MessageChannel, party: Party): string | null {
 export async function sendReminder(
   params: SendReminderParams
 ): Promise<SendReminderResult> {
+  if (params.document && params.channel !== "EMAIL") {
+    return { status: "failed", error: "Documents can only be sent by email" };
+  }
+
   const [party, settings] = await Promise.all([
     db.party.findUnique({ where: { id: params.partyId } }),
     db.businessSettings.findFirst(),
@@ -107,11 +123,16 @@ export async function sendReminder(
   });
 
   const pending = invoice
-    ? Number(invoice.totalAmount.minus(invoice.paidAmount))
+    ? Number(
+        invoice.totalAmount.minus(invoice.paidAmount).minus(invoice.creditedAmount)
+      )
     : Number(party.totalOutstanding);
   const pendingText = formatINR(pending);
   const invoiceText = invoice ? `invoice ${invoice.invoiceNumber}` : "your account";
   const dueText = invoice ? ` (due ${formatDate(invoice.dueDate)})` : "";
+  const docText = params.document
+    ? `${params.document.type === "PROFORMA" ? "proforma invoice" : "invoice"} ${params.document.number}`
+    : null;
 
   if (!gate.allowed) {
     const blocked = await db.message.create({
@@ -121,7 +142,9 @@ export async function sendReminder(
         channel: params.channel,
         direction: "OUTBOUND",
         status: "BLOCKED",
-        body: `[not sent] Reminder for ${invoiceText}, ${pendingText}`,
+        body: docText
+          ? `[not sent] ${docText} (emailed document)`
+          : `[not sent] Reminder for ${invoiceText}, ${pendingText}`,
         gateResult: gate.reason,
         sentById: params.sentById,
       },
@@ -151,8 +174,10 @@ export async function sendReminder(
   }
 
   // Payment link (best-effort — reminder still goes out without one).
+  // Proforma documents get no link: nothing is owed yet.
   let paymentLinkUrl: string | null = null;
-  if (razorpayConfigured() && pending > 0) {
+  const wantsLink = !params.document || params.document.type === "INVOICE";
+  if (wantsLink && razorpayConfigured() && pending > 0) {
     const link = await getOrCreatePaymentLink({
       partyId: party.id,
       invoiceId: invoice?.id ?? null,
@@ -166,16 +191,44 @@ export async function sendReminder(
   }
 
   const linkText = paymentLinkUrl ? ` Pay securely: ${paymentLinkUrl}` : "";
-  const body =
-    `Dear ${party.name}, this is a payment reminder from ${businessName}. ` +
-    `${invoiceText[0].toUpperCase()}${invoiceText.slice(1)}${dueText} has ` +
-    `${pendingText} pending.${linkText} Reply STOP to opt out.`;
+  const body = docText
+    ? `Dear ${party.name}, please find ${docText} from ${businessName} ` +
+      `attached.${linkText} Reply STOP to opt out.`
+    : `Dear ${party.name}, this is a payment reminder from ${businessName}. ` +
+      `${invoiceText[0].toUpperCase()}${invoiceText.slice(1)}${dueText} has ` +
+      `${pendingText} pending.${linkText} Reply STOP to opt out.`;
+
+  // Meta's 24-hour customer-service window: after an inbound WhatsApp
+  // message we may send free-form text instead of a template. The gate has
+  // already ruled; this only picks the message format Meta permits.
+  let whatsappMessageType: "template" | "text" = "template";
+  if (params.channel === "WHATSAPP") {
+    const recentInbound = await db.message.findFirst({
+      where: {
+        partyId: party.id,
+        channel: "WHATSAPP",
+        direction: "INBOUND",
+        createdAt: { gte: subHours(new Date(), 24) },
+      },
+      select: { id: true },
+    });
+    if (recentInbound) whatsappMessageType = "text";
+  }
 
   const provider = await resolveProvider(params.channel, settings);
   const outcome = await provider.send({
     to,
     body,
-    subject: `Payment reminder — ${invoiceText} (${pendingText})`,
+    whatsappMessageType,
+    subject: docText
+      ? `${docText[0].toUpperCase()}${docText.slice(1)} — ${businessName}`
+      : `Payment reminder — ${invoiceText} (${pendingText})`,
+    attachment: params.document
+      ? {
+          filename: params.document.filename,
+          contentBase64: params.document.contentBase64,
+        }
+      : undefined,
     templateName: settings.whatsappTemplateName ?? undefined,
     templateParams: [
       party.name,
@@ -194,7 +247,10 @@ export async function sendReminder(
       channel: params.channel,
       direction: "OUTBOUND",
       status: outcome.ok ? "SENT" : "FAILED",
-      templateName: params.channel === "WHATSAPP" ? settings.whatsappTemplateName : null,
+      templateName:
+        params.channel === "WHATSAPP" && whatsappMessageType === "template"
+          ? settings.whatsappTemplateName
+          : null,
       body,
       providerMessageId: outcome.ok ? outcome.providerMessageId ?? null : null,
       error: outcome.ok ? null : outcome.error,
@@ -203,6 +259,17 @@ export async function sendReminder(
       sentAt: outcome.ok ? new Date() : null,
     },
   });
+
+  if (!outcome.ok) {
+    await captureError(new Error(outcome.error), {
+      scope: "messaging.send",
+      channel: params.channel,
+      partyId: party.id,
+      invoiceId: invoice?.id ?? null,
+      messageId: message.id,
+      automated: params.sentById === null,
+    });
+  }
 
   return outcome.ok
     ? { status: "sent", messageId: message.id }

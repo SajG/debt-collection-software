@@ -9,6 +9,7 @@ import { requireProfile, canAccessParty } from "@/lib/authz";
 import { paymentSchema, type PaymentInput } from "@/lib/validation";
 import {
   deriveInvoiceStatus,
+  invoicePending,
   recomputePartyOutstanding,
 } from "@/lib/ar/balance";
 
@@ -40,7 +41,7 @@ export async function createPaymentAction(
     if (invoice.status === "CANCELLED") {
       return { error: "Cannot record a payment against a cancelled invoice." };
     }
-    const pending = invoice.totalAmount.minus(invoice.paidAmount);
+    const pending = invoicePending(invoice);
     if (amount.greaterThan(pending)) {
       return {
         error: `Amount exceeds the pending balance on this invoice (${pending}). Record the excess as an on-account payment.`,
@@ -65,7 +66,11 @@ export async function createPaymentAction(
         where: { id: invoice.id },
         data: {
           paidAmount: newPaid,
-          status: deriveInvoiceStatus(invoice.totalAmount, newPaid, invoice.dueDate),
+          status: deriveInvoiceStatus(
+            invoice.totalAmount,
+            newPaid.plus(invoice.creditedAmount),
+            invoice.dueDate
+          ),
         },
       });
       await recomputePartyOutstanding(tx, data.partyId);
