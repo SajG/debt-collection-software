@@ -10,6 +10,8 @@ import {
   deriveInvoiceStatus,
   recomputePartyOutstanding,
 } from "@/lib/ar/balance";
+import { buildInvoicePdf } from "@/lib/pdf/build";
+import { sendReminder } from "@/lib/messaging/send";
 
 type ActionResult = { error: string } | never;
 
@@ -125,6 +127,50 @@ export async function updateInvoiceAction(
   revalidatePath(`/invoices/${id}`);
   revalidatePath(`/parties/${existing.partyId}`);
   redirect(`/invoices/${id}`);
+}
+
+/**
+ * Email the invoice PDF to the party. Goes through sendReminder() — the
+ * one send path — so the compliance gate applies and an audit Message row
+ * is written.
+ */
+export async function emailInvoicePdfAction(
+  id: string
+): Promise<{ error: string } | { ok: true }> {
+  const profile = await requireProfile();
+
+  const invoice = await db.invoice.findUnique({
+    where: { id },
+    include: { party: true },
+  });
+  if (!invoice || !canAccessParty(profile, invoice.party)) {
+    return { error: "Invoice not found." };
+  }
+  if (invoice.status === "CANCELLED") {
+    return { error: "Cancelled invoices cannot be emailed." };
+  }
+
+  const pdf = await buildInvoicePdf(id);
+  if ("error" in pdf) return { error: pdf.error };
+
+  const result = await sendReminder({
+    partyId: invoice.partyId,
+    channel: "EMAIL",
+    invoiceId: id,
+    sentById: profile.id,
+    document: {
+      type: "INVOICE",
+      number: invoice.invoiceNumber,
+      filename: pdf.filename,
+      contentBase64: pdf.buffer.toString("base64"),
+    },
+  });
+
+  revalidatePath(`/invoices/${id}`);
+  if (result.status === "sent") return { ok: true };
+  return {
+    error: result.status === "blocked" ? `Blocked: ${result.reason}` : result.error,
+  };
 }
 
 export async function cancelInvoiceAction(id: string): Promise<ActionResult> {

@@ -30,6 +30,16 @@ export function createEmailProvider(): ChannelProvider {
             to: [request.to],
             subject: request.subject ?? "Payment reminder",
             text: request.body,
+            ...(request.attachment
+              ? {
+                  attachments: [
+                    {
+                      filename: request.attachment.filename,
+                      content: request.attachment.contentBase64,
+                    },
+                  ],
+                }
+              : {}),
           }),
         });
 

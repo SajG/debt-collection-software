@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/authz";
+import { getLogoSignedUrl } from "@/lib/storage";
 import { PageHeader, LinkButton } from "../_components/ui";
 import { SettingsForm, type SettingsFormValues } from "./settings-form";
 
@@ -26,7 +27,18 @@ export default async function SettingsPage() {
     whatsappBusinessAccountId: settings?.whatsappBusinessAccountId ?? "",
     whatsappTemplateName: settings?.whatsappTemplateName ?? "",
     whatsappApiToken: "", // write-only; the stored token never reaches the client
+    bankAccountName: settings?.bankAccountName ?? "",
+    bankAccountNumber: "", // write-only; the stored number never reaches the client
+    bankIfscCode: settings?.bankIfscCode ?? "",
+    bankName: settings?.bankName ?? "",
+    bankBranch: settings?.bankBranch ?? "",
+    invoicePrefix: settings?.invoicePrefix ?? "",
+    authorizedSignatoryName: settings?.authorizedSignatoryName ?? "",
   };
+
+  const logoUrl = settings?.companyLogoPath
+    ? await getLogoSignedUrl(settings.companyLogoPath)
+    : null;
 
   return (
     <div className="p-8">
@@ -42,6 +54,8 @@ export default async function SettingsPage() {
       <SettingsForm
         initial={initial}
         tokenConfigured={Boolean(settings?.whatsappApiToken)}
+        bankAccountConfigured={Boolean(settings?.bankAccountNumber)}
+        logoUrl={logoUrl}
       />
     </div>
   );

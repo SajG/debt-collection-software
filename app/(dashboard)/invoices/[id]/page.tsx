@@ -14,6 +14,7 @@ import {
   EmptyRow,
   statusTone,
 } from "../../_components/ui";
+import { InvoicePdfActions } from "./invoice-pdf-actions";
 
 export default async function InvoiceDetailPage({
   params,
@@ -56,6 +57,10 @@ export default async function InvoiceDetailPage({
           </div>
         }
       />
+
+      <div className="mb-6">
+        <InvoicePdfActions invoiceId={invoice.id} />
+      </div>
 
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card title="Status">

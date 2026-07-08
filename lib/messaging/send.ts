@@ -23,6 +23,17 @@ export type SendReminderParams = {
   invoiceId?: string | null;
   /** Profile id for manual sends; null for the automated cron pass. */
   sentById: string | null;
+  /**
+   * Attach a document PDF (EMAIL only). The body becomes a document cover
+   * note instead of a payment reminder; everything else — the gate, the
+   * audit Message row, the provider path — is identical.
+   */
+  document?: {
+    type: "PROFORMA" | "INVOICE";
+    number: string;
+    filename: string;
+    contentBase64: string;
+  };
 };
 
 export type SendReminderResult =
@@ -57,6 +68,10 @@ function destinationFor(channel: MessageChannel, party: Party): string | null {
 export async function sendReminder(
   params: SendReminderParams
 ): Promise<SendReminderResult> {
+  if (params.document && params.channel !== "EMAIL") {
+    return { status: "failed", error: "Documents can only be sent by email" };
+  }
+
   const [party, settings] = await Promise.all([
     db.party.findUnique({ where: { id: params.partyId } }),
     db.businessSettings.findFirst(),
@@ -112,6 +127,9 @@ export async function sendReminder(
   const pendingText = formatINR(pending);
   const invoiceText = invoice ? `invoice ${invoice.invoiceNumber}` : "your account";
   const dueText = invoice ? ` (due ${formatDate(invoice.dueDate)})` : "";
+  const docText = params.document
+    ? `${params.document.type === "PROFORMA" ? "proforma invoice" : "invoice"} ${params.document.number}`
+    : null;
 
   if (!gate.allowed) {
     const blocked = await db.message.create({
@@ -121,7 +139,9 @@ export async function sendReminder(
         channel: params.channel,
         direction: "OUTBOUND",
         status: "BLOCKED",
-        body: `[not sent] Reminder for ${invoiceText}, ${pendingText}`,
+        body: docText
+          ? `[not sent] ${docText} (emailed document)`
+          : `[not sent] Reminder for ${invoiceText}, ${pendingText}`,
         gateResult: gate.reason,
         sentById: params.sentById,
       },
@@ -151,8 +171,10 @@ export async function sendReminder(
   }
 
   // Payment link (best-effort — reminder still goes out without one).
+  // Proforma documents get no link: nothing is owed yet.
   let paymentLinkUrl: string | null = null;
-  if (razorpayConfigured() && pending > 0) {
+  const wantsLink = !params.document || params.document.type === "INVOICE";
+  if (wantsLink && razorpayConfigured() && pending > 0) {
     const link = await getOrCreatePaymentLink({
       partyId: party.id,
       invoiceId: invoice?.id ?? null,
@@ -166,16 +188,26 @@ export async function sendReminder(
   }
 
   const linkText = paymentLinkUrl ? ` Pay securely: ${paymentLinkUrl}` : "";
-  const body =
-    `Dear ${party.name}, this is a payment reminder from ${businessName}. ` +
-    `${invoiceText[0].toUpperCase()}${invoiceText.slice(1)}${dueText} has ` +
-    `${pendingText} pending.${linkText} Reply STOP to opt out.`;
+  const body = docText
+    ? `Dear ${party.name}, please find ${docText} from ${businessName} ` +
+      `attached.${linkText} Reply STOP to opt out.`
+    : `Dear ${party.name}, this is a payment reminder from ${businessName}. ` +
+      `${invoiceText[0].toUpperCase()}${invoiceText.slice(1)}${dueText} has ` +
+      `${pendingText} pending.${linkText} Reply STOP to opt out.`;
 
   const provider = await resolveProvider(params.channel, settings);
   const outcome = await provider.send({
     to,
     body,
-    subject: `Payment reminder — ${invoiceText} (${pendingText})`,
+    subject: docText
+      ? `${docText[0].toUpperCase()}${docText.slice(1)} — ${businessName}`
+      : `Payment reminder — ${invoiceText} (${pendingText})`,
+    attachment: params.document
+      ? {
+          filename: params.document.filename,
+          contentBase64: params.document.contentBase64,
+        }
+      : undefined,
     templateName: settings.whatsappTemplateName ?? undefined,
     templateParams: [
       party.name,

@@ -11,6 +11,8 @@ export type SendRequest = {
   templateName?: string;
   /** Positional template parameters (WhatsApp only). */
   templateParams?: string[];
+  /** Document attachment (email only). */
+  attachment?: { filename: string; contentBase64: string };
 };
 
 export type SendOutcome =

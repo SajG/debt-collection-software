@@ -196,6 +196,20 @@ model BusinessSettings {
   proformaSeq     Int @default(0)
   proformaSeqYear Int @default(0) // set to current year on first use
 
+  // Company branding & bank details (rendered on proforma/invoice PDFs)
+  // companyLogoPath is an object path in the private Supabase Storage
+  // bucket (lib/storage.ts) — read via short-lived signed URLs only.
+  // bankAccountNumber is AES-256-GCM encrypted at rest (lib/crypto.ts);
+  // decrypt server-side only, never select into a client payload.
+  companyLogoPath         String?
+  bankAccountName         String?
+  bankAccountNumber       String?
+  bankIfscCode            String?
+  bankName                String?
+  bankBranch              String?
+  invoicePrefix           String? // e.g. "INV" — used when converting proformas
+  authorizedSignatoryName String?
+
   // Tally sync config
   tallyHost        String?
   tallyPort        Int?     // default 9000
