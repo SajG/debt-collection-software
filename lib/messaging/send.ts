@@ -4,7 +4,7 @@
 // and writes an audit Message row for every attempt, including blocked ones.
 // Nothing else in the codebase may call a ChannelProvider directly.
 
-import { subDays } from "date-fns";
+import { subDays, subHours } from "date-fns";
 import type { MessageChannel, Party, BusinessSettings } from "@prisma/client";
 import { db } from "@/lib/db";
 import { decryptSecret } from "@/lib/crypto";
@@ -195,10 +195,28 @@ export async function sendReminder(
       `${invoiceText[0].toUpperCase()}${invoiceText.slice(1)}${dueText} has ` +
       `${pendingText} pending.${linkText} Reply STOP to opt out.`;
 
+  // Meta's 24-hour customer-service window: after an inbound WhatsApp
+  // message we may send free-form text instead of a template. The gate has
+  // already ruled; this only picks the message format Meta permits.
+  let whatsappMessageType: "template" | "text" = "template";
+  if (params.channel === "WHATSAPP") {
+    const recentInbound = await db.message.findFirst({
+      where: {
+        partyId: party.id,
+        channel: "WHATSAPP",
+        direction: "INBOUND",
+        createdAt: { gte: subHours(new Date(), 24) },
+      },
+      select: { id: true },
+    });
+    if (recentInbound) whatsappMessageType = "text";
+  }
+
   const provider = await resolveProvider(params.channel, settings);
   const outcome = await provider.send({
     to,
     body,
+    whatsappMessageType,
     subject: docText
       ? `${docText[0].toUpperCase()}${docText.slice(1)} — ${businessName}`
       : `Payment reminder — ${invoiceText} (${pendingText})`,
@@ -226,7 +244,10 @@ export async function sendReminder(
       channel: params.channel,
       direction: "OUTBOUND",
       status: outcome.ok ? "SENT" : "FAILED",
-      templateName: params.channel === "WHATSAPP" ? settings.whatsappTemplateName : null,
+      templateName:
+        params.channel === "WHATSAPP" && whatsappMessageType === "template"
+          ? settings.whatsappTemplateName
+          : null,
       body,
       providerMessageId: outcome.ok ? outcome.providerMessageId ?? null : null,
       error: outcome.ok ? null : outcome.error,

@@ -56,11 +56,12 @@ export default async function PaymentsPage({
             <Th>Against invoice</Th>
             <Th>Reference</Th>
             <Th>Recorded by</Th>
+            <Th />
           </tr>
         </thead>
         <tbody>
           {payments.length === 0 ? (
-            <EmptyRow colSpan={7} message="No payments recorded yet." />
+            <EmptyRow colSpan={8} message="No payments recorded yet." />
           ) : (
             payments.map((p) => (
               <tr key={p.id} className="hover:bg-muted/30">
@@ -90,6 +91,14 @@ export default async function PaymentsPage({
                   <span className="text-muted-foreground">{p.reference ?? "—"}</span>
                 </Td>
                 <Td>{p.recordedBy.ownerName}</Td>
+                <Td>
+                  <Link
+                    href={`/payments/${p.id}/edit`}
+                    className="text-xs text-primary hover:underline"
+                  >
+                    Edit
+                  </Link>
+                </Td>
               </tr>
             ))
           )}

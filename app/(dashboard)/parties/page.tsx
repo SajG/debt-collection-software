@@ -60,7 +60,16 @@ export default async function PartiesPage({
       <PageHeader
         title="Parties"
         subtitle="Your customers and their outstanding balances."
-        action={<LinkButton href="/parties/new">Add party</LinkButton>}
+        action={
+          <div className="flex gap-2">
+            {profile.role === "ADMIN" && (
+              <LinkButton href="/parties/assign" variant="secondary">
+                Assign parties
+              </LinkButton>
+            )}
+            <LinkButton href="/parties/new">Add party</LinkButton>
+          </div>
+        }
       />
 
       <form className="mb-4 max-w-sm">

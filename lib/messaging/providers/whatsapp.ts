@@ -22,7 +22,13 @@ export function createWhatsAppProvider(config: WhatsAppConfig): ChannelProvider 
     },
 
     async send(request: SendRequest): Promise<SendOutcome> {
-      if (!this.isConfigured()) {
+      // Free-form text needs credentials but no template; it is only valid
+      // inside the 24h customer-service window (sendReminder() decides).
+      const freeForm = request.whatsappMessageType === "text";
+      const configured = freeForm
+        ? Boolean(config.phoneNumberId && config.apiToken)
+        : this.isConfigured();
+      if (!configured) {
         return {
           ok: false,
           error:
@@ -30,24 +36,31 @@ export function createWhatsAppProvider(config: WhatsAppConfig): ChannelProvider 
         };
       }
 
-      const payload = {
-        messaging_product: "whatsapp",
-        to: `91${request.to}`, // India country code; parties store 10-digit mobiles
-        type: "template",
-        template: {
-          name: request.templateName ?? config.templateName,
-          language: { code: "en" },
-          components: [
-            {
-              type: "body",
-              parameters: (request.templateParams ?? []).map((text) => ({
-                type: "text",
-                text,
-              })),
+      const payload = freeForm
+        ? {
+            messaging_product: "whatsapp",
+            to: `91${request.to}`, // India country code; parties store 10-digit mobiles
+            type: "text",
+            text: { body: request.body, preview_url: true },
+          }
+        : {
+            messaging_product: "whatsapp",
+            to: `91${request.to}`,
+            type: "template",
+            template: {
+              name: request.templateName ?? config.templateName,
+              language: { code: "en" },
+              components: [
+                {
+                  type: "body",
+                  parameters: (request.templateParams ?? []).map((text) => ({
+                    type: "text",
+                    text,
+                  })),
+                },
+              ],
             },
-          ],
-        },
-      };
+          };
 
       try {
         const res = await fetch(
