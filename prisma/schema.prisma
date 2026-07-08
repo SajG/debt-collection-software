@@ -110,6 +110,12 @@ enum SyncStatus {
   PARTIAL
 }
 
+enum AccountingProvider {
+  ZOHO_BOOKS
+  QUICKBOOKS
+  XERO
+}
+
 enum ConsentStatus {
   UNKNOWN
   OPTED_IN
@@ -525,6 +531,29 @@ model PaymentLink {
   invoice Invoice? @relation(fields: [invoiceId], references: [id])
 
   @@index([partyId])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// ACCOUNTING CONNECTION  (cloud accounting OAuth — Zoho Books,
+// QuickBooks, Xero. One connection per provider: single-tenant deploy.)
+// ─────────────────────────────────────────────────────────────────
+
+model AccountingConnection {
+  id       String             @id @default(cuid())
+  provider AccountingProvider @unique
+
+  // OAuth tokens, AES-256-GCM encrypted at rest (lib/crypto.ts).
+  // Decrypt server-side only; never select into a client payload.
+  refreshToken         String
+  accessToken          String?
+  accessTokenExpiresAt DateTime?
+
+  // Provider tenant: QuickBooks realmId, Xero tenantId, Zoho organization_id
+  externalOrgId String?
+
+  connectedAt DateTime  @default(now())
+  lastSyncAt  DateTime?
+  updatedAt   DateTime  @updatedAt
 }
 
 // ─────────────────────────────────────────────────────────────────
