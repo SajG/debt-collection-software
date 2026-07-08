@@ -2,6 +2,7 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import { requireProfile, partyScopeWhere } from "@/lib/authz";
 import { formatINR, formatDate } from "@/lib/format";
+import { PAGE_SIZES, parsePageParams, pageArgs, pageResult } from "@/lib/pagination";
 import {
   PageHeader,
   LinkButton,
@@ -9,21 +10,33 @@ import {
   Th,
   Td,
   EmptyRow,
+  Pagination,
 } from "../_components/ui";
 
-export default async function PaymentsPage() {
+export default async function PaymentsPage({
+  searchParams,
+}: {
+  searchParams: { cursor?: string; size?: string };
+}) {
   const profile = await requireProfile();
+  const page = parsePageParams(searchParams);
 
-  const payments = await db.payment.findMany({
+  const fetched = await db.payment.findMany({
     where: { party: partyScopeWhere(profile) },
-    include: {
+    select: {
+      id: true,
+      paymentDate: true,
+      amount: true,
+      method: true,
+      reference: true,
       party: { select: { id: true, name: true } },
       invoice: { select: { id: true, invoiceNumber: true } },
       recordedBy: { select: { ownerName: true } },
     },
-    orderBy: { paymentDate: "desc" },
-    take: 200,
+    orderBy: [{ paymentDate: "desc" }, { id: "asc" }],
+    ...pageArgs(page),
   });
+  const { rows: payments, hasNext, nextCursor } = pageResult(fetched, page);
 
   return (
     <div className="p-8">
@@ -82,6 +95,16 @@ export default async function PaymentsPage() {
           )}
         </tbody>
       </Table>
+
+      <Pagination
+        pathname="/payments"
+        params={{ size: searchParams.size }}
+        pageSize={page.size}
+        pageSizes={PAGE_SIZES}
+        hasNext={hasNext}
+        nextCursor={nextCursor}
+        onFirstPage={!page.cursor}
+      />
     </div>
   );
 }

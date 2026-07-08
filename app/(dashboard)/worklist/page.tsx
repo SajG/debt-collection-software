@@ -4,7 +4,6 @@ import { requireProfile, partyScopeWhere } from "@/lib/authz";
 import { formatINR } from "@/lib/format";
 import { AGING_BUCKETS, AGING_LABELS, agingSummary } from "@/lib/ar/aging";
 import { scoreAndPersistParty } from "@/lib/ar/refresh";
-import { refreshOverdueStatuses } from "@/lib/ar/balance";
 import {
   PageHeader,
   LinkButton,
@@ -16,13 +15,26 @@ import {
   statusTone,
 } from "../_components/ui";
 
-export default async function WorklistPage() {
+// The worklist ranks by a risk score computed per party at request time,
+// so it cannot be cursor-paginated in the DB — it caps the candidate set
+// instead (highest outstanding first) with a user-facing size control.
+const WORKLIST_SIZES = [100, 250, 500] as const;
+
+export default async function WorklistPage({
+  searchParams,
+}: {
+  searchParams: { size?: string };
+}) {
   const profile = await requireProfile();
   const scope = partyScopeWhere(profile);
+  const requested = Number(searchParams.size);
+  const size = (WORKLIST_SIZES as readonly number[]).includes(requested)
+    ? requested
+    : WORKLIST_SIZES[0];
 
-  await db.$transaction((tx) => refreshOverdueStatuses(tx));
-
-  const [openInvoices, parties] = await Promise.all([
+  // OVERDUE statuses come from the daily cron pass (refresh on demand from
+  // the dashboard); aging below is computed live from dueDate regardless.
+  const [openInvoices, parties, candidateCount] = await Promise.all([
     db.invoice.findMany({
       where: {
         party: scope,
@@ -32,7 +44,11 @@ export default async function WorklistPage() {
     }),
     db.party.findMany({
       where: { ...scope, isActive: true, totalOutstanding: { gt: 0 } },
-      take: 100,
+      orderBy: [{ totalOutstanding: "desc" }, { id: "asc" }],
+      take: size,
+    }),
+    db.party.count({
+      where: { ...scope, isActive: true, totalOutstanding: { gt: 0 } },
     }),
   ]);
 
@@ -150,10 +166,31 @@ export default async function WorklistPage() {
         </tbody>
       </Table>
 
-      <p className="mt-4 text-xs text-muted-foreground">
-        Risk scores are recomputed live from days overdue, exposure, and payment
-        behaviour — every score comes with its reasons.
-      </p>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs text-muted-foreground">
+          Risk scores are recomputed live from days overdue, exposure, and payment
+          behaviour — every score comes with its reasons.
+        </p>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          {candidateCount > size && (
+            <span className="text-amber-700">
+              Showing top {size} of {candidateCount} parties by outstanding —
+            </span>
+          )}
+          <span>Rows:</span>
+          {WORKLIST_SIZES.map((s) => (
+            <Link
+              key={s}
+              href={`/worklist?size=${s}`}
+              className={
+                s === size ? "font-semibold text-foreground" : "hover:text-foreground"
+              }
+            >
+              {s}
+            </Link>
+          ))}
+        </div>
+      </div>
       <div className="mt-6">
         <LinkButton href="/actions" variant="secondary">
           View all follow-ups
