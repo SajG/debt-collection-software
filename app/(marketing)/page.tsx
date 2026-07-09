@@ -13,28 +13,71 @@ import {
   FileText,
   BarChart3,
 } from "lucide-react";
+import { SiteNav } from "@/components/marketing/site-nav";
+import { SiteFooter } from "@/components/marketing/site-footer";
+import { PricingSection } from "@/components/marketing/pricing-section";
+import { FaqSection } from "@/components/marketing/faq-section";
+import { C } from "@/components/marketing/tokens";
+import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site";
+
+const title = "PayTrack — Accounts Receivable for MSME Distributors";
 
 export const metadata: Metadata = {
-  title: "PayTrack — Accounts Receivable for MSME Distributors",
-  description:
-    "Track outstanding invoices, manage overdue customers, and send follow-ups — without the chaos of WhatsApp threads and phone calls. Built for Indian MSME distributors.",
+  title,
+  description: SITE_DESCRIPTION,
+  keywords: [
+    "accounts receivable software",
+    "payment follow-up",
+    "outstanding invoice tracker",
+    "MSME distributor software",
+    "Tally receivables",
+    "WhatsApp payment reminders",
+    "udhaar tracking",
+    "credit sales management",
+    "India",
+  ],
+  openGraph: {
+    title,
+    description: SITE_DESCRIPTION,
+    url: SITE_URL,
+    siteName: SITE_NAME,
+    type: "website",
+    locale: "en_IN",
+    images: [
+      {
+        url: "/opengraph-image",
+        width: 1200,
+        height: 630,
+        alt: "PayTrack — Know who owes you. Follow up without the daily grind.",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title,
+    description: SITE_DESCRIPTION,
+    images: ["/opengraph-image"],
+  },
+  alternates: {
+    canonical: SITE_URL,
+  },
 };
 
-// ─── colour tokens (all as literal strings, no Tailwind arbitrary values in loops) ───
-const C = {
-  bg: "#F5F2EC",
-  bgAlt: "#ECE8DF",
-  ink: "#1C1917",
-  ink2: "#57534E",
-  ink3: "#A8A29E",
-  teal: "#0D5C4A",
-  tealDark: "#093D30",
-  tealLight: "#E8F4F0",
-  amber: "#9C6C0A",
-  amberLight: "#FEF3C7",
-  border: "#DDD8CF",
-  white: "#FFFFFF",
-  darkBg: "#093D30",
+// JSON-LD structured data — real fields only. No rating/review aggregate:
+// there are no reviews yet and fabricated review schema violates Google policy.
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: SITE_NAME,
+  description: SITE_DESCRIPTION,
+  url: SITE_URL,
+  applicationCategory: "BusinessApplication",
+  operatingSystem: "Web",
+  offers: {
+    "@type": "Offer",
+    price: "1499",
+    priceCurrency: "INR",
+  },
 };
 
 export default function HomePage() {
@@ -43,85 +86,22 @@ export default function HomePage() {
       className="overflow-x-hidden"
       style={{ backgroundColor: C.bg, color: C.ink, fontFamily: "var(--font-body)" }}
     >
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       <SiteNav />
       <main>
         <HeroSection />
         <ProblemSection />
         <HowItWorksSection />
+        <FactsSection />
         <TrustSection />
         <PricingSection />
+        <FaqSection />
       </main>
       <SiteFooter />
     </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────
-// NAV
-// ─────────────────────────────────────────────────────────────
-
-function SiteNav() {
-  return (
-    <header
-      className="sticky top-0 z-50 backdrop-blur-md border-b"
-      style={{
-        backgroundColor: `${C.bg}E8`,
-        borderColor: C.border,
-      }}
-    >
-      <div className="max-w-6xl mx-auto px-5 sm:px-8 h-16 flex items-center justify-between">
-        {/* Logo */}
-        <Link href="/" className="flex items-center gap-2.5 group">
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-mono text-sm font-bold shrink-0"
-            style={{ backgroundColor: C.teal }}
-          >
-            ₹
-          </div>
-          <span
-            className="font-display font-semibold text-lg tracking-tight"
-            style={{ color: C.ink }}
-          >
-            PayTrack
-          </span>
-        </Link>
-
-        {/* Desktop nav */}
-        <nav className="hidden md:flex items-center gap-8">
-          {[
-            { label: "How it works", href: "#how-it-works" },
-            { label: "Pricing", href: "#pricing" },
-          ].map(({ label, href }) => (
-            <a
-              key={href}
-              href={href}
-              className="text-sm transition-colors hover:opacity-80"
-              style={{ color: C.ink2 }}
-            >
-              {label}
-            </a>
-          ))}
-        </nav>
-
-        {/* Actions */}
-        <div className="flex items-center gap-3">
-          <Link
-            href="/login"
-            className="hidden sm:block text-sm transition-colors hover:opacity-70"
-            style={{ color: C.ink2 }}
-          >
-            Sign in
-          </Link>
-          <Link
-            href="/signup"
-            className="text-sm font-medium px-4 py-2 rounded-lg text-white transition-opacity hover:opacity-90"
-            style={{ backgroundColor: C.teal }}
-          >
-            Get started
-          </Link>
-        </div>
-      </div>
-    </header>
   );
 }
 
@@ -561,6 +541,54 @@ function HowItWorksSection() {
 }
 
 // ─────────────────────────────────────────────────────────────
+// FACTS — stat-style callouts based on real product facts only.
+// No invented usage numbers, customer counts, or testimonials.
+// ─────────────────────────────────────────────────────────────
+
+function FactsSection() {
+  const facts = [
+    {
+      stat: "3 channels",
+      label: "WhatsApp, SMS, and email — reminders reach customers where they actually reply",
+    },
+    {
+      stat: "1 click",
+      label: "From “who’s overdue” to a drafted, ready-to-send follow-up message",
+    },
+    {
+      stat: "100% yours",
+      label: "Every business runs on its own isolated database — nothing shared, ever",
+    },
+  ];
+
+  return (
+    <section className="py-16 sm:py-20" style={{ backgroundColor: C.bgAlt }}>
+      <div className="max-w-6xl mx-auto px-5 sm:px-8">
+        <h2 className="sr-only">Built for how Indian MSME distributors actually work</h2>
+        <div className="grid sm:grid-cols-3 gap-10 sm:gap-6 text-center">
+          {facts.map(({ stat, label }) => (
+            <div key={stat}>
+              <div
+                className="font-display font-bold mb-3"
+                style={{ fontSize: "clamp(2rem, 4vw, 2.8rem)", color: C.teal }}
+              >
+                {stat}
+              </div>
+              <p
+                className="text-sm leading-relaxed max-w-[280px] mx-auto"
+                style={{ color: C.ink2 }}
+              >
+                {label}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // TRUST  — dark section, prominent placement
 // ─────────────────────────────────────────────────────────────
 
@@ -638,194 +666,5 @@ function TrustSection() {
         </div>
       </div>
     </section>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────
-// PRICING
-// ─────────────────────────────────────────────────────────────
-
-function PricingSection() {
-  const features = [
-    "Unlimited parties and invoices",
-    "Tally, Zoho Books, and Excel import",
-    "Follow-up message drafts",
-    "Promise-to-pay tracking and reminders",
-    "WhatsApp and SMS sending",
-    "Your own isolated database",
-    "Sync history and audit log",
-  ];
-
-  return (
-    <section
-      id="pricing"
-      className="py-20 sm:py-24"
-      style={{ backgroundColor: C.bgAlt }}
-    >
-      <div className="max-w-xl mx-auto px-5 sm:px-8 text-center">
-        <h2
-          className="font-display font-bold mb-4"
-          style={{ fontSize: "clamp(1.8rem, 3.5vw, 2.5rem)", color: C.ink }}
-        >
-          Simple, predictable pricing
-        </h2>
-        <p className="text-lg mb-10" style={{ color: C.ink2 }}>
-          One flat monthly price. No per-user fees. No percentage on amounts
-          recovered.
-        </p>
-
-        <div
-          className="rounded-3xl border p-10 shadow-sm text-left"
-          style={{ backgroundColor: C.white, borderColor: C.border }}
-        >
-          {/* TODO: replace placeholder with actual price */}
-          <div className="text-center mb-8">
-            <div
-              className="font-display font-bold leading-none"
-              style={{ fontSize: "3.5rem", color: C.ink }}
-            >
-              ₹ X,XXX
-              <span
-                className="text-xl font-normal ml-1"
-                style={{ color: C.ink3 }}
-              >
-                /month
-              </span>
-            </div>
-            <p className="mt-2 text-sm" style={{ color: C.ink2 }}>
-              per business · all features included
-            </p>
-          </div>
-
-          <ul className="space-y-3 mb-10">
-            {features.map((f) => (
-              <li key={f} className="flex items-start gap-3 text-sm">
-                <CheckCircle2
-                  size={16}
-                  className="mt-0.5 shrink-0"
-                  style={{ color: C.teal }}
-                />
-                <span style={{ color: C.ink2 }}>{f}</span>
-              </li>
-            ))}
-          </ul>
-
-          <Link
-            href="/signup"
-            className="w-full flex items-center justify-center gap-2 font-semibold py-3.5 rounded-xl text-white transition-opacity hover:opacity-90"
-            style={{ backgroundColor: C.teal }}
-          >
-            Get started
-            <ArrowRight size={15} />
-          </Link>
-          <p className="mt-4 text-center text-xs" style={{ color: C.ink3 }}>
-            Setup takes less than 15 minutes. No card required to start.
-          </p>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────
-// FOOTER
-// ─────────────────────────────────────────────────────────────
-
-function SiteFooter() {
-  const year = new Date().getFullYear();
-
-  return (
-    <footer
-      className="py-14 border-t"
-      style={{ backgroundColor: "#111113", borderColor: "#2A2A2E" }}
-    >
-      <div className="max-w-6xl mx-auto px-5 sm:px-8">
-        <div className="flex flex-col md:flex-row justify-between gap-10 mb-10">
-          {/* Brand */}
-          <div className="max-w-xs">
-            <div className="flex items-center gap-2.5 mb-4">
-              <div
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-mono text-sm font-bold"
-                style={{ backgroundColor: C.teal }}
-              >
-                ₹
-              </div>
-              <span className="font-display font-semibold text-lg text-white">
-                PayTrack
-              </span>
-            </div>
-            <p className="text-sm leading-relaxed" style={{ color: "#71717A" }}>
-              Accounts receivable for Indian MSME distributors and manufacturers
-              who sell on credit.
-            </p>
-          </div>
-
-          {/* Links */}
-          <div className="flex gap-14 sm:gap-20">
-            <div>
-              <h4
-                className="text-[10px] uppercase tracking-widest font-medium mb-4"
-                style={{ color: "#52525B" }}
-              >
-                Product
-              </h4>
-              <ul className="space-y-2.5">
-                {[
-                  { label: "How it works", href: "#how-it-works" },
-                  { label: "Pricing", href: "#pricing" },
-                  { label: "Get started", href: "/signup" },
-                ].map(({ label, href }) => (
-                  <li key={label}>
-                    <a
-                      href={href}
-                      className="text-sm transition-colors hover:text-white"
-                      style={{ color: "#71717A" }}
-                    >
-                      {label}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div>
-              <h4
-                className="text-[10px] uppercase tracking-widest font-medium mb-4"
-                style={{ color: "#52525B" }}
-              >
-                Account
-              </h4>
-              <ul className="space-y-2.5">
-                {[
-                  { label: "Sign in", href: "/login" },
-                  { label: "Sign up", href: "/signup" },
-                ].map(({ label, href }) => (
-                  <li key={label}>
-                    <Link
-                      href={href}
-                      className="text-sm transition-colors hover:text-white"
-                      style={{ color: "#71717A" }}
-                    >
-                      {label}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        </div>
-
-        <div
-          className="pt-6 border-t flex flex-col sm:flex-row justify-between gap-3"
-          style={{ borderColor: "#2A2A2E" }}
-        >
-          <p className="text-xs" style={{ color: "#52525B" }}>
-            © {year} PayTrack. All rights reserved.
-          </p>
-          <p className="text-xs" style={{ color: "#52525B" }}>
-            Each customer deployment is fully isolated. No shared data.
-          </p>
-        </div>
-      </div>
-    </footer>
   );
 }

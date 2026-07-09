@@ -98,6 +98,64 @@
   50%       { transform: perspective(900px) rotateY(-4deg) rotateX(2deg) translateY(-10px); }
 }
 
+/* ── Legal page typography ─────────────────────────────────────── */
+
+.legal-prose h2 {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 700;
+  font-size: 1.35rem;
+  color: #1c1917;
+  margin-top: 2.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.legal-prose h3 {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 600;
+  font-size: 1.1rem;
+  color: #1c1917;
+  margin-top: 1.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.legal-prose p {
+  font-size: 0.95rem;
+  line-height: 1.75;
+  color: #57534e;
+  margin-bottom: 1rem;
+}
+
+.legal-prose ul,
+.legal-prose ol {
+  font-size: 0.95rem;
+  line-height: 1.75;
+  color: #57534e;
+  margin: 0 0 1rem 1.25rem;
+}
+
+.legal-prose ul {
+  list-style: disc;
+}
+
+.legal-prose ol {
+  list-style: decimal;
+}
+
+.legal-prose li {
+  margin-bottom: 0.4rem;
+}
+
+.legal-prose a {
+  color: #0d5c4a;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.legal-prose strong {
+  color: #1c1917;
+  font-weight: 600;
+}
+
 .pt-fade-up   { animation: pt-fade-up  0.65s cubic-bezier(0.16, 1, 0.3, 1) both; }
 .pt-slide-in  { animation: pt-slide-in 0.7s  cubic-bezier(0.16, 1, 0.3, 1) both; }
 .pt-fade-in   { animation: pt-fade-in  0.5s  ease both; }
