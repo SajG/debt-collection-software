@@ -218,3 +218,76 @@ export const actionSchema = z.object({
 });
 
 export type ActionInput = z.input<typeof actionSchema>;
+
+// ── Sales order ──────────────────────────────────────────────────
+
+const quantityUnits = ["PCS", "KG", "NOS"] as const;
+const paymentTerms = [
+  "ADVANCE",
+  "CREDIT",
+  "PDC",
+  "IMMEDIATE",
+  "AGAINST_DISPATCH",
+  "OTHER",
+] as const;
+const transportTypes = ["PAID", "TO_PAY", "GODOWN", "DOOR", "OTHER"] as const;
+
+export const orderSchema = z.object({
+  partyId: z.string().min(1, "Pick a party"),
+  // Optional for STAFF (defaults to self server-side); required for ADMIN.
+  salespersonId: z
+    .string()
+    .optional()
+    .or(z.literal(""))
+    .transform((v) => (v ? v : null)),
+  productId: z.string().min(1, "Pick a product"),
+  brand: optionalTrimmed(80),
+  quantity: z.coerce
+    .number()
+    .positive("Quantity must be greater than zero")
+    .max(1_000_000),
+  quantityUnit: z.enum(quantityUnits),
+  packingType: z.string().trim().min(1, "Enter the packing type").max(50),
+  // sizeKg is free text — real values include "20", "5+1 free", etc.
+  sizeKg: z.string().trim().min(1, "Enter a size").max(50),
+  // productRate is free text — informal values like "125++" or
+  // "Last rate + 15/-" are common; we don't force numeric parsing.
+  productRate: z.string().trim().min(1, "Enter a rate").max(100),
+  paymentTerm: z.enum(paymentTerms),
+  transportType: z.enum(transportTypes),
+  expectedDeliveryDate: optionalDate,
+  tokenType: optionalTrimmed(80),
+  notes: optionalTrimmed(2000),
+});
+
+// Form-facing input: strings for every field; server coerces.
+export type OrderInput = {
+  partyId: string;
+  salespersonId?: string;
+  productId: string;
+  brand?: string;
+  quantity: string;
+  quantityUnit: (typeof quantityUnits)[number];
+  packingType: string;
+  sizeKg: string;
+  productRate: string;
+  paymentTerm: (typeof paymentTerms)[number];
+  transportType: (typeof transportTypes)[number];
+  expectedDeliveryDate?: string;
+  tokenType?: string;
+  notes?: string;
+};
+
+export const orderStatusAdvanceSchema = z.object({
+  status: z.enum([
+    "ORDER_PLACED",
+    "IN_PRODUCTION",
+    "READY_TO_DISPATCH",
+    "LR_GENERATED",
+    "DISPATCHED",
+    "CANCELLED",
+  ]),
+  notes: optionalTrimmed(500),
+});
+
+export type OrderStatusAdvanceInput = z.input<typeof orderStatusAdvanceSchema>;

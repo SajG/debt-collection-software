@@ -13,6 +13,8 @@ import {
   Upload,
   Settings,
   LogOut,
+  Package,
+  Factory,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -24,6 +26,8 @@ const NAV = [
   { href: "/payments", label: "Payments", icon: CreditCard },
   { href: "/actions", label: "Follow-ups", icon: Phone },
   { href: "/proformas", label: "Proformas", icon: ClipboardList },
+  { href: "/orders", label: "Orders", icon: Package },
+  { href: "/production", label: "Production", icon: Factory },
   { href: "/import", label: "Import", icon: Upload },
   { href: "/settings", label: "Settings", icon: Settings },
 ];

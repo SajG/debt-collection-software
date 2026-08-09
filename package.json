@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "next lint",
     "db:push": "prisma db push",
+    "db:rls": "psql \"${DIRECT_URL:-$DATABASE_URL}\" -v ON_ERROR_STOP=1 -f supabase/migrations/20260807000000_add_rls_policies.sql",
     "test": "vitest run",
+    "test:rls": "vitest run tests/rls-sales-order.test.ts",
     "db:seed": "ts-node --compiler-options {\"module\":\"CommonJS\"} prisma/seed.ts",
     "db:studio": "prisma studio"
   },
