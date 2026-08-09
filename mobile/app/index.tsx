@@ -19,14 +19,15 @@ export default function IndexGate() {
     );
   }
 
-  if (!session) return <Redirect href="/(auth)/phone" />;
-  if (!profile) return <Redirect href="/no-profile" />;
-  // ADMIN gets the full salesperson experience (own orders by default,
-  // plus a scope toggle on Home). Everyone else (currently just FACTORY)
-  // is directed to the web console.
-  if (role !== "STAFF" && role !== "ADMIN")
-    return <Redirect href="/unsupported-role" />;
+  // TODO: Re-enable auth gates before production.
+  // Bypassing sign-in flow while SMS OTP provider is not configured.
   return <Redirect href="/(staff)" />;
+
+  // if (!session) return <Redirect href="/(auth)/phone" />;
+  // if (!profile) return <Redirect href="/no-profile" />;
+  // if (role !== "STAFF" && role !== "ADMIN")
+  //   return <Redirect href="/unsupported-role" />;
+  // return <Redirect href="/(staff)" />;
 }
 
 const styles = StyleSheet.create({
