@@ -26,6 +26,9 @@ export default function PhoneScreen() {
       return;
     }
     setSending(true);
+    // TODO: Re-enable phone confirmations in Supabase before production.
+    // Currently disabled (Auth → Providers → Phone → "Enable phone confirmations" OFF)
+    // so OTP codes are accepted without SMS delivery — dev only.
     const { error: sendError } = await supabase.auth.signInWithOtp({
       phone: toE164(digits),
     });

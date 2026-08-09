@@ -46,9 +46,6 @@
       "@react-native-community/datetimepicker",
       "expo-asset"
     ],
-    "experiments": {
-      "typedRoutes": true
-    },
     "extra": {
       "router": {
         "origin": false
