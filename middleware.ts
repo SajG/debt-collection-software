@@ -2,7 +2,23 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 
 // Routes that do NOT require a session
-const PUBLIC_PATHS = new Set(["/", "/login", "/signup"]);
+const PUBLIC_PATHS = new Set([
+  "/",
+  "/login",
+  "/signup",
+  // Public legal pages
+  "/terms",
+  "/privacy",
+  "/refund-policy",
+  "/cancellation-policy",
+  "/data-policy",
+  // SEO / branding assets served by app-router file conventions
+  "/sitemap.xml",
+  "/robots.txt",
+  "/opengraph-image",
+  "/apple-icon",
+  "/manifest.webmanifest",
+]);
 // /api/cron and /api/webhooks authenticate themselves (CRON_SECRET bearer,
 // Meta verify token) — no browser session exists on those requests.
 const PUBLIC_PREFIXES = [
