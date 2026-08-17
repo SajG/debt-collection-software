@@ -1,0 +1,285 @@
+import { useCallback, useMemo, useState } from "react";
+import {
+  FlatList,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { router } from "expo-router";
+import { Screen } from "@/components/Screen";
+import { Segmented } from "@/components/Segmented";
+import { OrderCard } from "@/components/OrderCard";
+import { FAB } from "@/components/FAB";
+import { confirm } from "@/components/Confirm";
+import { useAuth } from "@/auth/AuthContext";
+import { useOrderEventStream, useOwnOrders } from "@/lib/queries";
+import { useQueue } from "@/lib/order-queue";
+import { t } from "@/lib/i18n";
+import { theme } from "@/theme";
+
+type Filter = "all" | "active" | "dispatched";
+type Scope = "mine" | "all";
+
+type Row =
+  | {
+      kind: "queued";
+      key: string;
+      partyName: string;
+      productName: string;
+      brand: string | null;
+      quantity: number;
+      quantityUnit: "KG" | "PCS" | "NOS";
+    }
+  | {
+      kind: "server";
+      key: string;
+      id: string;
+      partyName: string;
+      productName: string;
+      brand: string | null;
+      quantity: string;
+      quantityUnit: "KG" | "PCS" | "NOS";
+      status: "ORDER_PLACED" | "IN_PRODUCTION" | "READY_TO_DISPATCH" | "LR_GENERATED" | "DISPATCHED" | "CANCELLED";
+      orderNumber: string;
+      salespersonName: string | null;
+    };
+
+export default function HomeScreen() {
+  const { profile, user, role, signOut } = useAuth();
+  const [filter, setFilter] = useState<Filter>("all");
+  // Scope toggle is ADMIN-only. STAFF is locked to "mine" — RLS enforces
+  // that too, but this keeps the client honest and avoids an empty
+  // toggle showing up.
+  const isAdmin = role === "ADMIN";
+  const [scope, setScope] = useState<Scope>("mine");
+  const effectiveScope: Scope = isAdmin ? scope : "mine";
+
+  const { data, loading, error, refetch } = useOwnOrders(
+    filter,
+    effectiveScope,
+    user?.id ?? null,
+  );
+  useOrderEventStream(refetch, user?.id ?? null);
+  const queue = useQueue();
+
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetch]);
+
+  const rows: Row[] = useMemo(() => {
+    // Queued items always at the top so users see their "in flight" work
+    // regardless of the current filter.
+    const q: Row[] = queue.map((it) => ({
+      kind: "queued",
+      key: `q:${it.localId}`,
+      partyName: it.display.partyName,
+      productName: it.display.productName,
+      brand: it.display.brand,
+      quantity: it.payload.p_quantity,
+      quantityUnit: it.payload.p_quantity_unit,
+    }));
+    const server: Row[] = (data ?? []).map((o) => ({
+      kind: "server",
+      key: `s:${o.id}`,
+      id: o.id,
+      partyName: o.party?.name ?? "—",
+      productName: o.product?.name ?? "—",
+      brand: o.brand ?? o.product?.brand ?? null,
+      quantity: String(o.quantity),
+      quantityUnit: o.quantityUnit,
+      status: o.currentStatus,
+      orderNumber: o.orderNumber,
+      // Only surface the "placed by" line when it adds information —
+      // the admin's own orders and STAFF-scoped views don't need it.
+      salespersonName:
+        effectiveScope === "all" && o.salesperson?.id !== user?.id
+          ? (o.salesperson?.ownerName ?? null)
+          : null,
+    }));
+    return [...q, ...server];
+  }, [queue, data, effectiveScope, user?.id]);
+
+  const emptyMessage =
+    filter === "active"
+      ? t("home.empty.active")
+      : filter === "dispatched"
+        ? t("home.empty.dispatched")
+        : t("home.empty.all");
+
+  return (
+    <Screen padded={false}>
+      <View style={styles.header}>
+        <View style={styles.headerText}>
+          <Text style={styles.hello} numberOfLines={1}>
+            {t("home.greeting", { name: profile?.ownerName ?? "" })}
+          </Text>
+          <Text style={styles.subtitle}>{t("home.subtitle")}</Text>
+        </View>
+        <View style={styles.headerActions}>
+          <HeaderLink label={t("home.dues")} onPress={() => router.push("/(staff)/dues")} />
+          <HeaderLink
+            label={t("home.signOut")}
+            onPress={() =>
+              confirm({
+                title: t("confirm.signOut.title"),
+                body: t("confirm.signOut.body"),
+                confirmLabel: t("confirm.ok"),
+                destructive: true,
+                onConfirm: () => void signOut(),
+              })
+            }
+          />
+        </View>
+      </View>
+
+      {isAdmin && (
+        <View style={styles.scopeToggle}>
+          <Segmented<Scope>
+            value={scope}
+            onChange={setScope}
+            options={[
+              { label: t("home.scope.mine"), value: "mine" },
+              { label: t("home.scope.all"), value: "all" },
+            ]}
+          />
+        </View>
+      )}
+
+      <View style={styles.filters}>
+        <Segmented<Filter>
+          value={filter}
+          onChange={setFilter}
+          options={[
+            { label: t("home.filter.all"), value: "all" },
+            { label: t("home.filter.active"), value: "active" },
+            { label: t("home.filter.dispatched"), value: "dispatched" },
+          ]}
+        />
+      </View>
+
+      <FlatList
+        data={rows}
+        keyExtractor={(r) => r.key}
+        contentContainerStyle={styles.list}
+        ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+        renderItem={({ item }) =>
+          item.kind === "queued" ? (
+            <OrderCard
+              pending
+              partyName={item.partyName}
+              productName={item.productName}
+              brand={item.brand}
+              quantity={item.quantity}
+              quantityUnit={item.quantityUnit}
+              status="ORDER_PLACED"
+              orderNumber={null}
+            />
+          ) : (
+            <OrderCard
+              partyName={item.partyName}
+              productName={item.productName}
+              brand={item.brand}
+              quantity={item.quantity}
+              quantityUnit={item.quantityUnit}
+              status={item.status}
+              orderNumber={item.orderNumber}
+              salespersonName={item.salespersonName}
+              onPress={() => router.push({ pathname: "/(staff)/orders/[id]", params: { id: item.id } })}
+            />
+          )
+        }
+        ListEmptyComponent={
+          !loading ? (
+            <Text style={styles.empty}>{error ? t("home.error") : emptyMessage}</Text>
+          ) : null
+        }
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing || loading}
+            onRefresh={onRefresh}
+            tintColor={theme.colors.primary}
+            colors={[theme.colors.primary]}
+          />
+        }
+      />
+
+      <FAB
+        label={t("home.newOrder")}
+        onPress={() => router.push("/(staff)/orders/new")}
+      />
+    </Screen>
+  );
+}
+
+function HeaderLink({ label, onPress }: { label: string; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      hitSlop={8}
+      style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.7 }]}
+      accessibilityRole="button"
+    >
+      <Text style={styles.linkText}>{label}</Text>
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create({
+  header: {
+    paddingHorizontal: theme.spacing.lg,
+    paddingTop: theme.spacing.lg,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  headerText: { flex: 1, gap: 4 },
+  hello: {
+    fontSize: theme.type.heading,
+    fontWeight: "700",
+    color: theme.colors.text,
+  },
+  subtitle: {
+    fontSize: theme.type.bodySmall,
+    color: theme.colors.textMuted,
+  },
+  headerActions: {
+    alignItems: "flex-end",
+    gap: 8,
+  },
+  linkBtn: {
+    minHeight: theme.tap - 8,
+    justifyContent: "center",
+  },
+  linkText: {
+    fontSize: 15,
+    color: theme.colors.primary,
+    fontWeight: "700",
+  },
+  scopeToggle: {
+    paddingHorizontal: theme.spacing.lg,
+    paddingTop: theme.spacing.md,
+  },
+  filters: {
+    paddingHorizontal: theme.spacing.lg,
+    paddingTop: theme.spacing.md,
+  },
+  list: {
+    padding: theme.spacing.lg,
+    paddingBottom: 140, // clear space for the FAB
+  },
+  empty: {
+    textAlign: "center",
+    fontSize: theme.type.body,
+    color: theme.colors.textMuted,
+    marginTop: theme.spacing.xl,
+  },
+});
