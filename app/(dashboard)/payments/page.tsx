@@ -93,8 +93,15 @@ export default async function PaymentsPage({
                 <Td>{p.recordedBy.ownerName}</Td>
                 <Td>
                   <Link
+                    href={`/payments/${p.id}`}
+                    className="text-xs font-medium text-primary hover:underline"
+                  >
+                    Open
+                  </Link>
+                  <span className="mx-1 text-xs text-muted-foreground">·</span>
+                  <Link
                     href={`/payments/${p.id}/edit`}
-                    className="text-xs text-primary hover:underline"
+                    className="text-xs text-muted-foreground hover:text-primary hover:underline"
                   >
                     Edit
                   </Link>

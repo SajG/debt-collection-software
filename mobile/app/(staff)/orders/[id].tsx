@@ -1,10 +1,34 @@
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useCallback, useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { Screen } from "@/components/Screen";
+import { Button } from "@/components/Button";
+import { PickList } from "@/components/PickList";
+import { PhotoPicker, type PickedPhoto } from "@/components/PhotoPicker";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Timeline } from "@/components/Timeline";
 import { useAuth } from "@/auth/AuthContext";
 import { useOrderDetail, useOrderEventStream } from "@/lib/queries";
+import {
+  attachOrderDocument,
+  useOrderDocuments,
+  ORDER_DOC_LABELS,
+  STAFF_UPLOADABLE_TYPES,
+  type OrderDocRow,
+  type OrderDocType,
+} from "@/lib/order-doc-queries";
+import { ORDER_DOC_BUCKET, getSignedUrl } from "@/lib/uploads";
+import { supabase } from "@/lib/supabase";
 import { formatDate } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { theme } from "@/theme";
@@ -90,10 +114,177 @@ export default function OrderDetailScreen() {
 
         <Text style={styles.timelineHeader}>{t("detail.timeline")}</Text>
         <Timeline events={data.events} currentStatus={data.currentStatus} />
+
+        <View style={{ height: theme.spacing.md }} />
+        <DocumentsSection orderId={id ?? null} />
       </ScrollView>
     </Screen>
   );
 }
+
+function DocumentsSection({ orderId }: { orderId: string | null }) {
+  const { data: docs, refetch } = useOrderDocuments(orderId);
+  const [photo, setPhoto] = useState<PickedPhoto | null>(null);
+  const [type, setType] = useState<OrderDocType>("ORDER_PROOF");
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  // Realtime refresh so a factory upload of INVOICE / LR appears here live
+  // while the salesperson has the screen open.
+  useEffect(() => {
+    if (!orderId) return;
+    const channel = supabase
+      .channel(`order-docs-${orderId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "OrderDocument",
+          filter: `salesOrderId=eq.${orderId}`,
+        },
+        () => void refetch()
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [orderId, refetch]);
+
+  const upload = useCallback(async () => {
+    if (!orderId || !photo) return;
+    setUploadError(null);
+    setUploading(true);
+    const res = await attachOrderDocument({
+      orderId,
+      type,
+      localUri: photo.uri,
+      fileName: photo.fileName,
+      mimeType: photo.mimeType,
+    });
+    setUploading(false);
+    if ("error" in res) {
+      setUploadError(res.error);
+      return;
+    }
+    setPhoto(null);
+    await refetch();
+  }, [orderId, photo, type, refetch]);
+
+  return (
+    <View>
+      <Text style={styles.timelineHeader}>Documents</Text>
+      <Text style={styles.docHint}>
+        Attach an order proof (customer PO, WhatsApp confirmation). Invoice
+        and LR come from the factory.
+      </Text>
+
+      <View style={styles.docUploadCard}>
+        <PhotoPicker photo={photo} onChange={setPhoto} />
+        <View style={{ height: theme.spacing.md }} />
+        <Text style={docSectionStyles.fieldLabel}>Type</Text>
+        <PickList
+          options={STAFF_UPLOADABLE_TYPES.map((v) => ({
+            label: ORDER_DOC_LABELS[v],
+            value: v,
+          }))}
+          value={type}
+          onChange={setType}
+        />
+        {uploadError && (
+          <Text style={docSectionStyles.error}>{uploadError}</Text>
+        )}
+        <View style={{ height: theme.spacing.md }} />
+        <Button
+          label={uploading ? "Uploading…" : "Upload document"}
+          onPress={upload}
+          loading={uploading}
+          disabled={!photo || uploading}
+        />
+      </View>
+
+      <View style={{ height: theme.spacing.md }} />
+      {(docs ?? []).length === 0 ? (
+        <View style={styles.docEmpty}>
+          <Text style={styles.docEmptyText}>No documents yet.</Text>
+        </View>
+      ) : (
+        <View style={{ gap: theme.spacing.sm }}>
+          {(docs ?? []).map((doc) => (
+            <OrderDocRowView key={doc.id} doc={doc} />
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+function OrderDocRowView({ doc }: { doc: OrderDocRow }) {
+  const [signedUrl, setSignedUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void getSignedUrl(ORDER_DOC_BUCKET, doc.storagePath).then((url) => {
+      if (alive) setSignedUrl(url);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [doc.storagePath]);
+
+  const isImage = /\.(jpe?g|png|webp|heic)$/i.test(doc.storagePath);
+
+  async function open() {
+    if (!signedUrl) return;
+    try {
+      await Linking.openURL(signedUrl);
+    } catch {
+      Alert.alert("Could not open", "Try again later.");
+    }
+  }
+
+  return (
+    <View style={styles.docRow}>
+      {isImage && signedUrl ? (
+        <Image
+          source={{ uri: signedUrl }}
+          style={styles.docThumb}
+          resizeMode="cover"
+        />
+      ) : (
+        <View style={styles.docThumbPlaceholder}>
+          <Text style={styles.docThumbPlaceholderText}>PDF</Text>
+        </View>
+      )}
+      <View style={{ flex: 1 }}>
+        <Text style={styles.docType}>{ORDER_DOC_LABELS[doc.type]}</Text>
+        <Text style={styles.docMeta}>
+          {formatDate(new Date(doc.createdAt))}
+          {doc.uploadedByName ? ` · ${doc.uploadedByName}` : ""}
+        </Text>
+        <Pressable onPress={open} hitSlop={8}>
+          <Text style={styles.docOpen}>
+            {signedUrl ? "Open →" : "Loading…"}
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+const docSectionStyles = StyleSheet.create({
+  fieldLabel: {
+    fontSize: theme.type.body,
+    fontWeight: "600",
+    color: theme.colors.text,
+    marginBottom: theme.spacing.sm,
+  },
+  error: {
+    marginTop: theme.spacing.sm,
+    color: theme.colors.danger,
+    fontSize: theme.type.body,
+  },
+});
 
 function InfoCard({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -189,5 +380,72 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     marginTop: theme.spacing.md,
     marginBottom: theme.spacing.sm,
+  },
+  docHint: {
+    fontSize: theme.type.bodySmall,
+    color: theme.colors.textMuted,
+    marginBottom: theme.spacing.sm,
+  },
+  docUploadCard: {
+    padding: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius,
+    backgroundColor: theme.colors.background,
+  },
+  docRow: {
+    flexDirection: "row",
+    gap: theme.spacing.md,
+    padding: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius,
+    backgroundColor: theme.colors.background,
+  },
+  docThumb: {
+    width: 72,
+    height: 72,
+    borderRadius: 8,
+    backgroundColor: theme.colors.surface,
+  },
+  docThumbPlaceholder: {
+    width: 72,
+    height: 72,
+    borderRadius: 8,
+    backgroundColor: theme.colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  docThumbPlaceholderText: {
+    fontSize: theme.type.body,
+    fontWeight: "700",
+    color: theme.colors.textMuted,
+  },
+  docType: {
+    fontSize: theme.type.body,
+    fontWeight: "600",
+    color: theme.colors.text,
+  },
+  docMeta: {
+    marginTop: 2,
+    fontSize: theme.type.bodySmall - 2,
+    color: theme.colors.textMuted,
+  },
+  docOpen: {
+    marginTop: theme.spacing.sm,
+    color: theme.colors.primary,
+    fontSize: theme.type.bodySmall,
+    fontWeight: "600",
+  },
+  docEmpty: {
+    padding: theme.spacing.lg,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius,
+    alignItems: "center",
+  },
+  docEmptyText: {
+    color: theme.colors.textMuted,
+    fontSize: theme.type.body,
   },
 });

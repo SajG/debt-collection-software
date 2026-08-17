@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import type { AccountingProvider } from "@prisma/client";
-import { requireProfile } from "@/lib/authz";
+import { requireProfile, requireAdmin } from "@/lib/authz";
 import { checkImportRateLimit } from "@/lib/rate-limit";
 import {
   ingestPartyRows,
@@ -10,8 +10,24 @@ import {
   type ImportResult,
 } from "@/lib/import/ingest";
 import { syncProvider, type SyncSummary } from "@/lib/integrations/pull";
+import { linkOrderToParty } from "@/lib/orders/reconcile";
 
 export type { ImportResult };
+
+export async function linkOrderToPartyAction(
+  orderId: string,
+  partyId: string
+): Promise<{ ok: true } | { error: string }> {
+  const profile = await requireAdmin();
+  const res = await linkOrderToParty(orderId, partyId, profile.id);
+  if ("ok" in res) {
+    revalidatePath("/import");
+    revalidatePath("/orders");
+    revalidatePath(`/orders/${orderId}`);
+    revalidatePath("/production");
+  }
+  return res;
+}
 
 async function importRateLimitError(
   profileId: string

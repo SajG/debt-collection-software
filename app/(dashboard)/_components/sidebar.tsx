@@ -13,19 +13,72 @@ import {
   Upload,
   Settings,
   LogOut,
+  Factory,
+  PackageSearch,
+  Truck,
 } from "lucide-react";
+import type { Role } from "@prisma/client";
 import { createClient } from "@/lib/supabase/client";
 
-const NAV = [
+type NavItem = {
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  roles?: Role[]; // if set, only these roles see the link
+};
+
+const NAV: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/worklist", label: "Worklist", icon: ListOrdered },
-  { href: "/parties", label: "Parties", icon: Users },
-  { href: "/invoices", label: "Invoices", icon: FileText },
-  { href: "/payments", label: "Payments", icon: CreditCard },
-  { href: "/actions", label: "Follow-ups", icon: Phone },
-  { href: "/proformas", label: "Proformas", icon: ClipboardList },
-  { href: "/import", label: "Import", icon: Upload },
-  { href: "/settings", label: "Settings", icon: Settings },
+  {
+    href: "/production",
+    label: "Production",
+    icon: Factory,
+    roles: ["ADMIN", "FACTORY"],
+  },
+  {
+    href: "/orders",
+    label: "Orders",
+    icon: Truck,
+    roles: ["ADMIN", "STAFF"],
+  },
+  {
+    href: "/stock",
+    label: "Stock",
+    icon: PackageSearch,
+  },
+  {
+    href: "/worklist",
+    label: "Worklist",
+    icon: ListOrdered,
+    roles: ["ADMIN", "STAFF"],
+  },
+  { href: "/parties", label: "Parties", icon: Users, roles: ["ADMIN", "STAFF"] },
+  {
+    href: "/invoices",
+    label: "Invoices",
+    icon: FileText,
+    roles: ["ADMIN", "STAFF"],
+  },
+  {
+    href: "/payments",
+    label: "Payments",
+    icon: CreditCard,
+    roles: ["ADMIN", "STAFF"],
+  },
+  {
+    href: "/actions",
+    label: "Follow-ups",
+    icon: Phone,
+    roles: ["ADMIN", "STAFF"],
+  },
+  {
+    href: "/proformas",
+    label: "Proformas",
+    icon: ClipboardList,
+    roles: ["ADMIN", "STAFF"],
+  },
+  { href: "/import", label: "Import", icon: Upload, roles: ["ADMIN"] },
+  { href: "/settings", label: "Settings", icon: Settings, roles: ["ADMIN"] },
 ];
 
 const DARK = "#093D30";
@@ -33,9 +86,11 @@ const DARK = "#093D30";
 export function Sidebar({
   businessName,
   ownerName,
+  role,
 }: {
   businessName: string;
   ownerName: string;
+  role: Role;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -53,6 +108,10 @@ export function Sidebar({
     .slice(0, 2)
     .toUpperCase();
 
+  const visibleNav = NAV.filter(
+    (item) => !item.roles || item.roles.includes(role)
+  );
+
   return (
     // Icon-only rail below md so phone users keep their screen width.
     <aside
@@ -69,7 +128,7 @@ export function Sidebar({
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-3 px-2.5">
-        {NAV.map(({ href, label, icon: Icon }) => {
+        {visibleNav.map(({ href, label, icon: Icon }) => {
           const active =
             pathname === href ||
             (href !== "/dashboard" && pathname.startsWith(href));

@@ -44,7 +44,14 @@
         }
       ],
       "@react-native-community/datetimepicker",
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "PayTrack needs camera/photo access so you can attach payment proof (bank screenshot, cheque photo) after recording a payment.",
+          "cameraPermission": "PayTrack uses the camera to capture payment proofs and order proofs while you're at the customer site."
+        }
+      ]
     ],
     "extra": {
       "router": {

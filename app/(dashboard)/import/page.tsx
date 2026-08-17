@@ -8,13 +8,20 @@ import {
   type ProviderSlug,
 } from "@/lib/integrations/accounting";
 import { PageHeader, Card } from "../_components/ui";
+import { findPendingCustomerMatches } from "@/lib/orders/reconcile";
 import { ImportClient } from "./import-client";
 import { LiveSyncCard, type ProviderStatus } from "./live-sync";
+import { PendingOrdersResolver } from "./pending-orders";
+
+export const dynamic = "force-dynamic";
 
 export default async function ImportPage() {
   await requireAdmin();
 
-  const connections = await db.accountingConnection.findMany();
+  const [connections, pending] = await Promise.all([
+    db.accountingConnection.findMany(),
+    findPendingCustomerMatches(),
+  ]);
   const providers: ProviderStatus[] = (
     Object.entries(PROVIDER_BY_SLUG) as [
       ProviderSlug,
@@ -41,6 +48,10 @@ export default async function ImportPage() {
       <ImportClient />
 
       <div className="mt-8 max-w-3xl space-y-6">
+        <Card title="Pending customer matches">
+          <PendingOrdersResolver pending={pending} />
+        </Card>
+
         <Card title="Live accounting sync">
           <p className="mb-4 text-xs text-muted-foreground">
             Pull customers and open invoices directly. Synced records go

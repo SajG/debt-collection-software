@@ -300,6 +300,7 @@ export function statusTone(status: string): BadgeTone {
     case "DELIVERED":
     case "READ":
     case "SENT":
+    case "DISPATCHED":
       return "success";
     case "OVERDUE":
     case "CRITICAL":
@@ -308,13 +309,18 @@ export function statusTone(status: string): BadgeTone {
     case "FAILED":
     case "BLOCKED":
     case "DISPUTED":
+    case "CANCELLED":
       return "danger";
     case "PARTIAL":
     case "MEDIUM":
     case "QUEUED":
+    case "IN_PRODUCTION":
+    case "READY_TO_DISPATCH":
+    case "LR_GENERATED":
       return "amber";
     case "UNPAID":
     case "LOW":
+    case "ORDER_PLACED":
       return "info";
     default:
       return "neutral";

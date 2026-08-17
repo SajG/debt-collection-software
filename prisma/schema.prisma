@@ -15,6 +15,7 @@ datasource db {
 enum Role {
   ADMIN
   STAFF
+  FACTORY
 }
 
 enum AccountingTool {
@@ -103,6 +104,7 @@ enum SyncType {
   IMPORT_PARTIES
   IMPORT_INVOICES
   IMPORT_PAYMENTS
+  IMPORT_STOCK_ITEMS
   FULL_IMPORT
   EXPORT_PAYMENTS
 }
@@ -148,29 +150,59 @@ enum MessageStatus {
   RECEIVED // inbound
 }
 
+enum OrderStatus {
+  ORDER_PLACED
+  IN_PRODUCTION
+  READY_TO_DISPATCH
+  LR_GENERATED
+  DISPATCHED
+  CANCELLED
+}
+
+enum DocumentType {
+  INVOICE
+  LORRY_RECEIPT
+  ORDER_PROOF
+  OTHER
+}
+
+enum PaymentDocumentType {
+  BANK_SCREENSHOT
+  CHEQUE_PHOTO
+  UPI_SCREENSHOT
+  RECEIPT
+  OTHER
+}
+
 // ─────────────────────────────────────────────────────────────────
 // PROFILE  (auth identity lives in Supabase auth.users)
 // ─────────────────────────────────────────────────────────────────
 
 model Profile {
-  id           String   @id @db.Uuid   // mirrors auth.users.id
-  businessName String
-  ownerName    String
-  phone        String?
-  role         Role     @default(STAFF)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id             String   @id @db.Uuid // mirrors auth.users.id
+  businessName   String
+  ownerName      String
+  phone          String?
+  role           Role     @default(STAFF)
+  // Maps this salesperson to their Tally Cost Centre / Sales Executive name
+  costCentreName String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   businessSettings BusinessSettings?
 
-  assignedParties  Party[]           @relation("PartyAssignee")
-  recordedPayments Payment[]         @relation("PaymentRecorder")
-  performedActions Action[]          @relation("ActionPerformer")
-  createdProformas ProformaInvoice[] @relation("ProformaCreator")
-  triggeredSyncs   SyncLog[]         @relation("SyncTrigger")
-  sentMessages     Message[]         @relation("MessageSender")
-  issuedCreditNotes    CreditNote[]  @relation("CreditNoteIssuer")
-  cancelledCreditNotes CreditNote[]  @relation("CreditNoteCanceller")
+  assignedParties      Party[]            @relation("PartyAssignee")
+  recordedPayments     Payment[]          @relation("PaymentRecorder")
+  performedActions     Action[]           @relation("ActionPerformer")
+  createdProformas     ProformaInvoice[]  @relation("ProformaCreator")
+  triggeredSyncs       SyncLog[]          @relation("SyncTrigger")
+  sentMessages         Message[]          @relation("MessageSender")
+  issuedCreditNotes    CreditNote[]       @relation("CreditNoteIssuer")
+  cancelledCreditNotes CreditNote[]       @relation("CreditNoteCanceller")
+  salesOrders          SalesOrder[]       @relation("OrderSalesperson")
+  orderStatusEvents    OrderStatusEvent[] @relation("OrderStatusUpdater")
+  orderDocuments       OrderDocument[]    @relation("DocumentUploader")
+  paymentDocuments     PaymentDocument[]  @relation("PaymentDocumentUploader")
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -230,7 +262,7 @@ model BusinessSettings {
 
   // Tally sync config
   tallyHost        String?
-  tallyPort        Int?     // default 9000
+  tallyPort        Int? // default 9000
   tallyCompanyName String?
 
   // WhatsApp Business API config
@@ -266,10 +298,14 @@ model Party {
   state         String?
 
   creditLimit Decimal? @db.Decimal(12, 2)
-  creditDays  Int?     // agreed payment terms in days
+  creditDays  Int? // agreed payment terms in days
 
   // Cached AR balance — update via app whenever invoices or payments change
   totalOutstanding Decimal @default(0) @db.Decimal(12, 2)
+
+  // Tally Cost Centre / Sales Executive name — used for auto-assignment
+  // to the Profile whose costCentreName matches this value
+  costCentre String?
 
   priority  PartyPriority @default(MEDIUM)
   riskLevel RiskLevel     @default(LOW)
@@ -302,6 +338,7 @@ model Party {
   messages     Message[]
   paymentLinks PaymentLink[]
   creditNotes  CreditNote[]
+  salesOrders  SalesOrder[]
 
   @@index([assignedToId])
   @@index([isActive, priority])
@@ -314,21 +351,21 @@ model Party {
 // ─────────────────────────────────────────────────────────────────
 
 model Invoice {
-  id            String        @id @default(cuid())
-  invoiceNumber String
-  partyId       String
-  invoiceDate   DateTime
-  dueDate       DateTime
-  totalAmount   Decimal       @db.Decimal(12, 2)
-  paidAmount    Decimal       @default(0) @db.Decimal(12, 2)
+  id             String        @id @default(cuid())
+  invoiceNumber  String
+  partyId        String
+  invoiceDate    DateTime
+  dueDate        DateTime
+  totalAmount    Decimal       @db.Decimal(12, 2)
+  paidAmount     Decimal       @default(0) @db.Decimal(12, 2)
   // Cached Σ(amount) over non-cancelled credit notes on this invoice.
   // Maintained inside the credit-note issue/cancel transactions.
-  creditedAmount Decimal      @default(0) @db.Decimal(12, 2)
+  creditedAmount Decimal       @default(0) @db.Decimal(12, 2)
   // pendingAmount = totalAmount - paidAmount - creditedAmount → computed in app
-  status        InvoiceStatus @default(UNPAID)
-  source        InvoiceSource @default(MANUAL)
-  tallyRef      String?       // Tally voucher ref for sync dedup
-  notes         String?
+  status         InvoiceStatus @default(UNPAID)
+  source         InvoiceSource @default(MANUAL)
+  tallyRef       String? // Tally voucher ref for sync dedup
+  notes          String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -358,7 +395,7 @@ model Payment {
   amount      Decimal       @db.Decimal(12, 2)
   paymentDate DateTime
   method      PaymentMethod @default(NEFT)
-  reference   String?       // cheque number, UTR, UPI transaction ID
+  reference   String? // cheque number, UTR, UPI transaction ID
   notes       String?
 
   // Optional single-invoice link for v1.
@@ -375,10 +412,33 @@ model Payment {
   party      Party    @relation(fields: [partyId], references: [id], onDelete: Restrict)
   invoice    Invoice? @relation(fields: [invoiceId], references: [id])
   recordedBy Profile  @relation("PaymentRecorder", fields: [recordedById], references: [id])
+  documents  PaymentDocument[]
 
   @@index([partyId])
   @@index([paymentDate])
   @@index([partyId, paymentDate])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// PAYMENT DOCUMENT (bank screenshot, cheque photo, UPI screenshot,
+// signed receipt — anything a salesperson / accountant photographs
+// alongside a payment for later bank reconciliation)
+// ─────────────────────────────────────────────────────────────────
+
+model PaymentDocument {
+  id           String              @id @default(cuid())
+  paymentId    String
+  type         PaymentDocumentType
+  storagePath  String // Supabase Storage object path, private bucket
+  fileName     String? // original client filename for display
+  uploadedById String              @db.Uuid
+  notes        String?
+  createdAt    DateTime            @default(now())
+
+  payment    Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  uploadedBy Profile @relation("PaymentDocumentUploader", fields: [uploadedById], references: [id])
+
+  @@index([paymentId])
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -392,7 +452,7 @@ model Action {
   type            ActionType
   outcome         ActionOutcome?
   notes           String?
-  contactedPerson String?        // who was spoken to at the party side
+  contactedPerson String? // who was spoken to at the party side
 
   // Promise-to-pay tracking
   promiseDate   DateTime?
@@ -457,7 +517,7 @@ model ProformaLineItem {
   unitPrice   Decimal @db.Decimal(12, 2)
   taxRate     Decimal @default(0) @db.Decimal(5, 2) // 18.00 = 18% GST
   taxAmount   Decimal @db.Decimal(12, 2)
-  lineTotal   Decimal @db.Decimal(12, 2)            // (qty × unitPrice) + taxAmount
+  lineTotal   Decimal @db.Decimal(12, 2) // (qty × unitPrice) + taxAmount
   sortOrder   Int     @default(0)
 
   proforma ProformaInvoice @relation(fields: [proformaId], references: [id], onDelete: Cascade)
@@ -514,7 +574,7 @@ model SyncLog {
   recordsProcessed Int?
   recordsFailed    Int?
   errorMessage     String?
-  details          Json?      // per-record errors / warnings
+  details          Json? // per-record errors / warnings
 
   triggeredById String?  @db.Uuid
   triggeredBy   Profile? @relation("SyncTrigger", fields: [triggeredById], references: [id])
@@ -606,6 +666,116 @@ model AccountingConnection {
   connectedAt DateTime  @default(now())
   lastSyncAt  DateTime?
   updatedAt   DateTime  @updatedAt
+}
+
+// ─────────────────────────────────────────────────────────────────
+// PRODUCT  (factory catalogue — Polygum / Ombond / Omcol / etc.)
+// ─────────────────────────────────────────────────────────────────
+
+model Product {
+  id        String   @id @default(cuid())
+  name      String
+  brand     String
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  salesOrders SalesOrder[]
+}
+
+// ─────────────────────────────────────────────────────────────────
+// SALES ORDER  (salesperson → factory order pipeline)
+// ─────────────────────────────────────────────────────────────────
+
+model SalesOrder {
+  id          String @id @default(cuid())
+  orderNumber String @unique // format: SB/YY-YY/NNNN, generated same pattern as proformaNumber
+
+  // Exactly one of these two must be set — enforce in application logic, not just here:
+  partyId         String? // existing customer, chosen from the salesperson's own ledger dropdown
+  newCustomerName String? // free text, only used when the customer isn't in Tally yet
+
+  salespersonId        String      @db.Uuid
+  productId            String
+  brand                String
+  quantity             Decimal     @db.Decimal(10, 3)
+  quantityUnit         String // "PCS" | "KG" | "NOS"
+  packingType          String?
+  sizeKg               String?
+  productRate          String // kept as text — rates are written informally
+  orderValue           Decimal     @db.Decimal(12, 2) // computed at creation: quantity × rate, best-effort parse
+  paymentTerm          String?
+  transportType        String?
+  expectedDeliveryDate DateTime?
+  notes                String?
+  currentStatus        OrderStatus @default(ORDER_PLACED)
+  linkedInvoiceId      String?
+
+  // Credit-limit check outcome at time of placement — kept for audit even if the
+  // customer's limit changes later
+  creditCheckPassed  Boolean @default(true)
+  creditOverrideById String? @db.Uuid // set when a director overrides a blocked order
+  creditOverrideNote String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  party        Party?             @relation(fields: [partyId], references: [id])
+  salesperson  Profile            @relation("OrderSalesperson", fields: [salespersonId], references: [id])
+  product      Product            @relation(fields: [productId], references: [id])
+  statusEvents OrderStatusEvent[]
+  documents    OrderDocument[]
+
+  @@index([salespersonId, createdAt])
+  @@index([partyId])
+  @@index([currentStatus])
+  @@index([expectedDeliveryDate])
+}
+
+model OrderStatusEvent {
+  id           String      @id @default(cuid())
+  salesOrderId String
+  status       OrderStatus
+  notes        String?
+  updatedById  String      @db.Uuid
+  createdAt    DateTime    @default(now())
+
+  salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  updatedBy  Profile    @relation("OrderStatusUpdater", fields: [updatedById], references: [id])
+
+  @@index([salesOrderId, createdAt])
+}
+
+model OrderDocument {
+  id           String       @id @default(cuid())
+  salesOrderId String
+  type         DocumentType
+  storagePath  String // Supabase Storage object path, private bucket
+  uploadedById String       @db.Uuid
+  createdAt    DateTime     @default(now())
+
+  salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  uploadedBy Profile    @relation("DocumentUploader", fields: [uploadedById], references: [id])
+
+  @@index([salesOrderId])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// STOCK ITEM  (Tally stock snapshot for factory availability)
+// ─────────────────────────────────────────────────────────────────
+
+model StockItem {
+  id           String    @id @default(cuid())
+  name         String    @unique
+  category     String?
+  unit         String?
+  closingQty   Decimal   @db.Decimal(12, 3)
+  tallyRef     String?   @unique
+  lastSyncedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([name])
 }
 
 // ─────────────────────────────────────────────────────────────────

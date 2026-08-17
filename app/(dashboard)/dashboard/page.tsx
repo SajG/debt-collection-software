@@ -1,16 +1,23 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { addDays } from "date-fns";
-import { AlertTriangle, Clock, IndianRupee, Users } from "lucide-react";
+import { AlertTriangle, Clock, IndianRupee, Truck, Users } from "lucide-react";
 import { db } from "@/lib/db";
 import { requireProfile, partyScopeWhere } from "@/lib/authz";
 import { startOfToday } from "@/lib/ar/balance";
 import { formatINR, formatDate } from "@/lib/format";
-import { Badge, statusTone } from "../_components/ui";
+import { Badge, LinkButton, statusTone } from "../_components/ui";
+import {
+  customerName,
+  deliveryUrgency,
+  ORDER_STATUS_LABELS,
+} from "@/lib/orders/status";
 import { RefreshStatusesButton } from "./refresh-button";
 
 export default async function DashboardPage() {
   const profile = await requireProfile();
+
+  if (profile.role === "FACTORY") redirect("/production");
 
   const settings = await db.businessSettings.findUnique({
     where: { profileId: profile.id },
@@ -24,6 +31,9 @@ export default async function DashboardPage() {
   const today = startOfToday();
   const weekAhead = addDays(today, 7);
 
+  const orderScope =
+    profile.role === "ADMIN" ? {} : { salespersonId: profile.id };
+
   const [
     outstandingAgg,
     overduePartyCount,
@@ -31,6 +41,8 @@ export default async function DashboardPage() {
     activePartyCount,
     overdueInvoices,
     todaysFollowUps,
+    openOrdersAgg,
+    myOpenOrders,
   ] = await Promise.all([
     db.party.aggregate({
       where: scope,
@@ -77,6 +89,29 @@ export default async function DashboardPage() {
       orderBy: { nextFollowUpDate: "asc" },
       take: 6,
     }),
+    db.salesOrder.aggregate({
+      where: {
+        ...orderScope,
+        currentStatus: { notIn: ["DISPATCHED", "CANCELLED"] },
+      },
+      _count: true,
+      _sum: { orderValue: true },
+    }),
+    db.salesOrder.findMany({
+      where: {
+        ...orderScope,
+        currentStatus: { notIn: ["DISPATCHED", "CANCELLED"] },
+      },
+      include: {
+        party: { select: { name: true } },
+        product: { select: { name: true, brand: true } },
+      },
+      orderBy: [
+        { expectedDeliveryDate: { sort: "asc", nulls: "last" } },
+        { createdAt: "desc" },
+      ],
+      take: 6,
+    }),
   ]);
 
   const totalOutstanding = outstandingAgg._sum.totalOutstanding ?? 0;
@@ -98,7 +133,10 @@ export default async function DashboardPage() {
             Here&apos;s your accounts receivable summary for today.
           </p>
         </div>
-        <RefreshStatusesButton />
+        <div className="flex flex-wrap gap-2">
+          <LinkButton href="/orders/new">+ New order</LinkButton>
+          <RefreshStatusesButton />
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 mb-8">
@@ -121,9 +159,9 @@ export default async function DashboardPage() {
           accent="amber"
         />
         <StatCard
-          label="Active parties"
-          value={String(activePartyCount)}
-          icon={Users}
+          label="Open orders"
+          value={`${openOrdersAgg._count} · ${formatINR(openOrdersAgg._sum.orderValue ?? 0)}`}
+          icon={Truck}
           accent="neutral"
         />
       </div>
@@ -157,6 +195,51 @@ export default async function DashboardPage() {
                   </span>
                 </li>
               ))}
+            </ul>
+          )}
+        </Panel>
+
+        <Panel title="Open orders" viewAllHref="/orders">
+          {myOpenOrders.length === 0 ? (
+            <PanelEmpty message="No open orders. Tap + New order to place one." />
+          ) : (
+            <ul className="divide-y divide-border/60">
+              {myOpenOrders.map((o) => {
+                const urgency = deliveryUrgency(o.expectedDeliveryDate);
+                const deliveryCls =
+                  urgency === "overdue"
+                    ? "text-red-700 font-semibold"
+                    : urgency === "today"
+                      ? "text-amber-700 font-semibold"
+                      : "text-muted-foreground";
+                return (
+                  <li key={o.id} className="flex items-center justify-between py-2.5">
+                    <div className="min-w-0">
+                      <Link
+                        href={`/orders/${o.id}`}
+                        className="text-sm font-medium hover:underline"
+                      >
+                        {customerName(o)}
+                      </Link>
+                      <p className="text-xs text-muted-foreground truncate">
+                        <span className="font-mono">{o.orderNumber}</span> ·{" "}
+                        {o.product.brand}
+                        {o.expectedDeliveryDate && (
+                          <>
+                            {" · "}
+                            <span className={deliveryCls}>
+                              {formatDate(o.expectedDeliveryDate)}
+                            </span>
+                          </>
+                        )}
+                      </p>
+                    </div>
+                    <Badge tone={statusTone(o.currentStatus)}>
+                      {ORDER_STATUS_LABELS[o.currentStatus]}
+                    </Badge>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </Panel>

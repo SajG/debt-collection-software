@@ -9,9 +9,15 @@ import { useWizard, isDraftComplete } from "@/lib/order-draft";
 import { useConnectivity } from "@/lib/connectivity";
 import { enqueue } from "@/lib/order-queue";
 import { supabase } from "@/lib/supabase";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatINR } from "@/lib/format";
+import { usePartyCredit } from "@/lib/stock-queries";
 import { t } from "@/lib/i18n";
 import { theme } from "@/theme";
+
+function parseRate(raw: string): number {
+  const m = raw.replace(/[₹,\s]/g, "").match(/-?[\d.]+/);
+  return m ? Number(m[0]) : 0;
+}
 
 type RouteName =
   | "/(staff)/orders/new/customer"
@@ -40,8 +46,15 @@ export default function StepReview() {
   const { draft, discard } = useWizard();
   const { online } = useConnectivity();
   const [submitting, setSubmitting] = useState(false);
+  const { data: credit } = usePartyCredit(draft.partyId ?? null);
 
   const complete = isDraftComplete(draft);
+
+  const orderValue =
+    (Number(draft.quantity) || 0) * parseRate(draft.productRate);
+  const projected = (credit?.totalOutstanding ?? 0) + orderValue;
+  const overLimit =
+    credit?.creditLimit != null && projected > credit.creditLimit;
 
   async function submit() {
     if (!complete) {
@@ -114,6 +127,56 @@ export default function StepReview() {
       </View>
 
       <ScrollView contentContainerStyle={styles.body}>
+        {credit && (
+          <View
+            style={[
+              styles.creditCard,
+              overLimit && styles.creditCardDanger,
+            ]}
+          >
+            <Text style={styles.creditTitle}>Credit position</Text>
+            <View style={styles.creditRow}>
+              <Text style={styles.creditLabel}>Outstanding</Text>
+              <Text style={styles.creditValue}>
+                {formatINR(credit.totalOutstanding)}
+              </Text>
+            </View>
+            <View style={styles.creditRow}>
+              <Text style={styles.creditLabel}>This order</Text>
+              <Text style={styles.creditValue}>{formatINR(orderValue)}</Text>
+            </View>
+            <View style={styles.creditRow}>
+              <Text style={styles.creditLabel}>Projected total</Text>
+              <Text
+                style={[
+                  styles.creditValue,
+                  { fontWeight: "800" as const },
+                ]}
+              >
+                {formatINR(projected)}
+              </Text>
+            </View>
+            {credit.creditLimit != null && (
+              <View style={styles.creditRow}>
+                <Text style={styles.creditLabel}>Credit limit</Text>
+                <Text style={styles.creditValue}>
+                  {formatINR(credit.creditLimit)}
+                </Text>
+              </View>
+            )}
+            {overLimit && (
+              <Text style={styles.creditWarn}>
+                Credit limit will be exceeded — admin may need to override.
+                Consider collecting outstanding first.
+              </Text>
+            )}
+            {credit.creditDays != null && (
+              <Text style={styles.creditHint}>
+                Agreed credit period: {credit.creditDays} days.
+              </Text>
+            )}
+          </View>
+        )}
         <Row label={t("wizard.review.customer")} value={draft.partyName} to={CHANGE_ROUTES.customer} />
         <Row label={t("wizard.review.brand")} value={draft.brand} to={CHANGE_ROUTES.brand} />
         <Row label={t("wizard.review.product")} value={draft.productName} to={CHANGE_ROUTES.product} />
@@ -230,5 +293,50 @@ const styles = StyleSheet.create({
     fontSize: theme.type.bodySmall,
     color: theme.colors.primary,
     fontWeight: "700",
+  },
+  creditCard: {
+    padding: theme.spacing.md,
+    borderRadius: theme.radius,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    gap: 6,
+    marginBottom: theme.spacing.sm,
+  },
+  creditCardDanger: {
+    borderColor: theme.colors.danger,
+    backgroundColor: theme.colors.dangerBg,
+  },
+  creditTitle: {
+    fontSize: theme.type.body,
+    fontWeight: "700",
+    color: theme.colors.text,
+    marginBottom: 4,
+  },
+  creditRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "baseline",
+  },
+  creditLabel: {
+    fontSize: theme.type.bodySmall,
+    color: theme.colors.textMuted,
+  },
+  creditValue: {
+    fontSize: theme.type.body,
+    color: theme.colors.text,
+    fontWeight: "600",
+    fontVariant: ["tabular-nums"],
+  },
+  creditWarn: {
+    marginTop: 6,
+    fontSize: theme.type.bodySmall,
+    color: theme.colors.danger,
+    fontWeight: "600",
+  },
+  creditHint: {
+    marginTop: 2,
+    fontSize: theme.type.bodySmall - 2,
+    color: theme.colors.textMuted,
   },
 });

@@ -1,6 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { ingestPartyRows, ingestInvoiceRows, MAX_ROWS } from "@/lib/import/ingest";
+import {
+  ingestPartyRows,
+  ingestInvoiceRows,
+  ingestStockItemRows,
+  MAX_ROWS,
+} from "@/lib/import/ingest";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -18,6 +23,7 @@ const rowArray = z.array(z.record(z.string())).max(MAX_ROWS);
 const payloadSchema = z.object({
   parties: rowArray.optional(),
   invoices: rowArray.optional(),
+  stockItems: rowArray.optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -51,8 +57,18 @@ export async function POST(request: NextRequest) {
   if (parsed.data.invoices?.length) {
     summary.invoices = await ingestInvoiceRows(parsed.data.invoices, opts);
   }
-  if (!parsed.data.parties?.length && !parsed.data.invoices?.length) {
-    return NextResponse.json({ error: "Send parties and/or invoices" }, { status: 400 });
+  if (parsed.data.stockItems?.length) {
+    summary.stockItems = await ingestStockItemRows(parsed.data.stockItems, opts);
+  }
+  if (
+    !parsed.data.parties?.length &&
+    !parsed.data.invoices?.length &&
+    !parsed.data.stockItems?.length
+  ) {
+    return NextResponse.json(
+      { error: "Send parties, invoices, and/or stockItems" },
+      { status: 400 }
+    );
   }
 
   return NextResponse.json(summary);

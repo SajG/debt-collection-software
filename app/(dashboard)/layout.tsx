@@ -33,7 +33,7 @@ export default async function DashboardLayout({
   const [profile, settings] = await Promise.all([
     db.profile.findUnique({
       where: { id: user.id },
-      select: { businessName: true, ownerName: true },
+      select: { businessName: true, ownerName: true, role: true },
     }),
     db.businessSettings.findUnique({
       where: { profileId: user.id },
@@ -43,7 +43,12 @@ export default async function DashboardLayout({
 
   const fontClasses = `${lora.variable} ${dmSans.variable} font-body`;
 
-  if (!settings?.onboardingDone) {
+  // FACTORY accounts skip the AR onboarding wizard — they only need the
+  // production console shell.
+  const showShell =
+    settings?.onboardingDone === true || profile?.role === "FACTORY";
+
+  if (!showShell) {
     return <div className={fontClasses}>{children}</div>;
   }
 
@@ -54,6 +59,7 @@ export default async function DashboardLayout({
       <Sidebar
         businessName={profile?.businessName ?? "My Business"}
         ownerName={profile?.ownerName ?? "User"}
+        role={profile?.role ?? "STAFF"}
       />
       <div className="flex flex-1 flex-col overflow-hidden">
         <main className="flex-1 overflow-y-auto">{children}</main>

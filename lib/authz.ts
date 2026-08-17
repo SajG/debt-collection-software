@@ -28,6 +28,15 @@ export async function requireAdmin(): Promise<Profile> {
   return profile;
 }
 
+/** Factory console — ADMIN and FACTORY only; STAFF redirected away. */
+export async function requireFactoryOrAdmin(): Promise<Profile> {
+  const profile = await requireProfile();
+  if (profile.role !== "ADMIN" && profile.role !== "FACTORY") {
+    redirect("/dashboard");
+  }
+  return profile;
+}
+
 type ApiAuthResult =
   | { profile: Profile; failure: null }
   | { profile: null; failure: NextResponse };
@@ -69,4 +78,13 @@ export function canAccessParty(
 ): boolean {
   if (profile.role === "ADMIN") return true;
   return party.assignedToId === null || party.assignedToId === profile.id;
+}
+
+/** True when this profile may view a sales order. */
+export function canAccessOrder(
+  profile: Profile,
+  order: { salespersonId: string }
+): boolean {
+  if (profile.role === "ADMIN" || profile.role === "FACTORY") return true;
+  return order.salespersonId === profile.id;
 }

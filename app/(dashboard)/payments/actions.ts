@@ -33,6 +33,8 @@ export async function createPaymentAction(
 
   const amount = new Prisma.Decimal(data.amount);
 
+  let newPaymentId: string | null = null;
+
   if (data.invoiceId) {
     const invoice = await db.invoice.findUnique({ where: { id: data.invoiceId } });
     if (!invoice || invoice.partyId !== data.partyId) {
@@ -49,7 +51,7 @@ export async function createPaymentAction(
     }
 
     await db.$transaction(async (tx) => {
-      await tx.payment.create({
+      const created = await tx.payment.create({
         data: {
           partyId: data.partyId,
           invoiceId: data.invoiceId,
@@ -61,6 +63,7 @@ export async function createPaymentAction(
           recordedById: profile.id,
         },
       });
+      newPaymentId = created.id;
       const newPaid = invoice.paidAmount.plus(amount);
       await tx.invoice.update({
         where: { id: invoice.id },
@@ -77,7 +80,7 @@ export async function createPaymentAction(
     });
   } else {
     await db.$transaction(async (tx) => {
-      await tx.payment.create({
+      const created = await tx.payment.create({
         data: {
           partyId: data.partyId,
           amount,
@@ -88,6 +91,7 @@ export async function createPaymentAction(
           recordedById: profile.id,
         },
       });
+      newPaymentId = created.id;
       await recomputePartyOutstanding(tx, data.partyId);
     });
   }
@@ -95,6 +99,9 @@ export async function createPaymentAction(
   revalidatePath("/payments");
   revalidatePath(`/parties/${data.partyId}`);
   if (data.invoiceId) revalidatePath(`/invoices/${data.invoiceId}`);
+  // Redirect into the payment detail page so the salesperson can attach a
+  // proof photo right after recording — one flow instead of two.
+  if (newPaymentId) redirect(`/payments/${newPaymentId}`);
   redirect(`/parties/${data.partyId}`);
 }
 

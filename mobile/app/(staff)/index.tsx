@@ -125,6 +125,8 @@ export default function HomeScreen() {
         </View>
         <View style={styles.headerActions}>
           <HeaderLink label={t("home.dues")} onPress={() => router.push("/(staff)/dues")} />
+          <HeaderLink label="Stock" onPress={() => router.push("/(staff)/stock")} />
+          <HeaderLink label="Payments" onPress={() => router.push("/(staff)/payments")} />
           <HeaderLink
             label={t("home.signOut")}
             onPress={() =>
