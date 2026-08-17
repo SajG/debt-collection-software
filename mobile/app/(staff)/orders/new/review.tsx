@@ -21,6 +21,7 @@ function parseRate(raw: string): number {
 
 type RouteName =
   | "/(staff)/orders/new/customer"
+  | "/(staff)/orders/new/dispatch"
   | "/(staff)/orders/new/brand"
   | "/(staff)/orders/new/product"
   | "/(staff)/orders/new/quantity"
@@ -28,10 +29,12 @@ type RouteName =
   | "/(staff)/orders/new/rate"
   | "/(staff)/orders/new/terms"
   | "/(staff)/orders/new/delivery"
+  | "/(staff)/orders/new/token"
   | "/(staff)/orders/new/notes";
 
 const CHANGE_ROUTES: Record<string, RouteName> = {
   customer: "/(staff)/orders/new/customer",
+  dispatch: "/(staff)/orders/new/dispatch",
   brand: "/(staff)/orders/new/brand",
   product: "/(staff)/orders/new/product",
   quantity: "/(staff)/orders/new/quantity",
@@ -39,6 +42,7 @@ const CHANGE_ROUTES: Record<string, RouteName> = {
   rate: "/(staff)/orders/new/rate",
   terms: "/(staff)/orders/new/terms",
   delivery: "/(staff)/orders/new/delivery",
+  token: "/(staff)/orders/new/token",
   notes: "/(staff)/orders/new/notes",
 };
 
@@ -64,7 +68,9 @@ export default function StepReview() {
     setSubmitting(true);
 
     const rpcPayload = {
-      p_party_id: draft.partyId!,
+      p_party_id: draft.partyId,
+      p_new_customer_name: draft.newCustomerName,
+      p_dispatch_location: draft.dispatchLocation.trim() || null,
       p_product_id: draft.productId!,
       p_brand: draft.brand,
       p_quantity: Number(draft.quantity),
@@ -75,7 +81,7 @@ export default function StepReview() {
       p_payment_term: draft.paymentTerm!,
       p_transport_type: draft.transportType!,
       p_expected_delivery_date: draft.expectedDeliveryDate,
-      p_token_type: null,
+      p_token_type: draft.tokenType,
       p_notes: draft.notes.trim() ? draft.notes.trim() : null,
     } as const;
 
@@ -123,7 +129,7 @@ export default function StepReview() {
   return (
     <Screen padded={false}>
       <View style={styles.header}>
-        <WizardHeader step={10} title={t("wizard.review.title")} />
+        <WizardHeader step={12} title={t("wizard.review.title")} />
       </View>
 
       <ScrollView contentContainerStyle={styles.body}>
@@ -178,6 +184,7 @@ export default function StepReview() {
           </View>
         )}
         <Row label={t("wizard.review.customer")} value={draft.partyName} to={CHANGE_ROUTES.customer} />
+        <Row label="Dispatch location" value={draft.dispatchLocation || null} to={CHANGE_ROUTES.dispatch} />
         <Row label={t("wizard.review.brand")} value={draft.brand} to={CHANGE_ROUTES.brand} />
         <Row label={t("wizard.review.product")} value={draft.productName} to={CHANGE_ROUTES.product} />
         <Row
@@ -209,6 +216,7 @@ export default function StepReview() {
           value={formatDate(draft.expectedDeliveryDate)}
           to={CHANGE_ROUTES.delivery}
         />
+        <Row label="Token / Gift" value={draft.tokenType} to={CHANGE_ROUTES.token} />
         <Row label={t("wizard.review.notes")} value={draft.notes || "—"} to={CHANGE_ROUTES.notes} />
 
         <View style={{ height: theme.spacing.md }} />

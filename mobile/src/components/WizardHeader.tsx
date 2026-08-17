@@ -6,7 +6,7 @@ import { t } from "@/lib/i18n";
 // Standard header for every wizard step: back arrow, progress text, and
 // a slim progress bar. Total-step count lives here so the individual
 // steps only pass their own index.
-const TOTAL = 10;
+const TOTAL = 12;
 
 export function WizardHeader({
   step,

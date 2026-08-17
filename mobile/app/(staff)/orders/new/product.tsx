@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   ScrollView,
@@ -10,21 +10,27 @@ import { router } from "expo-router";
 import { Screen } from "@/components/Screen";
 import { WizardHeader } from "@/components/WizardHeader";
 import { PickList } from "@/components/PickList";
+import { TextField } from "@/components/TextField";
 import { useProducts } from "@/lib/queries";
 import { useWizard } from "@/lib/order-draft";
 import { t } from "@/lib/i18n";
 import { theme } from "@/theme";
 
+// Products are shown regardless of brand — generic materials (PA-*, WR-*,
+// PSA-*, etc.) can ship under any brand. Search box narrows the 24-item
+// list to keep it usable on small screens.
 export default function StepProduct() {
   const { draft, patch } = useWizard();
   const { data, loading } = useProducts();
+  const [search, setSearch] = useState("");
 
   const products = useMemo(() => {
-    if (!data || !draft.brand) return [];
+    if (!data) return [];
+    const q = search.trim().toLowerCase();
     return data
-      .filter((p) => p.brand === draft.brand)
+      .filter((p) => (q ? p.name.toLowerCase().includes(q) : true))
       .map((p) => ({ label: p.name, value: p.id }));
-  }, [data, draft.brand]);
+  }, [data, search]);
 
   function pick(id: string) {
     const p = data?.find((x) => x.id === id);
@@ -36,18 +42,38 @@ export default function StepProduct() {
   return (
     <Screen padded={false}>
       <View style={styles.header}>
-        <WizardHeader step={3} title={t("wizard.product.title")} />
+        <WizardHeader step={4} title={t("wizard.product.title")} />
       </View>
 
-      {!draft.brand ? (
-        <Text style={styles.empty}>{t("wizard.product.noBrand")}</Text>
-      ) : loading && products.length === 0 ? (
+      {loading && !data ? (
         <View style={styles.center}>
           <ActivityIndicator color={theme.colors.primary} />
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.list}>
-          <PickList options={products} value={draft.productId} onChange={pick} />
+        <ScrollView
+          contentContainerStyle={styles.list}
+          keyboardShouldPersistTaps="handled"
+        >
+          <TextField
+            label="Search product"
+            value={search}
+            onChangeText={setSearch}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          {products.length === 0 ? (
+            <Text style={styles.empty}>
+              {(data ?? []).length === 0
+                ? "No products in catalogue. Ask an admin to add products."
+                : `No products match "${search}".`}
+            </Text>
+          ) : (
+            <PickList
+              options={products}
+              value={draft.productId}
+              onChange={pick}
+            />
+          )}
         </ScrollView>
       )}
     </Screen>
@@ -57,7 +83,7 @@ export default function StepProduct() {
 const styles = StyleSheet.create({
   header: { padding: theme.spacing.lg, paddingBottom: 0 },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  list: { padding: theme.spacing.lg },
+  list: { padding: theme.spacing.lg, gap: theme.spacing.md },
   empty: {
     textAlign: "center",
     fontSize: theme.type.body,

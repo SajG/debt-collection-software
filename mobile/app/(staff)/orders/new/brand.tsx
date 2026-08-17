@@ -1,6 +1,5 @@
-import { useMemo } from "react";
+import { useState } from "react";
 import {
-  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,71 +9,105 @@ import {
 import { router } from "expo-router";
 import { Screen } from "@/components/Screen";
 import { WizardHeader } from "@/components/WizardHeader";
-import { useProducts } from "@/lib/queries";
+import { TextField } from "@/components/TextField";
+import { Button } from "@/components/Button";
 import { useWizard } from "@/lib/order-draft";
+import { BRAND_LIST } from "@/lib/constants";
 import { t } from "@/lib/i18n";
 import { theme } from "@/theme";
 
+// Brand tiles come from a fixed list (mirrors the Google Form). Products
+// are independent of brand — generic materials (PA-10, PF-48, etc.) ship
+// under any brand's packaging, so picking a brand doesn't filter or
+// invalidate the product step.
 export default function StepBrand() {
   const { draft, patch } = useWizard();
-  const { data, loading } = useProducts();
+  const startsCustom =
+    !!draft.brand && !BRAND_LIST.includes(draft.brand);
+  const [customMode, setCustomMode] = useState(startsCustom);
+  const [customValue, setCustomValue] = useState(
+    startsCustom ? (draft.brand ?? "") : "",
+  );
 
-  const brands = useMemo(() => {
-    if (!data) return [];
-    const set = new Set<string>();
-    for (const p of data) if (p.brand) set.add(p.brand);
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [data]);
-
-  function pickAndNext(brand: string) {
-    // Changing brand invalidates the previously-picked product.
-    patch({
-      brand,
-      productId: draft.brand === brand ? draft.productId : null,
-      productName: draft.brand === brand ? draft.productName : null,
-    });
+  function selectBrand(brand: string) {
+    patch({ brand });
     router.push("/(staff)/orders/new/product");
+  }
+
+  function submitCustom() {
+    const v = customValue.trim();
+    if (!v) return;
+    selectBrand(v);
   }
 
   return (
     <Screen padded={false}>
       <View style={styles.header}>
-        <WizardHeader step={2} title={t("wizard.brand.title")} />
+        <WizardHeader step={3} title={t("wizard.brand.title")} />
       </View>
-      {loading && brands.length === 0 ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={theme.colors.primary} />
-        </View>
-      ) : (
-        <ScrollView contentContainerStyle={styles.grid}>
-          {brands.map((b) => {
-            const active = draft.brand === b;
-            return (
-              <Pressable
-                key={b}
-                onPress={() => pickAndNext(b)}
-                style={({ pressed }) => [
-                  styles.tile,
-                  active && styles.tileActive,
-                  pressed && { opacity: 0.85 },
-                ]}
-                accessibilityRole="button"
-              >
-                <Text style={[styles.tileText, active && styles.tileTextActive]}>
-                  {b}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      )}
+
+      <ScrollView contentContainerStyle={styles.grid}>
+        {BRAND_LIST.map((b) => {
+          const active = !customMode && draft.brand === b;
+          return (
+            <Pressable
+              key={b}
+              onPress={() => {
+                setCustomMode(false);
+                selectBrand(b);
+              }}
+              style={({ pressed }) => [
+                styles.tile,
+                active && styles.tileActive,
+                pressed && { opacity: 0.85 },
+              ]}
+              accessibilityRole="button"
+            >
+              <Text style={[styles.tileText, active && styles.tileTextActive]}>
+                {b}
+              </Text>
+            </Pressable>
+          );
+        })}
+
+        <Pressable
+          onPress={() => setCustomMode(true)}
+          style={({ pressed }) => [
+            styles.tile,
+            customMode && styles.tileActive,
+            pressed && { opacity: 0.85 },
+          ]}
+          accessibilityRole="button"
+        >
+          <Text
+            style={[styles.tileText, customMode && styles.tileTextActive]}
+          >
+            Other
+          </Text>
+        </Pressable>
+
+        {customMode && (
+          <View style={styles.customWrap}>
+            <TextField
+              label="Enter brand name"
+              value={customValue}
+              onChangeText={setCustomValue}
+              autoCapitalize="words"
+            />
+            <Button
+              label={t("wizard.next")}
+              onPress={submitCustom}
+              disabled={!customValue.trim()}
+            />
+          </View>
+        )}
+      </ScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
   header: { padding: theme.spacing.lg, paddingBottom: 0 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
   grid: {
     padding: theme.spacing.lg,
     flexDirection: "row",
@@ -103,4 +136,9 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   tileTextActive: { color: theme.colors.primary },
+  customWrap: {
+    width: "100%",
+    gap: theme.spacing.md,
+    marginTop: theme.spacing.sm,
+  },
 });

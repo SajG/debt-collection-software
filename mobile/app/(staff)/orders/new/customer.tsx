@@ -26,9 +26,22 @@ export default function StepCustomer() {
   function pickAndNext(id: string, name: string) {
     // Party change invalidates the whole downstream draft (product,
     // pricing, etc are customer-relative in practice).
-    patch({ partyId: id, partyName: name });
-    router.push("/(staff)/orders/new/brand");
+    patch({ partyId: id, partyName: name, newCustomerName: null });
+    router.push("/(staff)/orders/new/dispatch");
   }
+
+  function addNewCustomerAndNext() {
+    const name = search.trim();
+    if (!name) return;
+    patch({ partyId: null, partyName: name, newCustomerName: name });
+    router.push("/(staff)/orders/new/dispatch");
+  }
+
+  const trimmed = search.trim();
+  const hasExactMatch = (data ?? []).some(
+    (p) => p.name.trim().toLowerCase() === trimmed.toLowerCase(),
+  );
+  const canAddNew = trimmed.length > 0 && !hasExactMatch;
 
   function startOver() {
     confirm({
@@ -61,6 +74,10 @@ export default function StepCustomer() {
           <Text style={styles.selected}>
             {t("wizard.customer.selected", { name: draft.partyName ?? "" })}
           </Text>
+        ) : draft.newCustomerName ? (
+          <Text style={styles.selected}>
+            New customer: {draft.newCustomerName}
+          </Text>
         ) : null}
       </View>
 
@@ -89,18 +106,40 @@ export default function StepCustomer() {
             </Pressable>
           )}
           ListEmptyComponent={
-            <Text style={styles.empty}>
-              {error ? t("home.error") : t("wizard.customer.empty")}
-            </Text>
+            canAddNew ? null : (
+              <Text style={styles.empty}>
+                {error ? t("home.error") : t("wizard.customer.empty")}
+              </Text>
+            )
+          }
+          ListFooterComponent={
+            canAddNew ? (
+              <Pressable
+                onPress={addNewCustomerAndNext}
+                style={({ pressed }) => [
+                  styles.row,
+                  styles.newRow,
+                  pressed && { opacity: 0.85 },
+                ]}
+                accessibilityRole="button"
+              >
+                <Text style={styles.newRowLabel}>+ Add as new customer</Text>
+                <Text style={styles.newRowName}>{trimmed}</Text>
+                <Text style={styles.newRowHint}>
+                  Not in Tally yet. Admin will match it to the ledger after the
+                  next Tally sync.
+                </Text>
+              </Pressable>
+            ) : null
           }
         />
       )}
 
-      {draft.partyId ? (
+      {draft.partyId || draft.newCustomerName ? (
         <View style={styles.footer}>
           <Button
             label={t("wizard.next")}
-            onPress={() => router.push("/(staff)/orders/new/brand")}
+            onPress={() => router.push("/(staff)/orders/new/dispatch")}
           />
         </View>
       ) : null}
@@ -133,6 +172,30 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.background,
   },
   active: { borderColor: theme.colors.primary, backgroundColor: "#EAF2EF" },
+  newRow: {
+    marginTop: theme.spacing.md,
+    borderStyle: "dashed",
+    borderColor: theme.colors.primary,
+    backgroundColor: "#F4F9F7",
+  },
+  newRowLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: theme.colors.primary,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  newRowName: {
+    fontSize: theme.type.body,
+    fontWeight: "700",
+    color: theme.colors.text,
+    marginTop: 4,
+  },
+  newRowHint: {
+    fontSize: 13,
+    color: theme.colors.textMuted,
+    marginTop: 4,
+  },
   rowName: {
     fontSize: theme.type.body,
     fontWeight: "700",

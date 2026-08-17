@@ -1,0 +1,49 @@
+{
+  "name": "paytrack-tally-connector",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Windows Service + tray app that bridges Tally XML/HTTP (localhost:9000) to the PayTrack cloud.",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "service": "node src/service.js",
+    "service:install": "node src/install-service.js",
+    "service:uninstall": "node src/uninstall-service.js",
+    "dist": "electron-builder --win nsis --publish never",
+    "dist:portable": "electron-builder --win portable --publish never"
+  },
+  "dependencies": {
+    "node-windows": "^1.0.0-beta.8"
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.0"
+  },
+  "build": {
+    "appId": "com.paytrack.connector",
+    "productName": "PayTrack Tally Connector",
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": false,
+      "createStartMenuShortcut": true,
+      "shortcutName": "PayTrack Tally Connector",
+      "include": "installer.nsh"
+    }
+  }
+}

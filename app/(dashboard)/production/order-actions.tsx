@@ -13,6 +13,7 @@ import { btnPrimaryCls, btnSecondaryCls, inputCls } from "../_components/ui";
 import {
   advanceOrderStatusAction,
   uploadOrderDocumentAction,
+  setExpectedProductionDateAction,
 } from "./actions";
 
 export function AdvanceStatusButton({
@@ -217,5 +218,62 @@ export function DocumentUploadForm({
         )}
       </button>
     </form>
+  );
+}
+
+export function ExpectedProductionDateField({
+  orderId,
+  currentYmd,
+}: {
+  orderId: string;
+  currentYmd: string | null;
+}) {
+  const router = useRouter();
+  const [value, setValue] = useState(currentYmd ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    const result = await setExpectedProductionDateAction(
+      orderId,
+      value.trim() || null,
+    );
+    setSaving(false);
+    if ("error" in result) {
+      setError(result.error);
+    } else {
+      setSaved(true);
+      router.refresh();
+      setTimeout(() => setSaved(false), 1500);
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-end gap-2">
+      <div className="flex-1 min-w-[180px]">
+        <label className="text-xs uppercase tracking-wide text-muted-foreground">
+          Expected production date
+        </label>
+        <input
+          type="date"
+          className={inputCls}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+        />
+      </div>
+      <button
+        type="button"
+        onClick={save}
+        disabled={saving}
+        className={`${btnSecondaryCls} min-h-11`}
+      >
+        {saving ? "Saving…" : saved ? "Saved ✓" : "Save"}
+      </button>
+      {error && <p className="w-full text-sm text-red-600">{error}</p>}
+    </div>
   );
 }

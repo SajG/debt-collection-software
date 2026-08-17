@@ -39,6 +39,8 @@ const createSchema = z
     paymentTerm: z.string().trim().max(80).optional(),
     transportType: z.string().trim().max(80).optional(),
     expectedDeliveryDate: z.string().trim().optional(),
+    dispatchLocation: z.string().trim().max(500).optional(),
+    tokenType: z.string().trim().max(120).optional(),
     notes: z.string().trim().max(1000).optional(),
     creditOverrideNote: z.string().trim().max(500).optional(),
   })
@@ -167,6 +169,8 @@ export async function createSalesOrderAction(
           paymentTerm: data.paymentTerm || null,
           transportType: data.transportType || null,
           expectedDeliveryDate: expectedDate,
+          dispatchLocation: data.dispatchLocation || null,
+          tokenType: data.tokenType || null,
           notes: data.notes || null,
           currentStatus: OrderStatus.ORDER_PLACED,
           creditCheckPassed,

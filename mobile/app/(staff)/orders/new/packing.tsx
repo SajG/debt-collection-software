@@ -48,7 +48,7 @@ export default function StepPacking() {
   return (
     <Screen padded={false} scroll>
       <View style={styles.header}>
-        <WizardHeader step={5} title={t("wizard.packing.title")} />
+        <WizardHeader step={6} title={t("wizard.packing.title")} />
       </View>
 
       <View style={styles.body}>

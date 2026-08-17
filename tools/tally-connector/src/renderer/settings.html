@@ -1,0 +1,211 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>PayTrack Connector — Settings</title>
+    <style>
+      body {
+        font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+        margin: 0;
+        padding: 20px;
+        background: #f7f8f9;
+        color: #14201b;
+      }
+      h1 {
+        font-size: 18px;
+        margin: 0 0 4px;
+      }
+      p.sub {
+        margin: 0 0 18px;
+        color: #6b7a72;
+        font-size: 13px;
+      }
+      label {
+        display: block;
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #4a584f;
+        margin: 12px 0 4px;
+      }
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 8px 10px;
+        border: 1px solid #cbd3ce;
+        border-radius: 6px;
+        font-size: 14px;
+        background: #fff;
+      }
+      .row {
+        display: flex;
+        gap: 10px;
+      }
+      .row > div {
+        flex: 1;
+      }
+      .actions {
+        margin-top: 20px;
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+      }
+      button {
+        padding: 8px 16px;
+        font-size: 14px;
+        border-radius: 6px;
+        border: 1px solid #cbd3ce;
+        background: #fff;
+        cursor: pointer;
+      }
+      button.primary {
+        background: #093d30;
+        color: #fff;
+        border-color: #093d30;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      .status {
+        margin-top: 14px;
+        padding: 10px;
+        border-radius: 6px;
+        background: #eef2f0;
+        font-size: 13px;
+        color: #2c3a33;
+        white-space: pre-wrap;
+        min-height: 20px;
+      }
+      .hint {
+        font-size: 12px;
+        color: #6b7a72;
+        margin-top: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>PayTrack Tally Connector</h1>
+    <p class="sub">
+      Settings are stored in <code>C:\ProgramData\PayTrack\config.json</code> and
+      applied by the Windows Service the next time it syncs.
+    </p>
+
+    <label>PayTrack URL</label>
+    <input id="paytrackUrl" placeholder="https://your-deployment.example" />
+
+    <label>Sync Secret</label>
+    <input id="secret" type="password" placeholder="paste the TALLY_SYNC_SECRET" />
+    <div class="hint">Must match the deployment's TALLY_SYNC_SECRET env var.</div>
+
+    <div class="row">
+      <div>
+        <label>Tally Host</label>
+        <input id="tallyHost" value="localhost" />
+      </div>
+      <div>
+        <label>Tally Port</label>
+        <input id="tallyPort" type="number" value="9000" />
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>Sync interval (minutes)</label>
+        <input id="intervalMinutes" type="number" min="0" value="15" />
+        <div class="hint">0 = manual only.</div>
+      </div>
+      <div>
+        <label>Lookback (days)</label>
+        <input id="lookbackDays" type="number" min="0" value="3" />
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="syncBtn">Sync Now</button>
+      <button id="saveBtn" class="primary">Save</button>
+    </div>
+
+    <div id="status" class="status">Loading current settings…</div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const status = $("status");
+
+      async function load() {
+        try {
+          const cfg = await window.api.getConfig();
+          $("paytrackUrl").value = cfg.paytrackUrl || "";
+          // secret comes back masked ("••••••••") if set; leave blank so user
+          // only overwrites when they type a new one.
+          $("secret").placeholder = cfg.secret ? "(unchanged)" : "paste the TALLY_SYNC_SECRET";
+          $("tallyHost").value = cfg.tallyHost || "localhost";
+          $("tallyPort").value = cfg.tallyPort || 9000;
+          $("intervalMinutes").value = cfg.intervalMinutes ?? 15;
+          $("lookbackDays").value = cfg.lookbackDays ?? 3;
+          refreshStatus();
+        } catch (e) {
+          status.textContent = "Cannot reach the service. Is it installed and running?";
+        }
+      }
+
+      async function refreshStatus() {
+        try {
+          const s = await window.api.status();
+          const parts = [
+            s.running ? "Running: yes" : "Running: no",
+            s.state?.lastRunAt ? `Last: ${new Date(s.state.lastRunAt).toLocaleString()}` : "Last: never",
+          ];
+          if (s.state?.lastError) parts.push(`Error: ${s.state.lastError}`);
+          if (s.state?.lastResult?.counts) {
+            const c = s.state.lastResult.counts;
+            parts.push(`Counts: parties=${c.parties} vouchers=${c.invoices} stock=${c.stockItems}`);
+          }
+          status.textContent = parts.join("\n");
+        } catch (e) {
+          status.textContent = "Service unreachable.";
+        }
+      }
+
+      $("saveBtn").addEventListener("click", async () => {
+        $("saveBtn").disabled = true;
+        try {
+          const patch = {
+            paytrackUrl: $("paytrackUrl").value.trim(),
+            tallyHost: $("tallyHost").value.trim(),
+            tallyPort: Number($("tallyPort").value),
+            intervalMinutes: Number($("intervalMinutes").value),
+            lookbackDays: Number($("lookbackDays").value),
+          };
+          const typed = $("secret").value;
+          if (typed) patch.secret = typed;
+          await window.api.saveConfig(patch);
+          $("secret").value = "";
+          status.textContent = "Saved.";
+          setTimeout(refreshStatus, 500);
+        } catch (e) {
+          status.textContent = "Save failed: " + e.message;
+        } finally {
+          $("saveBtn").disabled = false;
+        }
+      });
+
+      $("syncBtn").addEventListener("click", async () => {
+        $("syncBtn").disabled = true;
+        status.textContent = "Starting sync…";
+        try {
+          await window.api.sync({ full: false });
+          setTimeout(refreshStatus, 800);
+        } catch (e) {
+          status.textContent = "Sync trigger failed: " + e.message;
+        } finally {
+          setTimeout(() => ($("syncBtn").disabled = false), 1000);
+        }
+      });
+
+      setInterval(refreshStatus, 5000);
+      load();
+    </script>
+  </body>
+</html>

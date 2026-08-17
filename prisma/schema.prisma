@@ -707,6 +707,14 @@ model SalesOrder {
   paymentTerm          String?
   transportType        String?
   expectedDeliveryDate DateTime?
+  // Free text — the address the goods should be dispatched to (may differ
+  // from the ledger address, e.g. sub-dealer godown).
+  dispatchLocation String?
+  // "With Synergy Barcode Token" | "With Customer Token" | "Without Token" |
+  // "Gift inside" | free text via "Other".
+  tokenType String?
+  // Filled by factory after order is placed.
+  expectedProductionDate DateTime?
   notes                String?
   currentStatus        OrderStatus @default(ORDER_PLACED)
   linkedInvoiceId      String?

@@ -19,7 +19,11 @@ import {
   btnSecondaryCls,
 } from "../../_components/ui";
 import { OrderRealtimeRefresh } from "../../_components/order-realtime";
-import { AdvanceStatusButton, DocumentUploadForm } from "../order-actions";
+import {
+  AdvanceStatusButton,
+  DocumentUploadForm,
+  ExpectedProductionDateField,
+} from "../order-actions";
 
 export default async function ProductionOrderPage({
   params,
@@ -121,6 +125,37 @@ export default async function ProductionOrderPage({
         </Card>
       </div>
 
+      <Card title="Order details" className="mb-6">
+        <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <ProdDetail label="Dispatch location" value={order.dispatchLocation} />
+          <ProdDetail label="Rate" value={order.productRate} />
+          <ProdDetail label="Payment terms" value={order.paymentTerm} />
+          <ProdDetail label="Transport" value={order.transportType} />
+          <ProdDetail label="Token / Gift" value={order.tokenType} />
+          {order.notes && (
+            <div className="sm:col-span-2 lg:col-span-3">
+              <dt className="text-xs uppercase tracking-wide text-muted-foreground">
+                Notes
+              </dt>
+              <dd className="mt-1 whitespace-pre-wrap text-sm text-foreground">
+                {order.notes}
+              </dd>
+            </div>
+          )}
+        </dl>
+      </Card>
+
+      <Card title="Production planning" className="mb-6">
+        <ExpectedProductionDateField
+          orderId={order.id}
+          currentYmd={
+            order.expectedProductionDate
+              ? order.expectedProductionDate.toISOString().slice(0, 10)
+              : null
+          }
+        />
+      </Card>
+
       {next ? (
         <div className="mb-8">
           <AdvanceStatusButton
@@ -203,6 +238,23 @@ export default async function ProductionOrderPage({
           )}
         </Card>
       </div>
+    </div>
+  );
+}
+
+function ProdDetail({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | null | undefined;
+}) {
+  return (
+    <div>
+      <dt className="text-xs uppercase tracking-wide text-muted-foreground">
+        {label}
+      </dt>
+      <dd className="mt-1 text-sm text-foreground">{value || "—"}</dd>
     </div>
   );
 }

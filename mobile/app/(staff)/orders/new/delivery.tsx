@@ -62,7 +62,7 @@ export default function StepDelivery() {
   return (
     <Screen padded={false} scroll>
       <View style={styles.header}>
-        <WizardHeader step={8} title={t("wizard.delivery.title")} />
+        <WizardHeader step={9} title={t("wizard.delivery.title")} />
       </View>
 
       <View style={styles.body}>
@@ -89,7 +89,7 @@ export default function StepDelivery() {
 
         <Button
           label={t("wizard.next")}
-          onPress={() => router.push("/(staff)/orders/new/notes")}
+          onPress={() => router.push("/(staff)/orders/new/token")}
           disabled={!draft.expectedDeliveryDate}
         />
       </View>

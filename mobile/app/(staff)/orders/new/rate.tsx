@@ -15,7 +15,7 @@ export default function StepRate() {
   return (
     <Screen padded={false} scroll>
       <View style={styles.header}>
-        <WizardHeader step={6} title={t("wizard.rate.title")} />
+        <WizardHeader step={7} title={t("wizard.rate.title")} />
       </View>
 
       <View style={styles.body}>

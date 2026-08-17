@@ -92,7 +92,7 @@ export default async function SalesOrderDetailPage({
             Product
           </p>
           <p className="mt-1 font-semibold text-foreground">
-            {order.product.brand} · {order.product.name}
+            {order.brand || order.product.brand || "—"} · {order.product.name}
           </p>
         </Card>
         <Card>
@@ -122,6 +122,46 @@ export default async function SalesOrderDetailPage({
           </p>
         </Card>
       </div>
+
+      <Card title="Order details" className="mb-6">
+        <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Detail label="Dispatch location" value={order.dispatchLocation} />
+          <Detail label="Packing" value={order.packingType} />
+          <Detail
+            label="Size"
+            value={order.sizeKg ? `${order.sizeKg} kg` : null}
+          />
+          <Detail
+            label="Rate"
+            value={order.productRate}
+          />
+          <Detail label="Payment terms" value={order.paymentTerm} />
+          <Detail label="Transport" value={order.transportType} />
+          <Detail label="Token / Gift" value={order.tokenType} />
+          <Detail
+            label="Expected production date"
+            value={
+              order.expectedProductionDate
+                ? formatDate(order.expectedProductionDate)
+                : null
+            }
+          />
+          <Detail
+            label="Salesperson"
+            value={order.salesperson.ownerName}
+          />
+          {order.notes && (
+            <div className="sm:col-span-2 lg:col-span-3">
+              <dt className="text-xs uppercase tracking-wide text-muted-foreground">
+                Notes
+              </dt>
+              <dd className="mt-1 whitespace-pre-wrap text-sm text-foreground">
+                {order.notes}
+              </dd>
+            </div>
+          )}
+        </dl>
+      </Card>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card title="Status history">
@@ -202,6 +242,17 @@ export default async function SalesOrderDetailPage({
           )}
         </Card>
       </div>
+    </div>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: string | null | undefined }) {
+  return (
+    <div>
+      <dt className="text-xs uppercase tracking-wide text-muted-foreground">
+        {label}
+      </dt>
+      <dd className="mt-1 text-sm text-foreground">{value || "—"}</dd>
     </div>
   );
 }

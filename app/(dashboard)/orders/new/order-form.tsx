@@ -87,6 +87,8 @@ export function OrderForm({
   const [paymentTerm, setPaymentTerm] = useState("");
   const [transportType, setTransportType] = useState("");
   const [expectedDeliveryDate, setExpectedDeliveryDate] = useState("");
+  const [dispatchLocation, setDispatchLocation] = useState("");
+  const [tokenType, setTokenType] = useState("");
   const [notes, setNotes] = useState("");
   const [creditOverrideNote, setCreditOverrideNote] = useState("");
 
@@ -442,9 +444,29 @@ export function OrderForm({
                 type="text"
                 name="transportType"
                 className={inputCls}
-                placeholder="e.g. By Road / Self pickup"
+                placeholder="e.g. Paid / To pay / Godown / Door"
                 value={transportType}
                 onChange={(e) => setTransportType(e.target.value)}
+              />
+            </Field>
+            <Field label="Dispatch location">
+              <input
+                type="text"
+                name="dispatchLocation"
+                className={inputCls}
+                placeholder="Address or shop name to dispatch to"
+                value={dispatchLocation}
+                onChange={(e) => setDispatchLocation(e.target.value)}
+              />
+            </Field>
+            <Field label="Token / Gift">
+              <input
+                type="text"
+                name="tokenType"
+                className={inputCls}
+                placeholder="With Synergy Barcode Token / With Customer Token / Without Token / Gift inside"
+                value={tokenType}
+                onChange={(e) => setTokenType(e.target.value)}
               />
             </Field>
             <Field label="Notes (optional)">

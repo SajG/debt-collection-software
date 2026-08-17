@@ -295,7 +295,9 @@ export function useOrderEventStream(onEvent: () => void, salespersonId: string |
 export type CreateOrderResult = { id: string; orderNumber: string };
 
 export function createOrderRpcArgs(draft: {
-  partyId: string;
+  partyId: string | null;
+  newCustomerName: string | null;
+  dispatchLocation: string | null;
   productId: string;
   brand: string | null;
   quantity: number;
@@ -310,6 +312,8 @@ export function createOrderRpcArgs(draft: {
 }) {
   return {
     p_party_id: draft.partyId,
+    p_new_customer_name: draft.newCustomerName,
+    p_dispatch_location: draft.dispatchLocation,
     p_product_id: draft.productId,
     p_brand: draft.brand,
     p_quantity: draft.quantity,

@@ -28,7 +28,12 @@ type NavItem = {
 };
 
 const NAV: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  {
+    href: "/dashboard",
+    label: "Dashboard",
+    icon: LayoutDashboard,
+    roles: ["ADMIN", "STAFF"],
+  },
   {
     href: "/production",
     label: "Production",
@@ -78,6 +83,12 @@ const NAV: NavItem[] = [
     roles: ["ADMIN", "STAFF"],
   },
   { href: "/import", label: "Import", icon: Upload, roles: ["ADMIN"] },
+  {
+    href: "/admin/products",
+    label: "Products",
+    icon: PackageSearch,
+    roles: ["ADMIN"],
+  },
   { href: "/settings", label: "Settings", icon: Settings, roles: ["ADMIN"] },
 ];
 

@@ -215,7 +215,7 @@ export interface Database {
       };
       create_sales_order: {
         Args: {
-          p_party_id: string;
+          p_party_id: string | null;
           p_product_id: string;
           p_brand: string | null;
           p_quantity: number;
@@ -228,6 +228,8 @@ export interface Database {
           p_expected_delivery_date: string | null;
           p_token_type: string | null;
           p_notes: string | null;
+          p_new_customer_name?: string | null;
+          p_dispatch_location?: string | null;
         };
         Returns: { id: string; orderNumber: string }[];
       };

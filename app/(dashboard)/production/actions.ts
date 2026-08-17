@@ -64,6 +64,32 @@ export async function advanceOrderStatusAction(
   return { ok: true };
 }
 
+export async function setExpectedProductionDateAction(
+  orderId: string,
+  ymd: string | null,
+): Promise<ActionResult> {
+  await requireFactoryOrAdmin();
+  const order = await db.salesOrder.findUnique({ where: { id: orderId } });
+  if (!order) return { error: "Order not found." };
+
+  let date: Date | null = null;
+  if (ymd && /^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
+    const [y, m, d] = ymd.split("-").map(Number);
+    const parsed = new Date(y, m - 1, d);
+    if (isNaN(parsed.getTime())) return { error: "Invalid date." };
+    date = parsed;
+  }
+
+  await db.salesOrder.update({
+    where: { id: orderId },
+    data: { expectedProductionDate: date },
+  });
+
+  revalidatePath(`/production/${orderId}`);
+  revalidatePath(`/orders/${orderId}`);
+  return { ok: true };
+}
+
 export async function uploadOrderDocumentAction(
   formData: FormData
 ): Promise<ActionResult> {

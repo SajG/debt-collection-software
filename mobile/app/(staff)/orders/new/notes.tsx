@@ -14,7 +14,7 @@ export default function StepNotes() {
   return (
     <Screen padded={false} scroll>
       <View style={styles.header}>
-        <WizardHeader step={9} title={t("wizard.notes.title")} />
+        <WizardHeader step={11} title={t("wizard.notes.title")} />
       </View>
 
       <View style={styles.body}>

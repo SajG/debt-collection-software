@@ -25,6 +25,12 @@ const KEY = "order-draft-v1";
 export type OrderDraft = {
   partyId: string | null;
   partyName: string | null;
+  // When the customer isn't in the Tally ledger yet, the salesperson types
+  // the name and we submit it as newCustomerName. Reconciled to a real
+  // Party later once Tally sync brings the ledger entry in.
+  newCustomerName: string | null;
+  // Free text — the address to dispatch goods to (may differ from ledger).
+  dispatchLocation: string;
   brand: string | null;
   productId: string | null;
   productName: string | null;
@@ -36,6 +42,8 @@ export type OrderDraft = {
   paymentTerm: PaymentTerm | null;
   transportType: TransportType | null;
   expectedDeliveryDate: string | null; // yyyy-mm-dd
+  // "With Synergy Barcode Token" etc., or a user-typed value via "Other".
+  tokenType: string | null;
   notes: string;
 };
 
@@ -43,6 +51,8 @@ export function emptyDraft(): OrderDraft {
   return {
     partyId: null,
     partyName: null,
+    newCustomerName: null,
+    dispatchLocation: "",
     brand: null,
     productId: null,
     productName: null,
@@ -54,6 +64,7 @@ export function emptyDraft(): OrderDraft {
     paymentTerm: null,
     transportType: null,
     expectedDeliveryDate: null,
+    tokenType: null,
     notes: "",
   };
 }
@@ -61,7 +72,8 @@ export function emptyDraft(): OrderDraft {
 /** True once every required field has a value — controls the review step. */
 export function isDraftComplete(d: OrderDraft): boolean {
   return Boolean(
-    d.partyId &&
+    (d.partyId || d.newCustomerName) &&
+      d.dispatchLocation.trim() &&
       d.brand &&
       d.productId &&
       Number(d.quantity) > 0 &&
@@ -70,7 +82,8 @@ export function isDraftComplete(d: OrderDraft): boolean {
       d.productRate.trim() &&
       d.paymentTerm &&
       d.transportType &&
-      d.expectedDeliveryDate,
+      d.expectedDeliveryDate &&
+      d.tokenType,
   );
 }
 

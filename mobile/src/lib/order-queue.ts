@@ -19,7 +19,9 @@ const KEY = "order-queue-v1";
  *  Kept in its own type so the wizard, the queue, and the drainer stay
  *  aligned when we add or rename a field. */
 export type OrderRpcPayload = {
-  p_party_id: string;
+  p_party_id: string | null;
+  p_new_customer_name?: string | null;
+  p_dispatch_location?: string | null;
   p_product_id: string;
   p_brand: string | null;
   p_quantity: number;

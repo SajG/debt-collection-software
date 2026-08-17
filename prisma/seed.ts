@@ -3,27 +3,37 @@ import { randomUUID } from "crypto";
 
 const db = new PrismaClient();
 
+// Product catalogue mirrors the Google Form's "Name of the product?"
+// dropdown (24 options). `brand` on Product is a hint for the branded
+// items; generic materials (PA-*, WR-*, PF-*, SB-*, Dexo-*, PSA-*, LM,
+// Omfix, Omcol) are left with brand="" because the salesperson picks
+// the actual brand at order time (they can be shipped under any brand's
+// packaging).
 const CATALOGUE: Array<{ brand: string; name: string; sortOrder: number }> = [
-  // Polygum
-  { brand: "Polygum", name: "Polygum Waterproofing Compound", sortOrder: 10 },
-  { brand: "Polygum", name: "Polygum Sealant Paste", sortOrder: 20 },
-  { brand: "Polygum", name: "Polygum Crack Filler", sortOrder: 30 },
-  // Ombond
-  { brand: "Ombond", name: "Ombond Wood Adhesive", sortOrder: 40 },
-  { brand: "Ombond", name: "Ombond PVA White Glue", sortOrder: 50 },
-  { brand: "Ombond", name: "Ombond Instant Bond", sortOrder: 60 },
-  // Omcol
-  { brand: "Omcol", name: "Omcol Contact Adhesive", sortOrder: 70 },
-  { brand: "Omcol", name: "Omcol Rubber Cement", sortOrder: 80 },
-  { brand: "Omcol", name: "Omcol Solvent Adhesive", sortOrder: 90 },
-  // Stick-onn
-  { brand: "Stick-onn", name: "Stick-onn Foam Tape", sortOrder: 100 },
-  { brand: "Stick-onn", name: "Stick-onn Double-Sided Tape", sortOrder: 110 },
-  { brand: "Stick-onn", name: "Stick-onn Insulation Tape", sortOrder: 120 },
-  // Magbond
-  { brand: "Magbond", name: "Magbond Tile Adhesive", sortOrder: 130 },
-  { brand: "Magbond", name: "Magbond Floor Adhesive", sortOrder: 140 },
-  { brand: "Magbond", name: "Magbond Marble Fix", sortOrder: 150 },
+  { brand: "Polygum", name: "Polygum Wood to PVC", sortOrder: 10 },
+  { brand: "Polygum", name: "Polygum D3+", sortOrder: 20 },
+  { brand: "Polygum", name: "Polygum Waterproof", sortOrder: 30 },
+  { brand: "Polygum", name: "Polygum Extrabonding", sortOrder: 40 },
+  { brand: "Polygum", name: "Polygum Multipurpose", sortOrder: 50 },
+  { brand: "Polygum", name: "Polygum Heatex", sortOrder: 60 },
+  { brand: "Ombond", name: "Ombond Wood to PVC", sortOrder: 70 },
+  { brand: "Ombond", name: "Ombond Waterproof", sortOrder: 80 },
+  { brand: "Ombond", name: "Ombond Extrabonding", sortOrder: 90 },
+  { brand: "", name: "Omfix", sortOrder: 100 },
+  { brand: "", name: "Omcol", sortOrder: 110 },
+  { brand: "", name: "PA-10", sortOrder: 120 },
+  { brand: "", name: "PA-35", sortOrder: 130 },
+  { brand: "", name: "PA-44", sortOrder: 140 },
+  { brand: "", name: "PA-60(S)", sortOrder: 150 },
+  { brand: "", name: "WR-45", sortOrder: 160 },
+  { brand: "", name: "PF-48", sortOrder: 170 },
+  { brand: "", name: "SB-25", sortOrder: 180 },
+  { brand: "", name: "Dexo-555", sortOrder: 190 },
+  { brand: "", name: "PSA 45", sortOrder: 200 },
+  { brand: "", name: "PSA 55", sortOrder: 210 },
+  { brand: "", name: "PSA 55 (With Drum)", sortOrder: 220 },
+  { brand: "", name: "PSA 60", sortOrder: 230 },
+  { brand: "", name: "LM ECO", sortOrder: 240 },
 ];
 
 async function seedProducts() {
@@ -109,9 +119,9 @@ async function seedSampleOrders(
   }
 
   const polygum = products.find((p) => p.brand === "Polygum");
-  const magbond = products.find((p) => p.brand === "Magbond");
-  if (!polygum || !magbond) {
-    throw new Error("Expected Polygum and Magbond products in catalogue");
+  const generic = products.find((p) => p.name === "PA-10");
+  if (!polygum || !generic) {
+    throw new Error("Expected Polygum and PA-10 products in catalogue");
   }
 
   const fy = currentFyLabel();
@@ -149,8 +159,8 @@ async function seedSampleOrders(
       orderNumber: `SB/${fy}/0002`,
       newCustomerName: "New City Hardware (not in Tally yet)",
       salespersonId,
-      productId: magbond.id,
-      brand: magbond.brand,
+      productId: generic.id,
+      brand: "Ombond",
       quantity: 200,
       quantityUnit: "KG",
       packingType: "Bag",

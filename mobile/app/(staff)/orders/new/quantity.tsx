@@ -30,7 +30,7 @@ export default function StepQuantity() {
   return (
     <Screen padded={false} scroll>
       <View style={styles.header}>
-        <WizardHeader step={4} title={t("wizard.quantity.title")} />
+        <WizardHeader step={5} title={t("wizard.quantity.title")} />
       </View>
 
       <View style={styles.body}>

@@ -17,7 +17,7 @@ export default function StepTerms() {
   return (
     <Screen padded={false} scroll>
       <View style={styles.header}>
-        <WizardHeader step={7} title={t("wizard.terms.title")} />
+        <WizardHeader step={8} title={t("wizard.terms.title")} />
       </View>
 
       <ScrollView contentContainerStyle={styles.body}>
