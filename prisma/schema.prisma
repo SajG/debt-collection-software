@@ -186,10 +186,16 @@ model Profile {
   role           Role     @default(STAFF)
   // Maps this salesperson to their Tally Cost Centre / Sales Executive name
   costCentreName String?
+  // Notification prefs — default all ON; toggled from mobile settings.
+  notifyStatusChanges Boolean @default(true)
+  notifyDocuments     Boolean @default(true)
+  notifyStaleOrders   Boolean @default(true)
+  notifyCreditIssues  Boolean @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   businessSettings BusinessSettings?
+  pushTokens       PushToken[]
 
   assignedParties      Party[]            @relation("PartyAssignee")
   recordedPayments     Payment[]          @relation("PaymentRecorder")
@@ -789,6 +795,32 @@ model StockItem {
 // ─────────────────────────────────────────────────────────────────
 // AUTH SECURITY  (defense-in-depth on top of Supabase rate-limiting)
 // ─────────────────────────────────────────────────────────────────
+
+model PushToken {
+  id         String   @id @default(cuid())
+  profileId  String   @db.Uuid
+  token      String   @unique
+  platform   String
+  createdAt  DateTime @default(now()) @db.Timestamptz
+  lastSeenAt DateTime @default(now()) @db.Timestamptz
+
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
+}
+
+model NotificationConfig {
+  id                 String   @id
+  edgeFunctionUrl    String?
+  edgeFunctionSecret String?
+  staleOrderHours    Int      @default(24)
+  updatedAt          DateTime @default(now()) @updatedAt @db.Timestamptz
+}
+
+model StaleOrderNotice {
+  salesOrderId String   @id
+  notifiedAt   DateTime @default(now()) @db.Timestamptz
+}
 
 model LoginAttempt {
   id         String   @id @default(cuid())

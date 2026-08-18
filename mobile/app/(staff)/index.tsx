@@ -131,24 +131,41 @@ export default function HomeScreen() {
           </Text>
           <Text style={styles.subtitle}>{t("home.subtitle")}</Text>
         </View>
-        <Pressable
-          onPress={() =>
-            confirm({
-              title: t("confirm.signOut.title"),
-              body: t("confirm.signOut.body"),
-              confirmLabel: t("confirm.ok"),
-              destructive: true,
-              onConfirm: () => void signOut(),
-            })
-          }
-          hitSlop={8}
-          style={({ pressed }) => [styles.signOutBtn, pressed && { opacity: 0.7 }]}
-          accessibilityRole="button"
-          accessibilityLabel={t("home.signOut")}
-        >
-          <Text style={styles.signOutGlyph}>⏻</Text>
-          <Text style={styles.signOutText}>{t("home.signOut")}</Text>
-        </Pressable>
+        <View style={styles.headerActions}>
+          <Pressable
+            onPress={() => router.push("/(staff)/settings")}
+            hitSlop={8}
+            style={({ pressed }) => [
+              styles.iconBtn,
+              pressed && { opacity: 0.7 },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Settings"
+          >
+            <Text style={styles.iconBtnGlyph}>⚙</Text>
+          </Pressable>
+          <Pressable
+            onPress={() =>
+              confirm({
+                title: t("confirm.signOut.title"),
+                body: t("confirm.signOut.body"),
+                confirmLabel: t("confirm.ok"),
+                destructive: true,
+                onConfirm: () => void signOut(),
+              })
+            }
+            hitSlop={8}
+            style={({ pressed }) => [
+              styles.signOutBtn,
+              pressed && { opacity: 0.7 },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={t("home.signOut")}
+          >
+            <Text style={styles.signOutGlyph}>⏻</Text>
+            <Text style={styles.signOutText}>{t("home.signOut")}</Text>
+          </Pressable>
+        </View>
       </View>
 
       <View style={styles.tilesRow}>
@@ -312,6 +329,25 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: theme.type.bodySmall,
     color: theme.colors.textMuted,
+  },
+  headerActions: {
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "center",
+  },
+  iconBtn: {
+    width: theme.tap,
+    height: theme.tap,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: theme.radius,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.background,
+  },
+  iconBtnGlyph: {
+    fontSize: 20,
+    color: theme.colors.text,
   },
   signOutBtn: {
     flexDirection: "row",

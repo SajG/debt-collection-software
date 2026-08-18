@@ -51,8 +51,19 @@
           "photosPermission": "PayTrack needs camera/photo access so you can attach payment proof (bank screenshot, cheque photo) after recording a payment.",
           "cameraPermission": "PayTrack uses the camera to capture payment proofs and order proofs while you're at the customer site."
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/adaptive-icon.png",
+          "color": "#093D30",
+          "defaultChannel": "default"
+        }
       ]
     ],
+    "notification": {
+      "iosDisplayInForeground": true
+    },
     "extra": {
       "router": {
         "origin": false

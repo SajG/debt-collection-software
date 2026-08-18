@@ -105,6 +105,54 @@ cd android && ./gradlew assembleRelease
 `eas.json` is preconfigured to output APKs on every profile (not AABs)
 so field-tester installs are one-tap.
 
+## Push notifications
+
+The mobile app registers an Expo push token after sign-in
+(`src/lib/notifications.ts`) and upserts it into the `PushToken` table
+(RLS scoped to the signed-in user). Server-side, Postgres triggers on
+`OrderStatusEvent`, `OrderDocument`, and `SalesOrder` POST via `pg_net`
+to a Supabase Edge Function (`supabase/functions/notify`), which sends
+to Expo's push service and cleans up any `DeviceNotRegistered` rows.
+
+Per-user prefs live on `Profile` (`notifyStatusChanges`,
+`notifyDocuments`, `notifyStaleOrders`, `notifyCreditIssues`) — all
+default ON, toggleable from `/settings` in the app. Global config lives
+in the singleton `NotificationConfig` row (`staleOrderHours`,
+`edgeFunctionUrl`, `edgeFunctionSecret`).
+
+### One-time deploy
+
+1. **Enable extensions** (already done for the current project — leave
+   this here for fresh clones): Supabase dashboard → Database →
+   Extensions → toggle `pg_net` and `pg_cron`. The trigger migration
+   also runs `CREATE EXTENSION IF NOT EXISTS` for both, so a dashboard
+   toggle is only needed if the DB role lacks permission.
+2. **Deploy the edge function**:
+   ```bash
+   npx supabase functions deploy notify --no-verify-jwt
+   npx supabase secrets set NOTIFY_SHARED_SECRET=$(openssl rand -hex 32)
+   ```
+   `--no-verify-jwt` is intentional: the function is called by Postgres
+   triggers, not by users. Authentication is done via the
+   `x-notify-secret` header instead.
+3. **Point the DB at the deployed function** (once):
+   ```sql
+   UPDATE "NotificationConfig" SET
+     "edgeFunctionUrl"    = 'https://<project-ref>.supabase.co/functions/v1/notify',
+     "edgeFunctionSecret" = '<same random hex from step 2>'
+   WHERE id = 'singleton';
+   ```
+   Until this UPDATE runs, the triggers silently no-op — so a fresh DB
+   never errors on inserts before the function is up.
+4. **Tune the stale-order threshold** (defaults to 24 hours):
+   ```sql
+   UPDATE "NotificationConfig" SET "staleOrderHours" = 12 WHERE id = 'singleton';
+   ```
+5. **EAS builds** need `projectId` for `getExpoPushTokenAsync`. Run
+   `npx eas init` once so `expoConfig.extra.eas.projectId` is populated
+   in `app.json`. Without it, dev builds log a warning and skip push
+   registration — everything else keeps working.
+
 ## Roles
 
 Single login screen for everyone; role decides the destination.

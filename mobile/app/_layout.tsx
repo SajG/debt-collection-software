@@ -5,9 +5,15 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider } from "@/auth/AuthContext";
 import { ConnectivityProvider } from "@/lib/connectivity";
 import { useQueueDrainer } from "@/lib/queue-drainer";
+import { usePushRegistration } from "@/lib/notifications";
 
 function QueueDrainerMount() {
   useQueueDrainer();
+  return null;
+}
+
+function PushMount() {
+  usePushRegistration();
   return null;
 }
 
@@ -19,6 +25,7 @@ export default function RootLayout() {
           <AuthProvider>
             <StatusBar style="dark" />
             <QueueDrainerMount />
+            <PushMount />
             <Stack screenOptions={{ headerShown: false }} />
           </AuthProvider>
         </ConnectivityProvider>

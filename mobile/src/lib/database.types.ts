@@ -46,6 +46,10 @@ export interface Database {
           ownerName: string;
           phone: string | null;
           role: Role;
+          notifyStatusChanges: boolean;
+          notifyDocuments: boolean;
+          notifyStaleOrders: boolean;
+          notifyCreditIssues: boolean;
           createdAt: string;
           updatedAt: string;
         };
@@ -55,10 +59,34 @@ export interface Database {
           ownerName: string;
           phone?: string | null;
           role?: Role;
+          notifyStatusChanges?: boolean;
+          notifyDocuments?: boolean;
+          notifyStaleOrders?: boolean;
+          notifyCreditIssues?: boolean;
           createdAt?: string;
           updatedAt?: string;
         };
         Update: Partial<Database["public"]["Tables"]["Profile"]["Row"]>;
+        Relationships: [];
+      };
+      PushToken: {
+        Row: {
+          id: string;
+          profileId: string;
+          token: string;
+          platform: "ios" | "android" | "web";
+          createdAt: string;
+          lastSeenAt: string;
+        };
+        Insert: {
+          id?: string;
+          profileId: string;
+          token: string;
+          platform: "ios" | "android" | "web";
+          createdAt?: string;
+          lastSeenAt?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["PushToken"]["Row"]>;
         Relationships: [];
       };
       Party: {
