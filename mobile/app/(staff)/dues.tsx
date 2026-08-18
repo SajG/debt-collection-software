@@ -10,7 +10,7 @@ import {
 import { router } from "expo-router";
 import { differenceInCalendarDays } from "date-fns";
 import { Screen } from "@/components/Screen";
-import { WizardHeader as Header } from "@/components/WizardHeader";
+import { PageHeader } from "@/components/PageHeader";
 import { TextField } from "@/components/TextField";
 import {
   useDuesForParty,
@@ -48,21 +48,7 @@ export default function DuesScreen() {
 
   return (
     <Screen padded={false}>
-      {/* Reuse WizardHeader's progress-bar-less variant would be neater —
-          keeping the module lean by using a small local header here. */}
-      <View style={styles.header}>
-        <Pressable
-          onPress={() => (router.canGoBack() ? router.back() : router.replace("/(staff)"))}
-          hitSlop={12}
-          style={styles.backBtn}
-          accessibilityRole="button"
-        >
-          <Text style={styles.backGlyph}>‹</Text>
-          <Text style={styles.backLabel}>{t("wizard.back")}</Text>
-        </Pressable>
-        <Text style={styles.title}>{t("dues.title")}</Text>
-        <Text style={styles.subtitle}>{t("dues.subtitle")}</Text>
-      </View>
+      <PageHeader title={t("dues.title")} subtitle={t("dues.subtitle")} />
 
       <View style={styles.searchWrap}>
         <TextField

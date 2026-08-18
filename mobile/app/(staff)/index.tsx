@@ -131,23 +131,42 @@ export default function HomeScreen() {
           </Text>
           <Text style={styles.subtitle}>{t("home.subtitle")}</Text>
         </View>
-        <View style={styles.headerActions}>
-          <HeaderLink label={t("home.dues")} onPress={() => router.push("/(staff)/dues")} />
-          <HeaderLink label="Stock" onPress={() => router.push("/(staff)/stock")} />
-          <HeaderLink label="Payments" onPress={() => router.push("/(staff)/payments")} />
-          <HeaderLink
-            label={t("home.signOut")}
-            onPress={() =>
-              confirm({
-                title: t("confirm.signOut.title"),
-                body: t("confirm.signOut.body"),
-                confirmLabel: t("confirm.ok"),
-                destructive: true,
-                onConfirm: () => void signOut(),
-              })
-            }
-          />
-        </View>
+        <Pressable
+          onPress={() =>
+            confirm({
+              title: t("confirm.signOut.title"),
+              body: t("confirm.signOut.body"),
+              confirmLabel: t("confirm.ok"),
+              destructive: true,
+              onConfirm: () => void signOut(),
+            })
+          }
+          hitSlop={8}
+          style={({ pressed }) => [styles.signOutBtn, pressed && { opacity: 0.7 }]}
+          accessibilityRole="button"
+          accessibilityLabel={t("home.signOut")}
+        >
+          <Text style={styles.signOutGlyph}>⏻</Text>
+          <Text style={styles.signOutText}>{t("home.signOut")}</Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.tilesRow}>
+        <NavTile
+          glyph="₹"
+          label={t("home.dues")}
+          onPress={() => router.push("/(staff)/dues")}
+        />
+        <NavTile
+          glyph="◫"
+          label="Stock"
+          onPress={() => router.push("/(staff)/stock")}
+        />
+        <NavTile
+          glyph="✓"
+          label="Payments"
+          onPress={() => router.push("/(staff)/payments")}
+        />
       </View>
 
       {isAdmin && (
@@ -253,15 +272,24 @@ export default function HomeScreen() {
   );
 }
 
-function HeaderLink({ label, onPress }: { label: string; onPress: () => void }) {
+function NavTile({
+  glyph,
+  label,
+  onPress,
+}: {
+  glyph: string;
+  label: string;
+  onPress: () => void;
+}) {
   return (
     <Pressable
       onPress={onPress}
-      hitSlop={8}
-      style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.7 }]}
+      style={({ pressed }) => [styles.tile, pressed && { opacity: 0.85 }]}
       accessibilityRole="button"
+      accessibilityLabel={label}
     >
-      <Text style={styles.linkText}>{label}</Text>
+      <Text style={styles.tileGlyph}>{glyph}</Text>
+      <Text style={styles.tileLabel}>{label}</Text>
     </Pressable>
   );
 }
@@ -285,18 +313,57 @@ const styles = StyleSheet.create({
     fontSize: theme.type.bodySmall,
     color: theme.colors.textMuted,
   },
-  headerActions: {
-    alignItems: "flex-end",
-    gap: 8,
+  signOutBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    minHeight: theme.tap,
+    borderRadius: theme.radius,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.background,
   },
-  linkBtn: {
-    minHeight: theme.tap - 8,
+  signOutGlyph: {
+    fontSize: 16,
+    color: theme.colors.danger,
+    fontWeight: "700",
+  },
+  signOutText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: theme.colors.text,
+  },
+  tilesRow: {
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: theme.spacing.lg,
+    paddingTop: theme.spacing.md,
+  },
+  tile: {
+    flex: 1,
+    minHeight: 76,
+    borderRadius: theme.radius,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    alignItems: "center",
     justifyContent: "center",
+    gap: 4,
+    paddingHorizontal: 8,
   },
-  linkText: {
-    fontSize: 15,
+  tileGlyph: {
+    fontSize: 26,
     color: theme.colors.primary,
     fontWeight: "700",
+    lineHeight: 30,
+  },
+  tileLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: theme.colors.text,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
   scopeToggle: {
     paddingHorizontal: theme.spacing.lg,

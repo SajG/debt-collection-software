@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { Screen } from "@/components/Screen";
+import { PageHeader } from "@/components/PageHeader";
 import { FAB } from "@/components/FAB";
 import { usePayments, type PaymentListRow } from "@/lib/payment-queries";
 import { formatDate, formatINR } from "@/lib/format";
@@ -38,6 +39,10 @@ export default function PaymentsListScreen() {
 
   return (
     <Screen padded={false}>
+      <PageHeader
+        title="Payments"
+        subtitle="Recorded collections and proofs. Tap + to add a new one."
+      />
       <FlatList
         contentContainerStyle={styles.list}
         data={data ?? []}

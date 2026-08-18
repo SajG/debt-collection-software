@@ -8,6 +8,7 @@ import {
   View,
 } from "react-native";
 import { Screen } from "@/components/Screen";
+import { PageHeader } from "@/components/PageHeader";
 import { TextField } from "@/components/TextField";
 import { useStock, type StockRow } from "@/lib/stock-queries";
 import { timeAgo } from "@/lib/format";
@@ -25,14 +26,14 @@ export default function StockScreen() {
 
   return (
     <Screen padded={false}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Stock in factory</Text>
-        <Text style={styles.subtitle}>
-          {latestSync
+      <PageHeader
+        title="Stock in factory"
+        subtitle={
+          latestSync
             ? `Last Tally sync: ${timeAgo(latestSync)}`
-            : "No Tally sync recorded yet."}
-        </Text>
-      </View>
+            : "No Tally sync recorded yet."
+        }
+      />
 
       <View style={styles.searchWrap}>
         <TextField
