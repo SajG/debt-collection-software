@@ -124,7 +124,9 @@ export interface Database {
           paymentTerm: PaymentTerm;
           transportType: TransportType;
           expectedDeliveryDate: string | null;
+          dispatchLocation: string | null;
           tokenType: string | null;
+          expectedProductionDate: string | null;
           notes: string | null;
           currentStatus: OrderStatus;
           linkedInvoiceId: string | null;
@@ -146,7 +148,9 @@ export interface Database {
           paymentTerm: PaymentTerm;
           transportType: TransportType;
           expectedDeliveryDate?: string | null;
+          dispatchLocation?: string | null;
           tokenType?: string | null;
+          expectedProductionDate?: string | null;
           notes?: string | null;
           currentStatus?: OrderStatus;
           linkedInvoiceId?: string | null;
