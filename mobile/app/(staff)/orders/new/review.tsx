@@ -71,7 +71,10 @@ export default function StepReview() {
       p_party_id: draft.partyId,
       p_new_customer_name: draft.newCustomerName,
       p_dispatch_location: draft.dispatchLocation.trim() || null,
-      p_product_id: draft.productId!,
+      p_product_id: draft.productId,
+      p_new_product_name: draft.productId
+        ? null
+        : (draft.customProductName?.trim() || null),
       p_brand: draft.brand,
       p_quantity: Number(draft.quantity),
       p_quantity_unit: draft.quantityUnit,

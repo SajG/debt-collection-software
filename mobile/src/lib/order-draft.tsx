@@ -104,7 +104,7 @@ export function isDraftComplete(d: OrderDraft): boolean {
     (d.partyId || d.newCustomerName) &&
       d.dispatchLocation.trim() &&
       d.brand &&
-      d.productId &&
+      (d.productId || (d.customProductName && d.customProductName.trim())) &&
       Number(d.quantity) > 0 &&
       d.packingType &&
       d.sizeKg &&
