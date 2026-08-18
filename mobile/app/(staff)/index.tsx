@@ -13,9 +13,11 @@ import { Segmented } from "@/components/Segmented";
 import { OrderCard } from "@/components/OrderCard";
 import { FAB } from "@/components/FAB";
 import { confirm } from "@/components/Confirm";
+import { useFocusEffect } from "expo-router";
 import { useAuth } from "@/auth/AuthContext";
 import { useOrderEventStream, useOwnOrders } from "@/lib/queries";
 import { useQueue } from "@/lib/order-queue";
+import { useDraftPreview } from "@/lib/order-draft";
 import { t } from "@/lib/i18n";
 import { theme } from "@/theme";
 
@@ -63,6 +65,12 @@ export default function HomeScreen() {
   );
   useOrderEventStream(refetch, user?.id ?? null);
   const queue = useQueue();
+  const draftPreview = useDraftPreview();
+  useFocusEffect(
+    useCallback(() => {
+      void draftPreview.refresh();
+    }, [draftPreview.refresh]),
+  );
 
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
@@ -152,6 +160,30 @@ export default function HomeScreen() {
               { label: t("home.scope.all"), value: "all" },
             ]}
           />
+        </View>
+      )}
+
+      {draftPreview.hasDraft && (
+        <View style={styles.resumeWrap}>
+          <Pressable
+            onPress={() => router.push("/(staff)/orders/new")}
+            style={({ pressed }) => [
+              styles.resumeCard,
+              pressed && { opacity: 0.85 },
+            ]}
+            accessibilityRole="button"
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={styles.resumeLabel}>Resume order</Text>
+              <Text style={styles.resumeSummary} numberOfLines={1}>
+                {draftPreview.summary ?? "Draft in progress"}
+              </Text>
+              <Text style={styles.resumeMeta}>
+                Step {draftPreview.lastStep} of 12
+              </Text>
+            </View>
+            <Text style={styles.resumeChevron}>›</Text>
+          </Pressable>
         </View>
       )}
 
@@ -283,5 +315,42 @@ const styles = StyleSheet.create({
     fontSize: theme.type.body,
     color: theme.colors.textMuted,
     marginTop: theme.spacing.xl,
+  },
+  resumeWrap: {
+    paddingHorizontal: theme.spacing.lg,
+    paddingTop: theme.spacing.md,
+  },
+  resumeCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: theme.spacing.md,
+    borderRadius: theme.radius,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    backgroundColor: "#EAF2EF",
+  },
+  resumeLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: theme.colors.primary,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  resumeSummary: {
+    fontSize: theme.type.body,
+    fontWeight: "700",
+    color: theme.colors.text,
+    marginTop: 2,
+  },
+  resumeMeta: {
+    fontSize: theme.type.bodySmall,
+    color: theme.colors.textMuted,
+    marginTop: 2,
+  },
+  resumeChevron: {
+    fontSize: 28,
+    color: theme.colors.primary,
+    fontWeight: "700",
   },
 });

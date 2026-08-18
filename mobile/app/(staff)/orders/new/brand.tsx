@@ -94,14 +94,19 @@ export default function StepBrand() {
               onChangeText={setCustomValue}
               autoCapitalize="words"
             />
-            <Button
-              label={t("wizard.next")}
-              onPress={submitCustom}
-              disabled={!customValue.trim()}
-            />
           </View>
         )}
       </ScrollView>
+
+      <View style={styles.footer}>
+        <Button
+          label={t("wizard.next")}
+          onPress={() => {
+            if (customMode && customValue.trim()) submitCustom();
+            else router.push("/(staff)/orders/new/product");
+          }}
+        />
+      </View>
     </Screen>
   );
 }
@@ -140,5 +145,10 @@ const styles = StyleSheet.create({
     width: "100%",
     gap: theme.spacing.md,
     marginTop: theme.spacing.sm,
+  },
+  footer: {
+    padding: theme.spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
   },
 });

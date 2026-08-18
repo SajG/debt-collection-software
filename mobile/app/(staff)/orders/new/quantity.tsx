@@ -20,9 +20,10 @@ export default function StepQuantity() {
 
   function next() {
     const n = Number(draft.quantity);
-    if (!Number.isFinite(n) || n <= 0) {
+    if (draft.quantity && (!Number.isFinite(n) || n <= 0)) {
       setError(t("wizard.quantity.invalid"));
-      return;
+      // Non-blocking: warn but still advance so the user can complete
+      // the wizard end-to-end. Review step enforces required fields.
     }
     router.push("/(staff)/orders/new/packing");
   }

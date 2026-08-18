@@ -43,8 +43,6 @@ export default function StepPacking() {
     draft.sizeKg && !COMMON_SIZES_KG.includes(draft.sizeKg) ? "custom" : "list",
   );
 
-  const canContinue = Boolean(draft.packingType && draft.sizeKg);
-
   return (
     <Screen padded={false} scroll>
       <View style={styles.header}>
@@ -107,7 +105,6 @@ export default function StepPacking() {
         <Button
           label={t("wizard.next")}
           onPress={() => router.push("/(staff)/orders/new/rate")}
-          disabled={!canContinue}
         />
       </View>
     </Screen>

@@ -30,8 +30,6 @@ export default function StepToken() {
     [],
   );
 
-  const canContinue = Boolean(draft.tokenType && draft.tokenType.trim());
-
   return (
     <Screen padded={false}>
       <View style={styles.header}>
@@ -66,7 +64,6 @@ export default function StepToken() {
         <Button
           label={t("wizard.next")}
           onPress={() => router.push("/(staff)/orders/new/notes")}
-          disabled={!canContinue}
         />
       </ScrollView>
     </Screen>

@@ -135,14 +135,12 @@ export default function StepCustomer() {
         />
       )}
 
-      {draft.partyId || draft.newCustomerName ? (
-        <View style={styles.footer}>
-          <Button
-            label={t("wizard.next")}
-            onPress={() => router.push("/(staff)/orders/new/dispatch")}
-          />
-        </View>
-      ) : null}
+      <View style={styles.footer}>
+        <Button
+          label={t("wizard.next")}
+          onPress={() => router.push("/(staff)/orders/new/dispatch")}
+        />
+      </View>
 
       <View style={styles.startOverWrap}>
         <Pressable onPress={startOver} hitSlop={12}>

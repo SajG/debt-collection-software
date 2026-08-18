@@ -90,7 +90,6 @@ export default function StepDelivery() {
         <Button
           label={t("wizard.next")}
           onPress={() => router.push("/(staff)/orders/new/token")}
-          disabled={!draft.expectedDeliveryDate}
         />
       </View>
     </Screen>

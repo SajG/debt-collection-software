@@ -10,7 +10,6 @@ import { theme } from "@/theme";
 
 export default function StepRate() {
   const { draft, setField } = useWizard();
-  const canContinue = draft.productRate.trim().length > 0;
 
   return (
     <Screen padded={false} scroll>
@@ -32,7 +31,6 @@ export default function StepRate() {
         <Button
           label={t("wizard.next")}
           onPress={() => router.push("/(staff)/orders/new/terms")}
-          disabled={!canContinue}
         />
       </View>
     </Screen>

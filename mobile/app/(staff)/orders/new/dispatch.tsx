@@ -12,7 +12,6 @@ import { theme } from "@/theme";
 // Free text — may be a sub-dealer godown, a customer site, etc.
 export default function StepDispatch() {
   const { draft, setField } = useWizard();
-  const canContinue = draft.dispatchLocation.trim().length > 0;
 
   return (
     <Screen padded={false}>
@@ -36,7 +35,6 @@ export default function StepDispatch() {
         <Button
           label={t("wizard.next")}
           onPress={() => router.push("/(staff)/orders/new/brand")}
-          disabled={!canContinue}
         />
       </ScrollView>
     </Screen>

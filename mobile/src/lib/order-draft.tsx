@@ -45,6 +45,12 @@ export type OrderDraft = {
   // "With Synergy Barcode Token" etc., or a user-typed value via "Other".
   tokenType: string | null;
   notes: string;
+  // When the product isn't in the Tally BOM catalogue yet, salesperson
+  // types a name. Submitted alongside p_new_product_name; server creates
+  // a stub Product row on first save.
+  customProductName: string | null;
+  // Highest step index visited. Powers "Resume order" on home screen.
+  lastStep: number;
 };
 
 export function emptyDraft(): OrderDraft {
@@ -66,7 +72,30 @@ export function emptyDraft(): OrderDraft {
     expectedDeliveryDate: null,
     tokenType: null,
     notes: "",
+    customProductName: null,
+    lastStep: 1,
   };
+}
+
+/** True when the salesperson has typed anything into the current draft. */
+export function isDraftDirty(d: OrderDraft): boolean {
+  return Boolean(
+    d.partyId ||
+      d.newCustomerName ||
+      d.dispatchLocation.trim() ||
+      d.brand ||
+      d.productId ||
+      d.productName ||
+      d.customProductName ||
+      d.quantity ||
+      d.packingType ||
+      d.sizeKg ||
+      d.productRate.trim() ||
+      d.paymentTerm ||
+      d.transportType ||
+      d.tokenType ||
+      d.notes.trim(),
+  );
 }
 
 /** True once every required field has a value — controls the review step. */
@@ -163,4 +192,49 @@ export function useWizard(): WizardValue {
   const ctx = useContext(WizardContext);
   if (!ctx) throw new Error("useWizard must be used inside WizardProvider");
   return ctx;
+}
+
+// Home screen preview of the in-progress draft. Reads AsyncStorage
+// directly so the home screen (outside WizardProvider) can offer a
+// "Resume order" card without duplicating provider state.
+export function useDraftPreview() {
+  const [state, setState] = useState<{
+    hydrated: boolean;
+    hasDraft: boolean;
+    lastStep: number;
+    summary: string | null;
+  }>({ hydrated: false, hasDraft: false, lastStep: 1, summary: null });
+
+  const refresh = useCallback(async () => {
+    try {
+      const raw = await AsyncStorage.getItem(KEY);
+      if (!raw) {
+        setState({ hydrated: true, hasDraft: false, lastStep: 1, summary: null });
+        return;
+      }
+      const d: OrderDraft = { ...emptyDraft(), ...JSON.parse(raw) };
+      const dirty = isDraftDirty(d);
+      const summary =
+        d.partyName ||
+        d.newCustomerName ||
+        d.productName ||
+        d.customProductName ||
+        d.brand ||
+        null;
+      setState({
+        hydrated: true,
+        hasDraft: dirty,
+        lastStep: d.lastStep || 1,
+        summary,
+      });
+    } catch {
+      setState({ hydrated: true, hasDraft: false, lastStep: 1, summary: null });
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  return { ...state, refresh };
 }

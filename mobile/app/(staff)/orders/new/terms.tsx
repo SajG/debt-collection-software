@@ -12,7 +12,6 @@ import { theme } from "@/theme";
 
 export default function StepTerms() {
   const { draft, setField } = useWizard();
-  const canContinue = Boolean(draft.paymentTerm && draft.transportType);
 
   return (
     <Screen padded={false} scroll>
@@ -38,7 +37,6 @@ export default function StepTerms() {
         <Button
           label={t("wizard.next")}
           onPress={() => router.push("/(staff)/orders/new/delivery")}
-          disabled={!canContinue}
         />
       </ScrollView>
     </Screen>
