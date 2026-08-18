@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { AppState } from "react-native";
 import { useConnectivity } from "./connectivity";
 import { drainOnce } from "./order-queue";
+import { drainDocsOnce } from "./order-doc-queue";
 
 /**
  * Fires drainOnce() whenever we transition to online, or the app comes
@@ -18,6 +19,10 @@ export function useQueueDrainer(): void {
     draining.current = true;
     try {
       await drainOnce();
+      // Doc uploads share the same connectivity trigger; run them
+      // sequentially so we don't slam the phone's radio with a big
+      // photo upload and an RPC call at the same time.
+      await drainDocsOnce();
     } finally {
       draining.current = false;
     }

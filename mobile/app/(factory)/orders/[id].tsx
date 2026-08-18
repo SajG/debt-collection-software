@@ -1,7 +1,10 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
+  Linking,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,15 +13,38 @@ import {
 import { useLocalSearchParams } from "expo-router";
 import { Screen } from "@/components/Screen";
 import { Button } from "@/components/Button";
+import { PickList } from "@/components/PickList";
+import { PhotoPicker, type PickedPhoto } from "@/components/PhotoPicker";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Timeline } from "@/components/Timeline";
 import { confirm } from "@/components/Confirm";
 import { useAuth } from "@/auth/AuthContext";
+import { useConnectivity } from "@/lib/connectivity";
 import { useOrderDetail, useOrderEventStream } from "@/lib/queries";
+import {
+  attachOrderDocument,
+  useOrderDocuments,
+  ORDER_DOC_LABELS,
+  type OrderDocRow,
+  type OrderDocType,
+} from "@/lib/order-doc-queries";
+import { enqueueDocument, useDocQueue } from "@/lib/order-doc-queue";
+import { ORDER_DOC_BUCKET, getSignedUrl } from "@/lib/uploads";
 import { supabase } from "@/lib/supabase";
 import { formatDate } from "@/lib/format";
 import type { OrderStatus } from "@/lib/database.types";
 import { theme } from "@/theme";
+
+// Factory upload set — mirrors STAFF_UPLOADABLE_TYPES but the factory
+// side. ORDER_PROOF is intentionally not offered here: it's a
+// salesperson artefact (customer PO, WhatsApp confirmation). RLS on
+// OrderDocument allows FACTORY to insert any type; this list is the
+// UX contract, not a security boundary.
+const FACTORY_UPLOADABLE_TYPES: OrderDocType[] = [
+  "INVOICE",
+  "LORRY_RECEIPT",
+  "OTHER",
+];
 
 // Straight-line factory progression. Cancel is a separate destructive
 // path so it doesn't get tapped by mistake.
@@ -191,10 +217,357 @@ export default function FactoryOrderDetail() {
         </View>
 
         <Timeline events={data.events} currentStatus={data.currentStatus} />
+
+        <View style={{ height: theme.spacing.md }} />
+        <DocumentsSection orderId={id ?? null} />
       </ScrollView>
     </Screen>
   );
 }
+
+function DocumentsSection({ orderId }: { orderId: string | null }) {
+  const { data: docs, refetch } = useOrderDocuments(orderId);
+  const { online } = useConnectivity();
+  const queued = useDocQueue();
+  const [photo, setPhoto] = useState<PickedPhoto | null>(null);
+  // LORRY_RECEIPT is the doc factory most often photographs — default
+  // to it so the "one-tap on a paper LR" flow is fewest taps.
+  const [type, setType] = useState<OrderDocType>("LORRY_RECEIPT");
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadNote, setUploadNote] = useState<string | null>(null);
+
+  // Live-update this section when either the salesperson OR another
+  // factory device pushes a document to the same order.
+  useEffect(() => {
+    if (!orderId) return;
+    const channel = supabase
+      .channel(`factory-order-docs-${orderId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "OrderDocument",
+          filter: `salesOrderId=eq.${orderId}`,
+        },
+        () => void refetch(),
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [orderId, refetch]);
+
+  const queuedForThisOrder = useMemo(
+    () => queued.filter((q) => q.orderId === orderId),
+    [queued, orderId],
+  );
+
+  const submit = useCallback(async () => {
+    if (!orderId || !photo) return;
+    setUploadError(null);
+    setUploadNote(null);
+    setUploading(true);
+    try {
+      if (!online) {
+        await enqueueDocument({
+          orderId,
+          type,
+          sourceUri: photo.uri,
+          fileName: photo.fileName,
+          mimeType: photo.mimeType,
+        });
+        setPhoto(null);
+        setUploadNote(
+          "No signal — saved locally. Will upload automatically when back online.",
+        );
+        return;
+      }
+      const res = await attachOrderDocument({
+        orderId,
+        type,
+        localUri: photo.uri,
+        fileName: photo.fileName,
+        mimeType: photo.mimeType,
+      });
+      if ("error" in res) {
+        // Network / RLS error path: fall back to the offline queue so
+        // the photo isn't lost even if the immediate insert fails.
+        await enqueueDocument({
+          orderId,
+          type,
+          sourceUri: photo.uri,
+          fileName: photo.fileName,
+          mimeType: photo.mimeType,
+        });
+        setPhoto(null);
+        setUploadNote(`Saved for retry — ${res.error}`);
+        return;
+      }
+      setPhoto(null);
+      setUploadNote("Uploaded.");
+      await refetch();
+    } finally {
+      setUploading(false);
+    }
+  }, [orderId, photo, type, online, refetch]);
+
+  return (
+    <View>
+      <Text style={sectionStyles.heading}>Documents</Text>
+      <Text style={sectionStyles.hint}>
+        Photograph the LR or invoice and attach it here. Camera is the
+        default; gallery is for previously-saved scans.
+      </Text>
+
+      <View style={sectionStyles.card}>
+        <PhotoPicker photo={photo} onChange={setPhoto} />
+        <View style={{ height: theme.spacing.md }} />
+        <Text style={sectionStyles.fieldLabel}>Type</Text>
+        <PickList<OrderDocType>
+          options={FACTORY_UPLOADABLE_TYPES.map((v) => ({
+            label: ORDER_DOC_LABELS[v],
+            value: v,
+          }))}
+          value={type}
+          onChange={setType}
+        />
+        {uploadError ? (
+          <Text style={sectionStyles.error}>{uploadError}</Text>
+        ) : null}
+        {uploadNote ? (
+          <Text style={sectionStyles.note}>{uploadNote}</Text>
+        ) : null}
+        <View style={{ height: theme.spacing.md }} />
+        <Button
+          label={
+            uploading
+              ? "Uploading…"
+              : online
+                ? "Upload document"
+                : "Save for upload (offline)"
+          }
+          onPress={submit}
+          loading={uploading}
+          disabled={!photo || uploading || !orderId}
+        />
+      </View>
+
+      {queuedForThisOrder.length > 0 && (
+        <View style={sectionStyles.queuedWrap}>
+          <Text style={sectionStyles.queuedTitle}>
+            {queuedForThisOrder.length} waiting to upload
+          </Text>
+          {queuedForThisOrder.map((q) => (
+            <View key={q.localId} style={sectionStyles.queuedRow}>
+              <Text style={sectionStyles.queuedType}>
+                {ORDER_DOC_LABELS[q.type]}
+              </Text>
+              <Text style={sectionStyles.queuedMeta}>
+                Queued {formatDate(new Date(q.queuedAt))}
+                {q.attempts > 0 ? ` · ${q.attempts} attempt${q.attempts === 1 ? "" : "s"}` : ""}
+              </Text>
+              {q.lastError ? (
+                <Text style={sectionStyles.queuedError}>{q.lastError}</Text>
+              ) : null}
+            </View>
+          ))}
+        </View>
+      )}
+
+      <View style={{ height: theme.spacing.md }} />
+      {(docs ?? []).length === 0 ? (
+        <View style={sectionStyles.empty}>
+          <Text style={sectionStyles.emptyText}>No documents yet.</Text>
+        </View>
+      ) : (
+        <View style={{ gap: theme.spacing.sm }}>
+          {(docs ?? []).map((doc) => (
+            <OrderDocRowView key={doc.id} doc={doc} />
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+function OrderDocRowView({ doc }: { doc: OrderDocRow }) {
+  const [signedUrl, setSignedUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void getSignedUrl(ORDER_DOC_BUCKET, doc.storagePath).then((url) => {
+      if (alive) setSignedUrl(url);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [doc.storagePath]);
+
+  const isImage = /\.(jpe?g|png|webp|heic)$/i.test(doc.storagePath);
+
+  async function open() {
+    if (!signedUrl) return;
+    try {
+      await Linking.openURL(signedUrl);
+    } catch {
+      Alert.alert("Could not open", "Try again later.");
+    }
+  }
+
+  return (
+    <View style={sectionStyles.docRow}>
+      {isImage && signedUrl ? (
+        <Image
+          source={{ uri: signedUrl }}
+          style={sectionStyles.docThumb}
+          resizeMode="cover"
+        />
+      ) : (
+        <View style={sectionStyles.docThumbPlaceholder}>
+          <Text style={sectionStyles.docThumbPlaceholderText}>PDF</Text>
+        </View>
+      )}
+      <View style={{ flex: 1 }}>
+        <Text style={sectionStyles.docType}>
+          {ORDER_DOC_LABELS[doc.type]}
+        </Text>
+        <Text style={sectionStyles.docMeta}>
+          {formatDate(new Date(doc.createdAt))}
+          {doc.uploadedByName ? ` · ${doc.uploadedByName}` : ""}
+        </Text>
+        <Pressable onPress={open} hitSlop={8}>
+          <Text style={sectionStyles.docOpen}>
+            {signedUrl ? "Open →" : "Loading…"}
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+const sectionStyles = StyleSheet.create({
+  heading: {
+    fontSize: theme.type.heading,
+    fontWeight: "700",
+    color: theme.colors.text,
+    marginTop: theme.spacing.md,
+    marginBottom: theme.spacing.sm,
+  },
+  hint: {
+    fontSize: theme.type.bodySmall,
+    color: theme.colors.textMuted,
+    marginBottom: theme.spacing.sm,
+  },
+  card: {
+    padding: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius,
+    backgroundColor: theme.colors.background,
+  },
+  fieldLabel: {
+    fontSize: theme.type.body,
+    fontWeight: "600",
+    color: theme.colors.text,
+    marginBottom: theme.spacing.sm,
+  },
+  error: {
+    marginTop: theme.spacing.sm,
+    color: theme.colors.danger,
+    fontSize: theme.type.body,
+  },
+  note: {
+    marginTop: theme.spacing.sm,
+    color: theme.colors.textMuted,
+    fontSize: theme.type.bodySmall,
+  },
+  queuedWrap: {
+    marginTop: theme.spacing.md,
+    padding: theme.spacing.md,
+    borderRadius: theme.radius,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    gap: 6,
+  },
+  queuedTitle: {
+    fontSize: theme.type.bodySmall,
+    fontWeight: "700",
+    color: theme.colors.text,
+    marginBottom: 4,
+  },
+  queuedRow: { gap: 2 },
+  queuedType: {
+    fontSize: theme.type.body,
+    fontWeight: "600",
+    color: theme.colors.text,
+  },
+  queuedMeta: {
+    fontSize: theme.type.bodySmall - 2,
+    color: theme.colors.textMuted,
+  },
+  queuedError: {
+    fontSize: theme.type.bodySmall - 2,
+    color: theme.colors.danger,
+  },
+  docRow: {
+    flexDirection: "row",
+    gap: theme.spacing.md,
+    padding: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius,
+    backgroundColor: theme.colors.background,
+  },
+  docThumb: {
+    width: 72,
+    height: 72,
+    borderRadius: 8,
+    backgroundColor: theme.colors.surface,
+  },
+  docThumbPlaceholder: {
+    width: 72,
+    height: 72,
+    borderRadius: 8,
+    backgroundColor: theme.colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  docThumbPlaceholderText: {
+    fontSize: theme.type.body,
+    fontWeight: "700",
+    color: theme.colors.textMuted,
+  },
+  docType: {
+    fontSize: theme.type.body,
+    fontWeight: "600",
+    color: theme.colors.text,
+  },
+  docMeta: {
+    marginTop: 2,
+    fontSize: theme.type.bodySmall - 2,
+    color: theme.colors.textMuted,
+  },
+  docOpen: {
+    marginTop: theme.spacing.sm,
+    color: theme.colors.primary,
+    fontSize: theme.type.bodySmall,
+    fontWeight: "600",
+  },
+  empty: {
+    padding: theme.spacing.lg,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius,
+    alignItems: "center",
+  },
+  emptyText: {
+    color: theme.colors.textMuted,
+    fontSize: theme.type.body,
+  },
+});
 
 function InfoCard({
   label,
