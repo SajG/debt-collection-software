@@ -33,7 +33,7 @@ BEGIN
     RETURN;
   END IF;
 
-  PERFORM extensions.http_post(
+  PERFORM net.http_post(
     url     := v_cfg."edgeFunctionUrl",
     body    := payload,
     headers := jsonb_build_object(
