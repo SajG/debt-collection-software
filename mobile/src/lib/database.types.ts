@@ -217,6 +217,14 @@ export interface Database {
         Args: Record<string, never>;
         Returns: string;
       };
+      check_phone_otp_rate_limit: {
+        Args: { p_phone: string };
+        Returns: { limited: boolean; retry_after_minutes: number }[];
+      };
+      record_phone_otp_attempt: {
+        Args: { p_phone: string; p_successful: boolean };
+        Returns: null;
+      };
       create_sales_order: {
         Args: {
           p_party_id: string | null;

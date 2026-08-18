@@ -25,6 +25,8 @@ type AuthValue = {
 
 const AuthContext = createContext<AuthValue | null>(null);
 
+const ALLOWED_ROLES: Role[] = ["ADMIN", "STAFF", "FACTORY"];
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -32,8 +34,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loadProfile = useCallback(async (userId: string) => {
     // If RLS blocks or the Profile row hasn't been created yet, this
-    // returns { data: null, error: null } via maybeSingle — that's the
-    // "no-profile" state the router redirects to.
+    // returns { data: null, error: null } via maybeSingle. In that
+    // case — or if the row exists but the role isn't one we support —
+    // sign the user out defensively so no screen renders with an
+    // ambiguous identity.
     const { data, error } = await supabase
       .from("Profile")
       .select("*")
@@ -41,6 +45,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .maybeSingle();
     if (error) {
       setProfile(null);
+      await supabase.auth.signOut();
+      return;
+    }
+    if (!data) {
+      setProfile(null);
+      // No profile row — probably a new phone number not yet provisioned.
+      // Bounce back to the phone screen; sign out so onAuthStateChange
+      // clears the session and the root gate does the right thing.
+      await supabase.auth.signOut();
+      return;
+    }
+    if (!ALLOWED_ROLES.includes(data.role as Role)) {
+      setProfile(null);
+      await supabase.auth.signOut();
       return;
     }
     setProfile(data);

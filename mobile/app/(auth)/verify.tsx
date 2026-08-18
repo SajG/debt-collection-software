@@ -37,11 +37,23 @@ export default function VerifyScreen() {
       return;
     }
     setVerifying(true);
+    const e164 = toE164(phone ?? "");
     const { error: verifyError } = await supabase.auth.verifyOtp({
-      phone: toE164(phone ?? ""),
+      phone: e164,
       token: code,
       type: "sms",
     });
+    // Log both outcomes to LoginAttempt so the rate-limit RPC has
+    // ground truth to work from. Best-effort: never block the user
+    // on a logging failure.
+    try {
+      await supabase.rpc("record_phone_otp_attempt", {
+        p_phone: e164,
+        p_successful: !verifyError,
+      });
+    } catch {
+      /* non-fatal */
+    }
     setVerifying(false);
     if (verifyError) {
       setError(t("auth.verify.invalid"));

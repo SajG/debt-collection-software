@@ -4,13 +4,14 @@ import { useAuth } from "@/auth/AuthContext";
 import { t } from "@/lib/i18n";
 import { theme } from "@/theme";
 
-// Single source of truth for post-boot routing. Sends each role into
-// its own nav group so the wrong screens aren't even reachable.
+// Single source of truth for post-boot routing. Every user hits this
+// gate on cold start and after sign-in.
 //
-// Dev auth-bypass: while SMS OTP is not wired up we still want to be
-// able to preview the app cold. When there's no session, default to the
-// staff group (that's what the whole app used to do). Real auth flow
-// takes over automatically as soon as loadProfile returns a role.
+// No session         → /(auth)/phone       (real Supabase phone OTP)
+// Session, no profile→ AuthContext signs the user out defensively
+// FACTORY            → /(factory)          (queue + status advance + docs)
+// STAFF / ADMIN      → /(staff)            (own orders + everything else)
+// Other role         → /unsupported-role
 export default function IndexGate() {
   const { loading, session, profile, role } = useAuth();
 
@@ -23,10 +24,7 @@ export default function IndexGate() {
     );
   }
 
-  if (!session) {
-    // Dev fallback — remove this branch once auth is on for real.
-    return <Redirect href="/(staff)" />;
-  }
+  if (!session) return <Redirect href="/(auth)/phone" />;
   if (!profile) return <Redirect href="/no-profile" />;
 
   switch (role) {

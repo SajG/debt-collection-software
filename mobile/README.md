@@ -29,14 +29,60 @@ npm start
 
 ## Supabase side (one-time)
 
-1. **Enable phone auth** in Supabase dashboard → Authentication → Providers → Phone. Wire an SMS provider (Twilio / MessageBird / Vonage — required for OTP delivery).
-2. **Apply the RLS migration** from the main repo: `npm run db:rls` (in the root project). Without it, mobile users can read anyone's rows.
-3. **Regenerate DB types** whenever the Prisma schema changes:
+1. **Apply the RLS migration** from the main repo: `npm run db:rls` (in the root project). Without it, mobile users can read anyone's rows.
+2. **Regenerate DB types** whenever the Prisma schema changes:
    ```bash
    export SUPABASE_PROJECT_ID=your_project_id
    npm run types:generate
    ```
    Overwrites `src/lib/database.types.ts`. The current file is hand-authored to match `prisma/schema.prisma` and is a safe drop-in target.
+
+## Phone OTP auth (required before rollout)
+
+The mobile app authenticates every user via a real Supabase phone OTP.
+There is no code-level bypass — a device with no session is redirected
+straight to `/(auth)/phone`. Configure the following in this order:
+
+1. **Authentication → Providers → Phone → enable.**
+2. **SMS provider.** Wire Twilio / MessageBird / Vonage credentials
+   under the same Phone provider settings. Without a provider, sends
+   fail and users cannot log in.
+3. **Phone confirmations: ON.** Codes are accepted only after real SMS
+   delivery.
+4. **Provision Profile rows.** Every phone that should be able to log
+   in needs a matching `Profile` row (`id` = the Supabase user id
+   Supabase issues on first sign-in). Set `role` to `ADMIN`, `STAFF`,
+   or `FACTORY`. `AuthContext` signs the user out on any other value
+   or a missing row.
+5. **Apply migration `20260819180000_login_attempt_phone_rate_limit`**
+   so `check_phone_otp_rate_limit` / `record_phone_otp_attempt` exist.
+   The mobile app calls them anonymously to throttle brute-force
+   verify attempts (5 fails / 15 min blocks the phone).
+
+### Testing without a real SMS provider
+
+The simplest way to log in during dev without paying for SMS is
+Supabase's built-in **Test OTPs** — no code changes required:
+
+- **Authentication → Providers → Phone → Test OTPs**
+- Add: phone `+91XXXXXXXXXX`, OTP `123456` (or any 6-digit code)
+- Save.
+
+That phone number now bypasses the SMS provider entirely; the code
+goes straight through `verifyOtp`. Use it for the boss's demo account,
+factory test users, etc. Remove the test rows before rollout.
+
+If you need a totally OTP-free dev login (e.g. for automated tests),
+create a Supabase email/password user via the dashboard and set:
+
+```
+EXPO_PUBLIC_DEV_TEST_EMAIL=you@example.com
+EXPO_PUBLIC_DEV_TEST_PASSWORD=…
+```
+
+in `mobile/.env`. A dashed "Dev build" panel with a "Sign in as …"
+button then appears on the phone screen **only when `__DEV__` is true
+and both env vars are set** — release builds never render it.
 
 ## Building an APK
 
@@ -61,8 +107,19 @@ so field-tester installs are one-tap.
 
 ## Roles
 
-- **STAFF** — routed to `/(staff)` home. Only role fully supported today.
-- **ADMIN / FACTORY** — see the `/unsupported-role` screen with a message directing them to the web console.
+Single login screen for everyone; role decides the destination.
+
+- **STAFF** — routed to `/(staff)`. Own orders only (RLS enforces this
+  even if the client tries to peek); can create new orders, record
+  payments, view dues + stock, attach ORDER_PROOF / OTHER documents.
+- **FACTORY** — routed to `/(factory)`. Sees every salesperson's
+  orders; can advance status (ORDER_PLACED → IN_PRODUCTION →
+  READY_TO_DISPATCH → LR_GENERATED → DISPATCHED) and attach
+  INVOICE / LORRY_RECEIPT / OTHER photos. No FAB, no dues, no
+  payments.
+- **ADMIN** — routed to `/(staff)`; the home screen exposes a "mine /
+  all" scope toggle that STAFF doesn't see.
+- **Any other role** — AuthContext signs the user out on load.
 
 ## Adding a language
 

@@ -792,9 +792,14 @@ model StockItem {
 
 model LoginAttempt {
   id         String   @id @default(cuid())
-  email      String
+  // Exactly one of email / phone is set. Web login uses email; mobile
+  // phone OTP flow uses phone. CHECK constraint in the migration
+  // enforces at-least-one at the DB level.
+  email      String?
+  phone      String?
   successful Boolean  @default(false)
   createdAt  DateTime @default(now())
 
   @@index([email, createdAt])
+  @@index([phone, createdAt])
 }
