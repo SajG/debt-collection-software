@@ -283,6 +283,18 @@ export interface Database {
         Args: { p_phone: string };
         Returns: boolean;
       };
+      is_notification_config_ready: {
+        Args: Record<string, never>;
+        Returns: boolean;
+      };
+      check_order_create_rate_limit: {
+        Args: { p_profile_id: string };
+        Returns: { limited: boolean; retry_after_minutes: number }[];
+      };
+      check_document_upload_rate_limit: {
+        Args: { p_profile_id: string };
+        Returns: { limited: boolean; retry_after_minutes: number }[];
+      };
       create_sales_order: {
         Args: {
           p_party_id: string | null;

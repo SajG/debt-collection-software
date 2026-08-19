@@ -20,6 +20,7 @@ import { OrderRealtimeRefresh } from "../../_components/order-realtime";
 import { CancelOrderButton } from "../cancel-order";
 import { DocumentUploadForm } from "../../production/order-actions";
 import { AddCommentForm } from "./add-comment-form";
+import { RecordInvoiceForm } from "./record-invoice-form";
 
 type StatusEvent = {
   id: string;
@@ -252,6 +253,29 @@ export default async function SalesOrderDetailPage({
             </ol>
           )}
         </Card>
+
+        {(profile.role === "ADMIN" || profile.role === "FACTORY") &&
+          order.partyId &&
+          !order.linkedInvoiceId &&
+          order.currentStatus !== "CANCELLED" && (
+            <Card title="Record invoice" className="mb-6">
+              <RecordInvoiceForm orderId={order.id} />
+            </Card>
+          )}
+        {order.linkedInvoiceId && (
+          <Card title="Attached invoice" className="mb-6">
+            <p className="text-sm">
+              This order is linked to invoice{" "}
+              <a
+                className="font-mono text-primary underline-offset-2 hover:underline"
+                href={`/invoices/${order.linkedInvoiceId}`}
+              >
+                {order.linkedInvoiceId}
+              </a>
+              .
+            </p>
+          </Card>
+        )}
 
         <Card title="Documents">
           <p className="mb-4 text-xs text-muted-foreground">

@@ -8,7 +8,7 @@
     "ios": "expo run:ios",
     "assets:placeholder": "node scripts/generate-placeholder-assets.mjs",
     "types:generate": "npx supabase gen types typescript --project-id \"$SUPABASE_PROJECT_ID\" --schema public > src/lib/database.types.ts",
-    "prebuild": "expo prebuild --clean",
+    "prebuild": "node scripts/assert-no-dev-secrets.mjs && expo prebuild --clean",
     "build:apk:preview": "eas build --platform android --profile preview --local",
     "typecheck": "tsc --noEmit"
   },

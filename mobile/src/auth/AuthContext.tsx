@@ -7,10 +7,19 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { AppState } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import type { Database, Role } from "@/lib/database.types";
+
+// Idle sign-out. Field phones get lost; a device sitting idle for
+// more than IDLE_TIMEOUT_MS wakes up signed out and has to re-auth.
+// Independent of Supabase's own refresh-token TTL — this is the
+// physical-device layer.
+const IDLE_STORAGE_KEY = "paytrack:lastActiveAt";
+const IDLE_TIMEOUT_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 type Profile = Database["public"]["Tables"]["Profile"]["Row"];
 
@@ -82,25 +91,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    // Cold start: rehydrate whatever session lives in SecureStore.
-    supabase.auth.getSession().then(async ({ data }) => {
+    async function bootWithIdleCheck() {
+      // Idle-timeout enforcement — read the last-active stamp before
+      // we hand the session back to consumers. If the device has been
+      // idle past the threshold, force sign-out; the root gate then
+      // routes to /(auth)/phone.
+      const rawStamp = await AsyncStorage.getItem(IDLE_STORAGE_KEY);
+      const now = Date.now();
+      const stamp = rawStamp ? Number(rawStamp) : NaN;
+      const idleFor = Number.isFinite(stamp) ? now - stamp : 0;
+      if (Number.isFinite(stamp) && idleFor > IDLE_TIMEOUT_MS) {
+        await supabase.auth.signOut();
+        await AsyncStorage.removeItem(IDLE_STORAGE_KEY);
+        if (mounted) {
+          setSession(null);
+          setProfile(null);
+          setLoading(false);
+        }
+        return;
+      }
+
+      const { data } = await supabase.auth.getSession();
       if (!mounted) return;
       setSession(data.session);
       if (data.session?.user) await loadProfile(data.session.user.id);
       setLoading(false);
-    });
+    }
+    void bootWithIdleCheck();
 
     // Warm updates: sign-in / sign-out / token refresh all flow through here.
     const { data: sub } = supabase.auth.onAuthStateChange(async (_evt, s) => {
       if (!mounted) return;
       setSession(s);
-      if (s?.user) await loadProfile(s.user.id);
-      else setProfile(null);
+      if (s?.user) {
+        await loadProfile(s.user.id);
+        await AsyncStorage.setItem(IDLE_STORAGE_KEY, String(Date.now()));
+      } else {
+        setProfile(null);
+      }
+    });
+
+    // Refresh the last-active stamp every time the app comes to the
+    // foreground. AppState 'active' also fires on cold start via the
+    // subscription API so we don't double-count with bootWithIdleCheck.
+    const appSub = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        void AsyncStorage.setItem(IDLE_STORAGE_KEY, String(Date.now()));
+      }
     });
 
     return () => {
       mounted = false;
       sub.subscription.unsubscribe();
+      appSub.remove();
     };
   }, [loadProfile]);
 

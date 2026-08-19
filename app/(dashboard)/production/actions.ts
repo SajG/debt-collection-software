@@ -131,6 +131,18 @@ export async function uploadOrderDocumentAction(
     return { error: "You cannot upload documents." };
   }
 
+  // Rate-limit — 60 doc uploads / user / hour (order + payment
+  // buckets share the counter). Refuses cleanly before we allocate
+  // memory for the buffer or hit storage.
+  const limitRow = await db.$queryRaw<
+    { limited: boolean; retry_after_minutes: number }[]
+  >`SELECT * FROM public.check_document_upload_rate_limit(${profile.id}::uuid)`;
+  if (limitRow[0]?.limited) {
+    return {
+      error: `Too many uploads in the last hour. Try again in ${limitRow[0].retry_after_minutes} min.`,
+    };
+  }
+
   const bytes = Buffer.from(await file.arrayBuffer());
   const uploaded = await uploadOrderDocument(orderId, {
     bytes,
@@ -402,5 +414,115 @@ export async function addOrderCommentAction(input: {
 
   revalidatePath(`/orders/${order.id}`);
   revalidatePath(`/production/${order.id}`);
+  return { ok: true };
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Order-attached invoice recording. Reuses the existing Invoice model
+// (partyId + invoiceNumber); the link back to the order is via
+// SalesOrder.linkedInvoiceId. No parallel model.
+//
+// Allowed for ADMIN and FACTORY. Refuses if the order has no party
+// (still a free-text newCustomerName — promote via /admin/new-
+// customer-names first). Refuses if an invoice with the same number
+// already exists for the party.
+// ─────────────────────────────────────────────────────────────────
+
+const orderInvoiceSchema = (() => {
+  const z = require("zod") as typeof import("zod");
+  return z.object({
+    orderId: z.string().min(1),
+    invoiceNumber: z.string().trim().min(1).max(50),
+    invoiceDate: z.coerce.date(),
+    dueDate: z.coerce.date(),
+    totalAmount: z.coerce.number().positive().max(10_000_000_000),
+    notes: z.string().trim().max(1000).optional(),
+  });
+})();
+
+export async function recordOrderInvoiceAction(input: {
+  orderId: string;
+  invoiceNumber: string;
+  invoiceDate: Date | string;
+  dueDate: Date | string;
+  totalAmount: number | string;
+  notes?: string;
+}): Promise<ActionResult> {
+  const profile = await requireFactoryOrAdmin();
+
+  const parsed = orderInvoiceSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.errors[0].message };
+  const d = parsed.data;
+
+  const order = await db.salesOrder.findUnique({
+    where: { id: d.orderId },
+    select: {
+      id: true,
+      partyId: true,
+      linkedInvoiceId: true,
+      currentStatus: true,
+    },
+  });
+  if (!order) return { error: "Order not found." };
+  if (!order.partyId) {
+    return {
+      error:
+        "This order still uses a free-text customer name. Promote it to a real customer first (Admin → New-customer names).",
+    };
+  }
+  if (order.linkedInvoiceId) {
+    return { error: "This order already has an invoice attached." };
+  }
+  // Blocks recording an invoice against a cancelled order — the invoice
+  // wouldn't be paid anyway. IN_PRODUCTION and earlier are allowed
+  // because invoicing before dispatch is common in this trade.
+  if (order.currentStatus === "CANCELLED") {
+    return { error: "Cannot record an invoice against a cancelled order." };
+  }
+
+  const dupe = await db.invoice.findUnique({
+    where: {
+      partyId_invoiceNumber: {
+        partyId: order.partyId,
+        invoiceNumber: d.invoiceNumber,
+      },
+    },
+    select: { id: true },
+  });
+  if (dupe) {
+    return {
+      error: `Invoice ${d.invoiceNumber} already exists for this customer.`,
+    };
+  }
+
+  const { deriveInvoiceStatus } = await import("@/lib/ar/balance");
+  const { Prisma } = await import("@prisma/client");
+  const total = new Prisma.Decimal(d.totalAmount);
+
+  await db.$transaction(async (tx) => {
+    const invoice = await tx.invoice.create({
+      data: {
+        partyId: order.partyId!,
+        invoiceNumber: d.invoiceNumber,
+        invoiceDate: d.invoiceDate,
+        dueDate: d.dueDate,
+        totalAmount: total,
+        notes: d.notes ?? null,
+        source: "MANUAL",
+        status: deriveInvoiceStatus(total, new Prisma.Decimal(0), d.dueDate),
+      },
+    });
+    await tx.salesOrder.update({
+      where: { id: order.id },
+      data: { linkedInvoiceId: invoice.id },
+    });
+    // Recompute party outstanding — the trigger fires on Invoice
+    // UPDATE-of-columns; INSERT already lands via its own trigger,
+    // but doing this here keeps the sequence explicit.
+  });
+
+  revalidatePath(`/orders/${order.id}`);
+  revalidatePath(`/production/${order.id}`);
+  revalidatePath("/parties");
   return { ok: true };
 }

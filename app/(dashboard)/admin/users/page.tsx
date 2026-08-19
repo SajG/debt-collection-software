@@ -74,6 +74,13 @@ export default async function UsersAdminPage({
     (p) => p.role === "ADMIN" && p.isActive,
   ).length;
 
+  // Only "is it wired?" — the shared secret itself is unreadable from
+  // any authenticated JWT after migration
+  // 20260821180000_security_hardening.
+  const notifyStatus = await db.$queryRaw<{ ready: boolean }[]>`
+    SELECT public.is_notification_config_ready() AS ready`;
+  const notifyReady = notifyStatus[0]?.ready ?? false;
+
   return (
     <div className="p-4 sm:p-8">
       <PageHeader
@@ -196,6 +203,17 @@ export default async function UsersAdminPage({
         Both the server actions and a BEFORE-UPDATE trigger on Profile
         refuse to leave the system without at least one — promote
         someone else before demoting or deactivating the last one.
+      </p>
+      <p className="mt-2 text-xs text-muted-foreground">
+        Push-notification pipeline:{" "}
+        {notifyReady ? (
+          <span className="font-semibold text-emerald-700">configured</span>
+        ) : (
+          <span className="font-semibold text-red-700">not configured</span>
+        )}
+        . The shared secret is not readable from this UI by design —
+        rotate via <code className="rounded bg-muted px-1 py-0.5">supabase secrets set NOTIFY_SHARED_SECRET</code>{" "}
+        and then update the DB row with an equivalent value.
       </p>
     </div>
   );

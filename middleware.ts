@@ -81,11 +81,22 @@ export async function middleware(request: NextRequest) {
     "Strict-Transport-Security",
     "max-age=63072000; includeSubDomains; preload"
   );
+  // CSP — 'unsafe-eval' is only needed by Next.js in dev (React fast-
+  // refresh uses eval); production builds don't. 'unsafe-inline' on
+  // script-src stays for now because the App Router still emits an
+  // inline hydration <script>; moving to a per-request nonce needs
+  // a coordinated _document shim + strict-dynamic and is queued as a
+  // follow-up. Both 'unsafe-*' on style-src are Tailwind's inline
+  // style prop pattern — not attacker-reachable on their own.
+  const isProd = process.env.NODE_ENV === "production";
+  const scriptSrc = isProd
+    ? "script-src 'self' 'unsafe-inline'"
+    : "script-src 'self' 'unsafe-inline' 'unsafe-eval'";
   supabaseResponse.headers.set(
     "Content-Security-Policy",
     [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      scriptSrc,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: https:",
       "font-src 'self' data:",

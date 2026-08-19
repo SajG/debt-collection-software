@@ -53,6 +53,16 @@ export async function uploadPaymentDocumentAction(
     return { error: "You cannot attach documents to this payment." };
   }
 
+  // Shared 60-uploads-per-hour ceiling with OrderDocument.
+  const limitRow = await db.$queryRaw<
+    { limited: boolean; retry_after_minutes: number }[]
+  >`SELECT * FROM public.check_document_upload_rate_limit(${profile.id}::uuid)`;
+  if (limitRow[0]?.limited) {
+    return {
+      error: `Too many uploads in the last hour. Try again in ${limitRow[0].retry_after_minutes} min.`,
+    };
+  }
+
   const bytes = Buffer.from(await file.arrayBuffer());
   const uploaded = await uploadPaymentDocument(paymentId, {
     bytes,
