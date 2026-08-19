@@ -1,8 +1,17 @@
 import { redirect } from "next/navigation";
 import { NextResponse } from "next/server";
-import type { Prisma, Profile } from "@prisma/client";
+import type { Profile } from "@prisma/client";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/lib/db";
+
+// The pure scope predicates live in lib/authz-scope.ts so vitest can
+// import them without pulling in next/headers via the Supabase server
+// client. Callers keep importing them from @/lib/authz.
+export {
+  partyScopeWhere,
+  canAccessParty,
+  canAccessOrder,
+} from "./authz-scope";
 
 /** Authenticated user's Profile row, or null. */
 export async function getProfile(): Promise<Profile | null> {
@@ -70,30 +79,3 @@ export async function requireProfileApi(opts?: {
   return { profile, failure: null };
 }
 
-/**
- * Row-visibility rule used by every Party query (and, via `party: {...}`,
- * every invoice/payment/action query):
- * ADMIN sees all parties; STAFF sees parties assigned to them or unassigned.
- */
-export function partyScopeWhere(profile: Profile): Prisma.PartyWhereInput {
-  if (profile.role === "ADMIN") return {};
-  return { OR: [{ assignedToId: profile.id }, { assignedToId: null }] };
-}
-
-/** True when this profile may act on the given party. */
-export function canAccessParty(
-  profile: Profile,
-  party: { assignedToId: string | null }
-): boolean {
-  if (profile.role === "ADMIN") return true;
-  return party.assignedToId === null || party.assignedToId === profile.id;
-}
-
-/** True when this profile may view a sales order. */
-export function canAccessOrder(
-  profile: Profile,
-  order: { salespersonId: string }
-): boolean {
-  if (profile.role === "ADMIN" || profile.role === "FACTORY") return true;
-  return order.salespersonId === profile.id;
-}

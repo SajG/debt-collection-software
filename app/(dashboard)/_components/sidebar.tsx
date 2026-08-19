@@ -90,6 +90,12 @@ const NAV: NavItem[] = [
     roles: ["ADMIN"],
   },
   {
+    href: "/admin/unassigned",
+    label: "Unassigned",
+    icon: PackageSearch,
+    roles: ["ADMIN"],
+  },
+  {
     href: "/admin/products",
     label: "Products",
     icon: PackageSearch,

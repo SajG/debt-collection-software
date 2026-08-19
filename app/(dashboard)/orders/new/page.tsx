@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { requireProfile } from "@/lib/authz";
+import { requireProfile, partyScopeWhere } from "@/lib/authz";
 import { PageHeader } from "../../_components/ui";
 import { OrderForm, type OrderFormParty, type OrderFormProduct, type OrderFormStock } from "./order-form";
 
@@ -17,13 +17,13 @@ export default async function NewOrderPage() {
     );
   }
 
-  const partyWhere =
-    profile.role === "ADMIN"
-      ? { isActive: true }
-      : {
-          isActive: true,
-          OR: [{ assignedToId: profile.id }, { assignedToId: null }],
-        };
+  // Mirror RLS exactly — see lib/authz.ts::partyScopeWhere.
+  // Inlined originally to also filter isActive; now composed instead of
+  // re-typed so it can't drift from the shared helper.
+  const partyWhere = {
+    ...partyScopeWhere(profile),
+    isActive: true,
+  };
 
   const [parties, products, stock] = await Promise.all([
     db.party.findMany({
