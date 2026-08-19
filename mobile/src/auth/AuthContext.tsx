@@ -106,6 +106,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
+    // The root gate at "/" reads session state and routes to
+    // /(auth)/phone when there's no session. Without this replace
+    // the user stays sitting on /(staff) or /(factory) with a
+    // signed-out client — nothing tells expo-router to leave.
+    try {
+      router.replace("/");
+    } catch {
+      /* router not ready during tests */
+    }
   }, []);
 
   const reloadProfile = useCallback(async () => {
