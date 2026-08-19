@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/lib/db";
+import { verifyBearer } from "@/lib/auth/verify-bearer";
 
 export const dynamic = "force-dynamic";
 
@@ -11,9 +12,7 @@ export const dynamic = "force-dynamic";
 // Auth: same bearer secret as POST /api/sync/tally.
 
 export async function GET(request: NextRequest) {
-  const secret = process.env.TALLY_SYNC_SECRET;
-  const auth = request.headers.get("authorization");
-  if (!secret || auth !== `Bearer ${secret}`) {
+  if (!verifyBearer(request.headers.get("authorization"), process.env.TALLY_SYNC_SECRET)) {
     return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   }
 

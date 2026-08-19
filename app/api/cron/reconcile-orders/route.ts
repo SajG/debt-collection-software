@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { reconcileNewCustomerOrders } from "@/lib/orders/reconcile";
 import { captureError } from "@/lib/monitoring";
 import { db } from "@/lib/db";
+import { verifyBearer } from "@/lib/auth/verify-bearer";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -15,14 +16,13 @@ export const maxDuration = 120;
 // waiting for the nightly window.
 
 export async function GET(request: NextRequest) {
-  const cronSecret = process.env.CRON_SECRET;
-  const tallySecret = process.env.TALLY_SYNC_SECRET;
-  const auth = request.headers.get("authorization");
-  const authorised =
-    (cronSecret && auth === `Bearer ${cronSecret}`) ||
-    (tallySecret && auth === `Bearer ${tallySecret}`);
-
-  if (!authorised) {
+  if (
+    !verifyBearer(
+      request.headers.get("authorization"),
+      process.env.CRON_SECRET,
+      process.env.TALLY_SYNC_SECRET,
+    )
+  ) {
     return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   }
 

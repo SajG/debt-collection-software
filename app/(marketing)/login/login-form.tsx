@@ -121,13 +121,7 @@ export function LoginForm({ callbackUrl }: { callbackUrl?: string }) {
       </button>
 
       <p className="text-center text-sm text-muted-foreground">
-        New here?{" "}
-        <a
-          href="/signup"
-          className="font-medium text-foreground underline-offset-4 hover:underline"
-        >
-          Set up your account
-        </a>
+        Accounts are created by an administrator.
       </p>
     </form>
   );

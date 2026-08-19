@@ -113,7 +113,7 @@ function SiteNav() {
             Sign in
           </Link>
           <Link
-            href="/signup"
+            href="/login"
             className="text-sm font-medium px-4 py-2 rounded-lg text-white transition-opacity hover:opacity-90"
             style={{ backgroundColor: C.teal }}
           >
@@ -196,11 +196,11 @@ function HeroSection() {
               style={{ animationDelay: "0.28s" }}
             >
               <Link
-                href="/signup"
+                href="/login"
                 className="inline-flex items-center gap-2 text-sm font-semibold px-6 py-3 rounded-xl text-white transition-opacity hover:opacity-90"
                 style={{ backgroundColor: C.teal }}
               >
-                Get started free
+                Sign in
                 <ArrowRight size={15} />
               </Link>
               <a
@@ -711,7 +711,7 @@ function PricingSection() {
           </ul>
 
           <Link
-            href="/signup"
+            href="/login"
             className="w-full flex items-center justify-center gap-2 font-semibold py-3.5 rounded-xl text-white transition-opacity hover:opacity-90"
             style={{ backgroundColor: C.teal }}
           >
@@ -773,7 +773,7 @@ function SiteFooter() {
                 {[
                   { label: "How it works", href: "#how-it-works" },
                   { label: "Pricing", href: "#pricing" },
-                  { label: "Get started", href: "/signup" },
+                  { label: "Sign in", href: "/login" },
                 ].map(({ label, href }) => (
                   <li key={label}>
                     <a
@@ -797,7 +797,6 @@ function SiteFooter() {
               <ul className="space-y-2.5">
                 {[
                   { label: "Sign in", href: "/login" },
-                  { label: "Sign up", href: "/signup" },
                 ].map(({ label, href }) => (
                   <li key={label}>
                     <Link

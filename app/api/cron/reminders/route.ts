@@ -4,6 +4,7 @@ import { refreshOverdueStatuses } from "@/lib/ar/balance";
 import { refreshRiskLevels } from "@/lib/ar/refresh";
 import { sendReminder } from "@/lib/messaging/send";
 import { captureError } from "@/lib/monitoring";
+import { verifyBearer } from "@/lib/auth/verify-bearer";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -15,9 +16,7 @@ export const maxDuration = 300;
 // when the previous channel FAILED (provider/config error). A gate BLOCK is
 // final for the party — the gate rules the party, not the channel.
 export async function GET(request: NextRequest) {
-  const secret = process.env.CRON_SECRET;
-  const auth = request.headers.get("authorization");
-  if (!secret || auth !== `Bearer ${secret}`) {
+  if (!verifyBearer(request.headers.get("authorization"), process.env.CRON_SECRET)) {
     return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   }
 

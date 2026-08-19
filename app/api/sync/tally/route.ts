@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
+import { verifyBearer } from "@/lib/auth/verify-bearer";
 import {
   ingestPartyRows,
   ingestInvoiceRows,
@@ -32,9 +33,7 @@ const payloadSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
-  const secret = process.env.TALLY_SYNC_SECRET;
-  const auth = request.headers.get("authorization");
-  if (!secret || auth !== `Bearer ${secret}`) {
+  if (!verifyBearer(request.headers.get("authorization"), process.env.TALLY_SYNC_SECRET)) {
     return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   }
 
