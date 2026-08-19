@@ -114,6 +114,18 @@ const NAV: NavItem[] = [
     roles: ["ADMIN"],
   },
   {
+    href: "/admin/analytics",
+    label: "Analytics",
+    icon: PackageSearch,
+    roles: ["ADMIN"],
+  },
+  {
+    href: "/admin/rate-approvals",
+    label: "Rate approvals",
+    icon: PackageSearch,
+    roles: ["ADMIN"],
+  },
+  {
     href: "/admin/reconciliation",
     label: "Reconciliation",
     icon: PackageSearch,

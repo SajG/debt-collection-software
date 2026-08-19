@@ -10,11 +10,15 @@ import {
 import { PageHeader, Badge, statusTone } from "../_components/ui";
 
 export default async function ProductionQueuePage() {
-  await requireFactoryOrAdmin();
+  const profile = await requireFactoryOrAdmin();
 
   const orders = await db.salesOrder.findMany({
     where: {
-      currentStatus: { notIn: ["DISPATCHED", "CANCELLED"] },
+      currentStatus: { notIn: ["DISPATCHED", "DELIVERED", "CANCELLED"] },
+      // F6 — orders below the product floor rate are hidden from the
+      // factory queue until an admin approves the rate. Admins still
+      // see them so they can approve or decide.
+      ...(profile.role === "FACTORY" ? { needsRateApproval: false } : {}),
     },
     include: {
       party: { select: { name: true } },

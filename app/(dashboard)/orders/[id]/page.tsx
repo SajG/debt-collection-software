@@ -22,6 +22,7 @@ import { DocumentUploadForm } from "../../production/order-actions";
 import { AddCommentForm } from "./add-comment-form";
 import { RecordInvoiceForm } from "./record-invoice-form";
 import { EditOrderForm, ConfirmDeliveryButton } from "./edit-order-form";
+import { statusLinkUrl } from "@/lib/status-link";
 
 type StatusEvent = {
   id: string;
@@ -281,12 +282,43 @@ export default async function SalesOrderDetailPage({
           <Card title="Delivery confirmation" className="mb-6">
             <p className="mb-3 text-sm text-muted-foreground">
               Confirm receipt so the order-to-delivery time series is
-              accurate. In Batch 2 the customer will be able to
-              self-confirm via a signed link.
+              accurate.
             </p>
             <ConfirmDeliveryButton orderId={order.id} />
           </Card>
         )}
+
+        {(profile.role === "ADMIN" || profile.role === "STAFF") &&
+          order.currentStatus !== "CANCELLED" && (() => {
+            let url: string | null;
+            try {
+              url = statusLinkUrl(order.id, 30);
+            } catch {
+              url = null;
+            }
+            return (
+              <Card title="Customer status link" className="mb-6">
+                <p className="mb-2 text-xs text-muted-foreground">
+                  Read-only, expires in 30 days. Share with the
+                  customer so they stop calling for status. Never
+                  exposes rates, other orders, or outstanding.
+                </p>
+                {url ? (
+                  <input
+                    readOnly
+                    value={url}
+                    onClick={(e) => e.currentTarget.select()}
+                    className="w-full rounded-md border border-border bg-muted/30 px-2 py-1.5 text-xs font-mono"
+                  />
+                ) : (
+                  <p className="text-xs text-red-600">
+                    STATUS_LINK_SECRET is not configured on the deployment.
+                    Ask an ops person to set it.
+                  </p>
+                )}
+              </Card>
+            );
+          })()}
 
         {(profile.role === "ADMIN" || profile.role === "FACTORY") &&
           order.partyId &&

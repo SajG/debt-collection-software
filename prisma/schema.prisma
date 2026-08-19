@@ -743,6 +743,10 @@ model Product {
   brand     String
   isActive  Boolean  @default(true)
   sortOrder Int      @default(0)
+  // Optional per-product floor price. Orders below this flip
+  // SalesOrder.needsRateApproval and stay hidden from the factory
+  // until an admin approves. See lib/orders/create.ts + F6 flow.
+  floorRate Decimal? @db.Decimal(14, 2)
   createdAt DateTime @default(now())
 
   salesOrders SalesOrder[]
@@ -797,6 +801,14 @@ model SalesOrder {
   creditCheckPassed  Boolean @default(true)
   creditOverrideById String? @db.Uuid // set when a director overrides a blocked order
   creditOverrideNote String?
+
+  // F6 — rate approval. When needsRateApproval is true the factory
+  // hides the order from its queue until an admin approves via
+  // approveOrderRateAction (production/actions.ts).
+  needsRateApproval  Boolean   @default(false)
+  rateApprovedById   String?   @db.Uuid
+  rateApprovedAt     DateTime? @db.Timestamptz
+  rateApprovalNote   String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

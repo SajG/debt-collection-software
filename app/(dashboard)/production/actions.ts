@@ -58,6 +58,24 @@ export async function advanceOrderStatusAction(
     }),
   ]);
 
+  // F7 — Fire the WhatsApp dispatch confirmation on the DISPATCHED
+  // edge. Best-effort; a WhatsApp failure never blocks the status
+  // transition. Uses its own module (lib/messaging/dispatch-
+  // confirmation.ts) — NOT the receivables-follow-up pipeline.
+  if (next === "DISPATCHED") {
+    try {
+      const { sendDispatchConfirmation } = await import(
+        "@/lib/messaging/dispatch-confirmation"
+      );
+      // Fire-and-forget: awaited so DB errors surface in server logs,
+      // but the result isn't returned to the caller.
+      await sendDispatchConfirmation(orderId);
+    } catch (e) {
+      // Never blocks status advance; logged inside the module.
+      console.warn("dispatch-confirmation failed", e);
+    }
+  }
+
   revalidatePath("/production");
   revalidatePath(`/production/${orderId}`);
   revalidatePath(`/orders/${orderId}`);
@@ -738,5 +756,64 @@ export async function confirmOrderDeliveryAction(input: {
 
   revalidatePath(`/orders/${order.id}`);
   revalidatePath(`/production/${order.id}`);
+  return { ok: true };
+}
+
+// ─────────────────────────────────────────────────────────────────
+// F6 — Rate approval. Mirrors the credit-override pattern:
+//   creditCheckPassed / creditOverrideById / creditOverrideNote
+// becomes
+//   needsRateApproval / rateApprovedById / rateApprovedAt / rateApprovalNote
+//
+// Only ADMIN can approve. Factory should filter out
+// needsRateApproval=true orders from its queue (see production page
+// query). The approval writes an OrderStatusEvent so the timeline
+// shows who cleared it and why.
+// ─────────────────────────────────────────────────────────────────
+
+export async function approveOrderRateAction(input: {
+  orderId: string;
+  note?: string;
+}): Promise<ActionResult> {
+  const { requireAdmin } = await import("@/lib/authz");
+  const admin = await requireAdmin();
+
+  const order = await db.salesOrder.findUnique({
+    where: { id: input.orderId },
+    select: {
+      id: true,
+      needsRateApproval: true,
+      currentStatus: true,
+    },
+  });
+  if (!order) return { error: "Order not found." };
+  if (!order.needsRateApproval) {
+    return { error: "This order does not need rate approval." };
+  }
+  const note = input.note?.trim().slice(0, 1000) || "Rate approved";
+
+  await db.$transaction([
+    db.salesOrder.update({
+      where: { id: order.id },
+      data: {
+        needsRateApproval: false,
+        rateApprovedById: admin.id,
+        rateApprovedAt: new Date(),
+        rateApprovalNote: note,
+      },
+    }),
+    db.orderStatusEvent.create({
+      data: {
+        salesOrderId: order.id,
+        status: order.currentStatus,
+        notes: `[RATE APPROVED] ${note}`,
+        updatedById: admin.id,
+      },
+    }),
+  ]);
+
+  revalidatePath(`/orders/${order.id}`);
+  revalidatePath(`/production/${order.id}`);
+  revalidatePath("/admin/rate-approvals");
   return { ok: true };
 }

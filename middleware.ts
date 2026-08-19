@@ -13,6 +13,10 @@ const PUBLIC_PREFIXES = [
   "/favicon",
   "/api/cron/",
   "/api/webhooks/",
+  // F4 — customer-facing signed order-status link. The signed token
+  // in the URL IS the auth; the page shows only status + docs for
+  // that one order. Verified in lib/status-link.ts.
+  "/status/",
 ];
 
 function isPublic(pathname: string): boolean {
