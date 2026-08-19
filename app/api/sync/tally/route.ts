@@ -20,6 +20,19 @@ export const maxDuration = 300;
 //
 // Rows are the exact CSV-import shape and go through the same ingest
 // pipeline (Zod validation, tallyRef dedupe, SyncLog) as a CSV upload.
+//
+// ─── CONTRACT: MERGE, NEVER TRUNCATE-AND-REPLACE ────────────────────
+// This endpoint is safe to call after weeks or months of manually
+// created Parties, Invoices, Payments, and SalesOrders. The ingest
+// helpers below match on tallyRef (the Tally GUID) and upsert; a row
+// that already exists is UPDATED in place, never deleted, and a
+// manually created row (tallyRef = null) is never touched by this
+// route. Turning Tally on later must therefore NOT destroy the manual
+// data captured while Tally was deferred — the flag lives on
+// BusinessSettings.tallyEnabled and only gates UI + cron, not the
+// data path. If you ever add a "delete-what-Tally-doesn't-know" pass
+// in this route, it will silently wipe the field-recorded ledgers of
+// every distributor still running Tally-deferred. Don't.
 
 const rowArray = z.array(z.record(z.string())).max(MAX_ROWS);
 // Receipts carry nested allocations, so they aren't flat records.

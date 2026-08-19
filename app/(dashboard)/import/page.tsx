@@ -12,15 +12,17 @@ import { findPendingCustomerMatches } from "@/lib/orders/reconcile";
 import { ImportClient } from "./import-client";
 import { LiveSyncCard, type ProviderStatus } from "./live-sync";
 import { PendingOrdersResolver } from "./pending-orders";
+import { isTallyEnabled } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
 export default async function ImportPage() {
   await requireAdmin();
 
-  const [connections, pending] = await Promise.all([
+  const [connections, pending, tallyOn] = await Promise.all([
     db.accountingConnection.findMany(),
     findPendingCustomerMatches(),
+    isTallyEnabled(),
   ]);
   const providers: ProviderStatus[] = (
     Object.entries(PROVIDER_BY_SLUG) as [
@@ -61,21 +63,23 @@ export default async function ImportPage() {
           <LiveSyncCard providers={providers} />
         </Card>
 
-        <Card title="Tally (on-premise)">
-          <p className="text-xs text-muted-foreground">
-            Tally runs on your local network, so the cloud cannot reach it
-            directly. Run the bundled sync agent on the machine that runs
-            Tally — it reads Sundry Debtors ledgers and sales vouchers over
-            Tally&apos;s local HTTP port and pushes them here through the
-            same import pipeline. See{" "}
-            <code className="rounded bg-muted px-1 py-0.5">
-              tools/tally-sync-agent.mjs
-            </code>{" "}
-            in the repository for setup (needs the{" "}
-            <code className="rounded bg-muted px-1 py-0.5">TALLY_SYNC_SECRET</code>{" "}
-            deployment env var). Schedule it nightly with Task Scheduler or cron.
-          </p>
-        </Card>
+        {tallyOn && (
+          <Card title="Tally (on-premise)">
+            <p className="text-xs text-muted-foreground">
+              Tally runs on your local network, so the cloud cannot reach it
+              directly. Run the bundled sync agent on the machine that runs
+              Tally — it reads Sundry Debtors ledgers and sales vouchers over
+              Tally&apos;s local HTTP port and pushes them here through the
+              same import pipeline. See{" "}
+              <code className="rounded bg-muted px-1 py-0.5">
+                tools/tally-sync-agent.mjs
+              </code>{" "}
+              in the repository for setup (needs the{" "}
+              <code className="rounded bg-muted px-1 py-0.5">TALLY_SYNC_SECRET</code>{" "}
+              deployment env var). Schedule it nightly with Task Scheduler or cron.
+            </p>
+          </Card>
+        )}
       </div>
     </div>
   );

@@ -31,7 +31,7 @@ export default function StockScreen() {
         subtitle={
           latestSync
             ? `Last Tally sync: ${timeAgo(latestSync)}`
-            : "No Tally sync recorded yet."
+            : "Stock levels come from Tally — this screen will populate once an admin turns Tally on."
         }
       />
 
@@ -65,7 +65,7 @@ export default function StockScreen() {
               <Text style={styles.emptyText}>
                 {search
                   ? "No stock items match your search."
-                  : "No stock synced yet — run the Tally sync agent to populate."}
+                  : "Stock levels come from Tally. Nothing is tracked here yet — ask an admin to enable the Tally integration."}
               </Text>
             </View>
           }

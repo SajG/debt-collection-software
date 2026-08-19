@@ -192,6 +192,13 @@ export default function HomeScreen() {
           label="Payments"
           onPress={() => router.push("/(staff)/payments")}
         />
+        {isAdmin && (
+          <NavTile
+            glyph="+"
+            label="Customer"
+            onPress={() => router.push("/(staff)/customers/new")}
+          />
+        )}
       </View>
 
       {isAdmin && (

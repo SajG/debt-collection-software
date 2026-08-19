@@ -136,7 +136,19 @@ export default function StepReview() {
       </View>
 
       <ScrollView contentContainerStyle={styles.body}>
-        {credit && (
+        {credit && credit.hasNoInvoices ? (
+          // Honest empty state — without any invoices on file the
+          // "credit passes" tick is meaningless. Say so explicitly
+          // rather than showing a reassuring number.
+          <View style={[styles.creditCard, styles.creditCardUnavailable]}>
+            <Text style={styles.creditTitle}>Credit data unavailable</Text>
+            <Text style={styles.creditHint}>
+              No invoices are on record for this customer yet. Until
+              Tally is enabled (or an admin records invoices manually),
+              PayTrack cannot compute a real credit position.
+            </Text>
+          </View>
+        ) : credit && (
           <View
             style={[
               styles.creditCard,
@@ -317,6 +329,11 @@ const styles = StyleSheet.create({
   creditCardDanger: {
     borderColor: theme.colors.danger,
     backgroundColor: theme.colors.dangerBg,
+  },
+  creditCardUnavailable: {
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    borderStyle: "dashed",
   },
   creditTitle: {
     fontSize: theme.type.body,

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { requireProfile } from "@/lib/authz";
+import { isTallyEnabled } from "@/lib/settings";
 import { PageHeader, Card } from "../../_components/ui";
 
 export const dynamic = "force-dynamic";
@@ -53,6 +54,27 @@ function timeAgo(d: Date | null): string {
 export default async function ReconciliationPage() {
   const profile = await requireProfile();
   if (profile.role !== "ADMIN") redirect("/dashboard");
+
+  // With Tally deferred there's nothing to reconcile — every row would
+  // read "no snapshot" and imply the sync is broken. Show an honest
+  // stub instead of a scary table of empty rows.
+  if (!(await isTallyEnabled())) {
+    return (
+      <div className="p-4 sm:p-8">
+        <PageHeader
+          title="Tally reconciliation"
+          subtitle="Tally integration is currently disabled. Enable it in Settings once the LAN sync agent is running."
+        />
+        <Card title="Nothing to reconcile">
+          <p className="text-sm text-muted-foreground">
+            Reconciliation compares Tally&apos;s ledger closing balance
+            against PayTrack&apos;s computed outstanding. Without a live
+            Tally feed there is no source-of-truth to compare against.
+          </p>
+        </Card>
+      </div>
+    );
+  }
 
   const parties = await db.party.findMany({
     where: { isActive: true },

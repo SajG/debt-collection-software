@@ -1,7 +1,8 @@
 import { db } from "@/lib/db";
 import { requireProfile } from "@/lib/authz";
+import { isTallyEnabled } from "@/lib/settings";
 import { formatDateTime, toNumber } from "@/lib/format";
-import { PageHeader, Table, Th, Td, EmptyRow, Badge } from "../_components/ui";
+import { PageHeader, Card, Table, Th, Td, EmptyRow, Badge } from "../_components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,27 @@ export default async function StockPage({
 }) {
   await requireProfile();
   const q = (searchParams.q ?? "").trim();
+
+  // StockItem is populated only by the Tally sync agent. When Tally
+  // is disabled the table is empty by design, so we show a clear
+  // explanation instead of an empty grid that reads like "zero stock".
+  if (!(await isTallyEnabled())) {
+    return (
+      <div className="p-4 sm:p-8">
+        <PageHeader
+          title="Stock in factory"
+          subtitle="Stock levels come from Tally. Enable Tally integration once the LAN sync agent is running to populate this screen."
+        />
+        <Card title="Nothing to show yet">
+          <p className="text-sm text-muted-foreground">
+            Stock is read live from Tally&apos;s Sundry Debtors + stock
+            item exports. Until the sync is on, factory availability is
+            not tracked in PayTrack.
+          </p>
+        </Card>
+      </div>
+    );
+  }
 
   const items = await db.stockItem.findMany({
     where: q

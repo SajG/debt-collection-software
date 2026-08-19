@@ -53,6 +53,10 @@ export type PartyCredit = {
   totalOutstanding: number;
   creditLimit: number | null;
   creditDays: number | null;
+  /** True when we have zero Invoice rows for this party — the review
+   *  step then shows "Credit data unavailable" instead of a
+   *  misleading green tick against an empty ledger. */
+  hasNoInvoices: boolean;
 };
 
 export function usePartyCredit(partyId: string | null) {
@@ -60,14 +64,20 @@ export function usePartyCredit(partyId: string | null) {
     `party-credit:${partyId ?? ""}`,
     async () => {
       if (!partyId) return null;
-      const { data, error } = await (supabase as any)
-        .from("Party")
-        .select("totalOutstanding, creditLimit, creditDays")
-        .eq("id", partyId)
-        .maybeSingle();
-      if (error) throw error;
-      if (!data) return null;
-      const row = data as {
+      const [partyRes, invCountRes] = await Promise.all([
+        (supabase as any)
+          .from("Party")
+          .select("totalOutstanding, creditLimit, creditDays")
+          .eq("id", partyId)
+          .maybeSingle(),
+        supabase
+          .from("Invoice")
+          .select("id", { count: "exact", head: true })
+          .eq("partyId", partyId),
+      ]);
+      if (partyRes.error) throw partyRes.error;
+      if (!partyRes.data) return null;
+      const row = partyRes.data as {
         totalOutstanding: string | number;
         creditLimit: string | number | null;
         creditDays: number | null;
@@ -76,6 +86,7 @@ export function usePartyCredit(partyId: string | null) {
         totalOutstanding: Number(row.totalOutstanding),
         creditLimit: row.creditLimit == null ? null : Number(row.creditLimit),
         creditDays: row.creditDays,
+        hasNoInvoices: (invCountRes.count ?? 0) === 0,
       };
     }
   );

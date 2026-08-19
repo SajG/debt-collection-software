@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { Lora, DM_Sans } from "next/font/google";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/lib/db";
+import { isTallyEnabled } from "@/lib/settings";
 import { Sidebar } from "./_components/sidebar";
 
 const lora = Lora({
@@ -30,7 +31,7 @@ export default async function DashboardLayout({
 
   if (!user) redirect("/login");
 
-  const [profile, settings] = await Promise.all([
+  const [profile, settings, tallyOn] = await Promise.all([
     db.profile.findUnique({
       where: { id: user.id },
       select: { businessName: true, ownerName: true, role: true },
@@ -39,6 +40,7 @@ export default async function DashboardLayout({
       where: { profileId: user.id },
       select: { onboardingDone: true },
     }),
+    isTallyEnabled(),
   ]);
 
   const fontClasses = `${lora.variable} ${dmSans.variable} font-body`;
@@ -60,6 +62,7 @@ export default async function DashboardLayout({
         businessName={profile?.businessName ?? "My Business"}
         ownerName={profile?.ownerName ?? "User"}
         role={profile?.role ?? "STAFF"}
+        tallyEnabled={tallyOn}
       />
       <div className="flex flex-1 flex-col overflow-hidden">
         <main className="flex-1 overflow-y-auto">{children}</main>

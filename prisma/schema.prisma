@@ -286,6 +286,11 @@ model BusinessSettings {
   maxMessagesPerWeek   Int     @default(3) // per party, rolling 7 days
   autoRemindersEnabled Boolean @default(false) // cron-driven reminder pass
 
+  // Organisation-level Tally-integration toggle. See lib/settings.ts.
+  // When false: hide every Tally UI surface, skip Tally-only cron
+  // passes, and switch honest empty states in for "Last synced" banners.
+  tallyEnabled Boolean @default(false)
+
   // Proforma number sequence
   // Incremented atomically on each proforma creation.
   // Format generated in app: PF-{YYYY}-{proformaSeq zero-padded to 4 digits}

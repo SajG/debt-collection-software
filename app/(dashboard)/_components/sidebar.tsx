@@ -96,6 +96,12 @@ const NAV: NavItem[] = [
     roles: ["ADMIN"],
   },
   {
+    href: "/admin/new-customer-names",
+    label: "New-customer names",
+    icon: PackageSearch,
+    roles: ["ADMIN"],
+  },
+  {
     href: "/admin/products",
     label: "Products",
     icon: PackageSearch,
@@ -122,10 +128,12 @@ export function Sidebar({
   businessName,
   ownerName,
   role,
+  tallyEnabled,
 }: {
   businessName: string;
   ownerName: string;
   role: Role;
+  tallyEnabled: boolean;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -143,8 +151,14 @@ export function Sidebar({
     .slice(0, 2)
     .toUpperCase();
 
+  // Hide Tally-only surfaces (reconciliation) when Tally is deferred.
+  // The reconciliation page itself also short-circuits — this just
+  // avoids a dead link in the nav.
+  const TALLY_ONLY = new Set<string>(["/admin/reconciliation"]);
   const visibleNav = NAV.filter(
-    (item) => !item.roles || item.roles.includes(role)
+    (item) =>
+      (!item.roles || item.roles.includes(role)) &&
+      (tallyEnabled || !TALLY_ONLY.has(item.href)),
   );
 
   return (

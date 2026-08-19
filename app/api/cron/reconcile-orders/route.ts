@@ -3,6 +3,7 @@ import { reconcileNewCustomerOrders } from "@/lib/orders/reconcile";
 import { captureError } from "@/lib/monitoring";
 import { db } from "@/lib/db";
 import { verifyBearer } from "@/lib/auth/verify-bearer";
+import { isTallyEnabled } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -24,6 +25,16 @@ export async function GET(request: NextRequest) {
     )
   ) {
     return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+  }
+
+  // Skip cleanly when Tally is off. Without a live sync there are no
+  // new customer names to reconcile, and running the pass every hour
+  // just logs FAILED / 0-processed rows that look like real errors.
+  if (!(await isTallyEnabled())) {
+    return NextResponse.json({
+      skipped: true,
+      reason: "Tally integration is disabled (BusinessSettings.tallyEnabled).",
+    });
   }
 
   const started = new Date();
