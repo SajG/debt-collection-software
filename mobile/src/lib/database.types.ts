@@ -16,8 +16,10 @@ export type Role = "ADMIN" | "STAFF" | "FACTORY";
 export type OrderStatus =
   | "ORDER_PLACED"
   | "IN_PRODUCTION"
+  | "ON_HOLD"
   | "READY_TO_DISPATCH"
   | "LR_GENERATED"
+  | "PARTIALLY_DISPATCHED"
   | "DISPATCHED"
   | "CANCELLED";
 export type QuantityUnit = "PCS" | "KG" | "NOS";

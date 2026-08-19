@@ -1,6 +1,7 @@
 import type { OrderStatus, DocumentType } from "@prisma/client";
 
-/** Happy-path factory pipeline — CANCELLED is terminal and not in this list. */
+/** Happy-path factory pipeline. CANCELLED / ON_HOLD /
+ *  PARTIALLY_DISPATCHED are side branches and not in this list. */
 export const ORDER_STATUS_SEQUENCE: OrderStatus[] = [
   "ORDER_PLACED",
   "IN_PRODUCTION",
@@ -12,8 +13,10 @@ export const ORDER_STATUS_SEQUENCE: OrderStatus[] = [
 export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   ORDER_PLACED: "Order placed",
   IN_PRODUCTION: "In production",
+  ON_HOLD: "On hold",
   READY_TO_DISPATCH: "Ready to dispatch",
   LR_GENERATED: "LR generated",
+  PARTIALLY_DISPATCHED: "Partially dispatched",
   DISPATCHED: "Dispatched",
   CANCELLED: "Cancelled",
 };
@@ -33,6 +36,9 @@ export const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
 };
 
 export function nextOrderStatus(current: OrderStatus): OrderStatus | null {
+  // ON_HOLD / PARTIALLY_DISPATCHED aren't on the linear path — their
+  // exits are release-hold and record-another-dispatch-lot respectively.
+  if (current === "ON_HOLD" || current === "PARTIALLY_DISPATCHED") return null;
   const idx = ORDER_STATUS_SEQUENCE.indexOf(current);
   if (idx < 0 || idx >= ORDER_STATUS_SEQUENCE.length - 1) return null;
   return ORDER_STATUS_SEQUENCE[idx + 1];

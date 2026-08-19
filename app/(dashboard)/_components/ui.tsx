@@ -321,11 +321,14 @@ export function statusTone(status: string): BadgeTone {
     case "IN_PRODUCTION":
     case "READY_TO_DISPATCH":
     case "LR_GENERATED":
+    case "PARTIALLY_DISPATCHED":
       return "amber";
     case "UNPAID":
     case "LOW":
     case "ORDER_PLACED":
       return "info";
+    case "ON_HOLD":
+      return "danger";
     default:
       return "neutral";
   }

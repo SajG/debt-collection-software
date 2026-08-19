@@ -95,6 +95,12 @@ const NAV: NavItem[] = [
     icon: PackageSearch,
     roles: ["ADMIN"],
   },
+  {
+    href: "/admin/slipping",
+    label: "Slipping",
+    icon: PackageSearch,
+    roles: ["ADMIN"],
+  },
   { href: "/settings", label: "Settings", icon: Settings, roles: ["ADMIN"] },
 ];
 

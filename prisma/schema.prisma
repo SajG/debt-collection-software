@@ -154,10 +154,19 @@ enum MessageStatus {
 enum OrderStatus {
   ORDER_PLACED
   IN_PRODUCTION
+  ON_HOLD
   READY_TO_DISPATCH
   LR_GENERATED
+  PARTIALLY_DISPATCHED
   DISPATCHED
   CANCELLED
+}
+
+enum HoldReasonCategory {
+  RAW_MATERIAL_SHORTAGE
+  AWAITING_CUSTOMER_CONFIRMATION
+  PAYMENT_HOLD
+  OTHER
 }
 
 enum DocumentType {
@@ -210,6 +219,7 @@ model Profile {
   orderStatusEvents    OrderStatusEvent[] @relation("OrderStatusUpdater")
   orderDocuments       OrderDocument[]    @relation("DocumentUploader")
   paymentDocuments     PaymentDocument[]  @relation("PaymentDocumentUploader")
+  createdDispatchLots  DispatchLot[]      @relation("DispatchLotCreator")
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -731,6 +741,10 @@ model SalesOrder {
   expectedProductionDate DateTime?
   notes                String?
   currentStatus        OrderStatus @default(ORDER_PLACED)
+  // Set by putOrderOnHold; releaseOrderHold restores currentStatus to this.
+  statusBeforeHold     OrderStatus?
+  holdReasonCategory   HoldReasonCategory?
+  holdReason           String?
   linkedInvoiceId      String?
 
   // Credit-limit check outcome at time of placement — kept for audit even if the
@@ -747,6 +761,7 @@ model SalesOrder {
   product      Product            @relation(fields: [productId], references: [id])
   statusEvents OrderStatusEvent[]
   documents    OrderDocument[]
+  dispatchLots DispatchLot[]
 
   @@index([salespersonId, createdAt])
   @@index([partyId])
@@ -766,6 +781,25 @@ model OrderStatusEvent {
   updatedBy  Profile    @relation("OrderStatusUpdater", fields: [updatedById], references: [id])
 
   @@index([salesOrderId, createdAt])
+}
+
+model DispatchLot {
+  id           String   @id @default(cuid())
+  salesOrderId String
+  // Same unit as SalesOrder.quantity. Trigger _on_dispatch_lot_change
+  // recomputes SalesOrder.currentStatus (PARTIALLY_DISPATCHED /
+  // DISPATCHED) based on sum(quantity) vs SalesOrder.quantity.
+  quantity     Decimal  @db.Decimal(14, 3)
+  lrNumber     String?
+  dispatchedAt DateTime @default(now()) @db.Timestamptz
+  notes        String?
+  createdById  String   @db.Uuid
+  createdAt    DateTime @default(now()) @db.Timestamptz
+
+  salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  createdBy  Profile    @relation("DispatchLotCreator", fields: [createdById], references: [id])
+
+  @@index([salesOrderId])
 }
 
 model OrderDocument {

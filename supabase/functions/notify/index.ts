@@ -48,16 +48,20 @@ type EventPayload =
 type OrderStatus =
   | "ORDER_PLACED"
   | "IN_PRODUCTION"
+  | "ON_HOLD"
   | "READY_TO_DISPATCH"
   | "LR_GENERATED"
+  | "PARTIALLY_DISPATCHED"
   | "DISPATCHED"
   | "CANCELLED";
 
 const STATUS_LABEL: Record<OrderStatus, string> = {
   ORDER_PLACED: "Order placed",
   IN_PRODUCTION: "In production",
+  ON_HOLD: "On hold",
   READY_TO_DISPATCH: "Ready to dispatch",
   LR_GENERATED: "LR generated",
+  PARTIALLY_DISPATCHED: "Partially dispatched",
   DISPATCHED: "Dispatched",
   CANCELLED: "Cancelled",
 };

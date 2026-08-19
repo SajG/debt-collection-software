@@ -48,8 +48,10 @@ const en = {
 
   "status.ORDER_PLACED": "Placed",
   "status.IN_PRODUCTION": "In production",
+  "status.ON_HOLD": "On hold",
   "status.READY_TO_DISPATCH": "Ready to dispatch",
   "status.LR_GENERATED": "LR generated",
+  "status.PARTIALLY_DISPATCHED": "Partially dispatched",
   "status.DISPATCHED": "Dispatched",
   "status.CANCELLED": "Cancelled",
 

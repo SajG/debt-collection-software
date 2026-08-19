@@ -153,3 +153,215 @@ export async function uploadOrderDocumentAction(
   revalidatePath(`/orders/${orderId}`);
   return { ok: true };
 }
+
+// ─────────────────────────────────────────────────────────────────
+// Hold: pause an order with a mandatory reason. Any FACTORY or ADMIN
+// can call. statusBeforeHold captures the original status so
+// releaseOrderHoldAction can restore it. The event insert also fires
+// the notify trigger → salesperson gets pushed.
+// ─────────────────────────────────────────────────────────────────
+
+const HOLD_CATEGORIES = [
+  "RAW_MATERIAL_SHORTAGE",
+  "AWAITING_CUSTOMER_CONFIRMATION",
+  "PAYMENT_HOLD",
+  "OTHER",
+] as const;
+export type HoldCategory = (typeof HOLD_CATEGORIES)[number];
+
+export async function putOrderOnHoldAction(input: {
+  orderId: string;
+  category: HoldCategory;
+  reason: string;
+}): Promise<ActionResult> {
+  const profile = await requireFactoryOrAdmin();
+  if (!HOLD_CATEGORIES.includes(input.category)) {
+    return { error: "Choose a hold reason category." };
+  }
+  const reason = input.reason?.trim().slice(0, 1000) ?? "";
+  if (!reason) return { error: "Hold reason is required." };
+
+  const order = await db.salesOrder.findUnique({ where: { id: input.orderId } });
+  if (!order) return { error: "Order not found." };
+  if (order.currentStatus === "ON_HOLD") {
+    return { error: "Order is already on hold." };
+  }
+  if (order.currentStatus === "DISPATCHED" || order.currentStatus === "CANCELLED") {
+    return { error: `Cannot hold an order that is ${order.currentStatus}.` };
+  }
+
+  await db.$transaction([
+    db.salesOrder.update({
+      where: { id: input.orderId },
+      data: {
+        currentStatus: "ON_HOLD",
+        statusBeforeHold: order.currentStatus,
+        holdReasonCategory: input.category,
+        holdReason: reason,
+      },
+    }),
+    db.orderStatusEvent.create({
+      data: {
+        salesOrderId: input.orderId,
+        status: "ON_HOLD",
+        notes: `${input.category}: ${reason}`,
+        updatedById: profile.id,
+      },
+    }),
+  ]);
+
+  revalidatePath("/production");
+  revalidatePath(`/production/${input.orderId}`);
+  revalidatePath(`/orders/${input.orderId}`);
+  return { ok: true };
+}
+
+export async function releaseOrderHoldAction(input: {
+  orderId: string;
+  note?: string;
+}): Promise<ActionResult> {
+  const profile = await requireFactoryOrAdmin();
+
+  const order = await db.salesOrder.findUnique({ where: { id: input.orderId } });
+  if (!order) return { error: "Order not found." };
+  if (order.currentStatus !== "ON_HOLD") {
+    return { error: "Order is not on hold." };
+  }
+  const restoreTo: OrderStatus = order.statusBeforeHold ?? "ORDER_PLACED";
+  const note = input.note?.trim().slice(0, 1000) || `Released to ${restoreTo}`;
+
+  await db.$transaction([
+    db.salesOrder.update({
+      where: { id: input.orderId },
+      data: {
+        currentStatus: restoreTo,
+        statusBeforeHold: null,
+        holdReasonCategory: null,
+        holdReason: null,
+      },
+    }),
+    db.orderStatusEvent.create({
+      data: {
+        salesOrderId: input.orderId,
+        status: restoreTo,
+        notes: note,
+        updatedById: profile.id,
+      },
+    }),
+  ]);
+
+  revalidatePath("/production");
+  revalidatePath(`/production/${input.orderId}`);
+  revalidatePath(`/orders/${input.orderId}`);
+  return { ok: true };
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Backward status transitions — ADMIN only, always with a reason
+// captured on the event. Cannot revert into or out of a hold with
+// this action (use put/releaseOrderHold instead) and cannot revert
+// to/from PARTIALLY_DISPATCHED (that status is trigger-derived from
+// DispatchLots).
+// ─────────────────────────────────────────────────────────────────
+
+const REVERTIBLE_STATUSES: OrderStatus[] = [
+  "ORDER_PLACED",
+  "IN_PRODUCTION",
+  "READY_TO_DISPATCH",
+  "LR_GENERATED",
+];
+
+export async function revertOrderStatusAction(input: {
+  orderId: string;
+  target: OrderStatus;
+  reason: string;
+}): Promise<ActionResult> {
+  const { requireAdmin } = await import("@/lib/authz");
+  const profile = await requireAdmin();
+  const reason = input.reason?.trim().slice(0, 1000) ?? "";
+  if (!reason) return { error: "A reason is required for a backwards move." };
+  if (!REVERTIBLE_STATUSES.includes(input.target)) {
+    return { error: "Backward moves are only allowed within the main pipeline." };
+  }
+
+  const order = await db.salesOrder.findUnique({ where: { id: input.orderId } });
+  if (!order) return { error: "Order not found." };
+  if (order.currentStatus === "ON_HOLD") {
+    return { error: "Release the hold first, then revert." };
+  }
+  const currentIdx = REVERTIBLE_STATUSES.indexOf(order.currentStatus as OrderStatus);
+  const targetIdx = REVERTIBLE_STATUSES.indexOf(input.target);
+  const isBackwards =
+    order.currentStatus === "DISPATCHED" ||
+    order.currentStatus === "PARTIALLY_DISPATCHED" ||
+    (currentIdx >= 0 && targetIdx >= 0 && targetIdx < currentIdx);
+  if (!isBackwards) {
+    return { error: "Target is not earlier than the current status." };
+  }
+
+  await db.$transaction([
+    db.salesOrder.update({
+      where: { id: input.orderId },
+      data: { currentStatus: input.target },
+    }),
+    db.orderStatusEvent.create({
+      data: {
+        salesOrderId: input.orderId,
+        status: input.target,
+        notes: `ADMIN revert (${order.currentStatus} → ${input.target}): ${reason}`,
+        updatedById: profile.id,
+      },
+    }),
+  ]);
+
+  revalidatePath("/production");
+  revalidatePath(`/production/${input.orderId}`);
+  revalidatePath(`/orders/${input.orderId}`);
+  return { ok: true };
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Partial dispatch: append a DispatchLot. The DB trigger
+// _on_dispatch_lot_change() recomputes currentStatus to
+// PARTIALLY_DISPATCHED (sum < ordered) or DISPATCHED (sum >= ordered)
+// and writes the corresponding OrderStatusEvent. That event's insert
+// fires the notify trigger, so the salesperson gets pinged.
+// ─────────────────────────────────────────────────────────────────
+
+export async function addDispatchLotAction(input: {
+  orderId: string;
+  quantity: number;
+  lrNumber?: string;
+  notes?: string;
+  dispatchedAt?: Date | string | null;
+}): Promise<ActionResult> {
+  const profile = await requireFactoryOrAdmin();
+  const qty = Number(input.quantity);
+  if (!Number.isFinite(qty) || qty <= 0) {
+    return { error: "Quantity must be a positive number." };
+  }
+  const order = await db.salesOrder.findUnique({
+    where: { id: input.orderId },
+    select: { id: true, quantity: true, currentStatus: true },
+  });
+  if (!order) return { error: "Order not found." };
+  if (order.currentStatus === "CANCELLED") {
+    return { error: "Cannot dispatch a cancelled order." };
+  }
+
+  await db.dispatchLot.create({
+    data: {
+      salesOrderId: input.orderId,
+      quantity: qty,
+      lrNumber: input.lrNumber?.trim() || null,
+      notes: input.notes?.trim() || null,
+      dispatchedAt: input.dispatchedAt ? new Date(input.dispatchedAt) : new Date(),
+      createdById: profile.id,
+    },
+  });
+
+  revalidatePath("/production");
+  revalidatePath(`/production/${input.orderId}`);
+  revalidatePath(`/orders/${input.orderId}`);
+  return { ok: true };
+}

@@ -58,8 +58,10 @@ const NEXT_STEP: Partial<Record<OrderStatus, OrderStatus>> = {
 const STEP_LABEL: Record<OrderStatus, string> = {
   ORDER_PLACED: "Order placed",
   IN_PRODUCTION: "Start production",
+  ON_HOLD: "On hold",
   READY_TO_DISPATCH: "Mark packed / ready",
   LR_GENERATED: "LR generated",
+  PARTIALLY_DISPATCHED: "Partially dispatched",
   DISPATCHED: "Mark dispatched",
   CANCELLED: "Cancelled",
 };

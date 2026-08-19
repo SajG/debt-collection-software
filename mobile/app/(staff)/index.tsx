@@ -43,7 +43,15 @@ type Row =
       brand: string | null;
       quantity: string;
       quantityUnit: "KG" | "PCS" | "NOS";
-      status: "ORDER_PLACED" | "IN_PRODUCTION" | "READY_TO_DISPATCH" | "LR_GENERATED" | "DISPATCHED" | "CANCELLED";
+      status:
+        | "ORDER_PLACED"
+        | "IN_PRODUCTION"
+        | "ON_HOLD"
+        | "READY_TO_DISPATCH"
+        | "LR_GENERATED"
+        | "PARTIALLY_DISPATCHED"
+        | "DISPATCHED"
+        | "CANCELLED";
       orderNumber: string;
       salespersonName: string | null;
     };
