@@ -121,8 +121,13 @@ export function subscribe(l: () => void): () => void {
   };
 }
 
+// MUST return a stable reference across calls when the underlying
+// data hasn't changed, or useSyncExternalStore hits
+// "The result of getSnapshot should be cached to avoid an infinite loop".
+// Fresh `[]` per call was the bug — cache the empty snapshot too.
+const EMPTY_SNAPSHOT: QueuedOrder[] = [];
 function getSnapshot(): QueuedOrder[] {
-  return cache ?? [];
+  return cache ?? EMPTY_SNAPSHOT;
 }
 
 /** React hook — re-renders on every queue change. */
