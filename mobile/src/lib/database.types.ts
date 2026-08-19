@@ -52,6 +52,7 @@ export interface Database {
           notifyDocuments: boolean;
           notifyStaleOrders: boolean;
           notifyCreditIssues: boolean;
+          notifyComments: boolean;
           createdAt: string;
           updatedAt: string;
         };
@@ -65,10 +66,29 @@ export interface Database {
           notifyDocuments?: boolean;
           notifyStaleOrders?: boolean;
           notifyCreditIssues?: boolean;
+          notifyComments?: boolean;
           createdAt?: string;
           updatedAt?: string;
         };
         Update: Partial<Database["public"]["Tables"]["Profile"]["Row"]>;
+        Relationships: [];
+      };
+      OrderComment: {
+        Row: {
+          id: string;
+          salesOrderId: string;
+          authorId: string;
+          body: string;
+          createdAt: string;
+        };
+        Insert: {
+          id?: string;
+          salesOrderId: string;
+          authorId: string;
+          body: string;
+          createdAt?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["OrderComment"]["Row"]>;
         Relationships: [];
       };
       PushToken: {

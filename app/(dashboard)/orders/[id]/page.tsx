@@ -19,6 +19,34 @@ import {
 import { OrderRealtimeRefresh } from "../../_components/order-realtime";
 import { CancelOrderButton } from "../cancel-order";
 import { DocumentUploadForm } from "../../production/order-actions";
+import { AddCommentForm } from "./add-comment-form";
+
+type StatusEvent = {
+  id: string;
+  status: import("@prisma/client").OrderStatus;
+  notes: string | null;
+  createdAt: Date;
+  updatedBy: { ownerName: string };
+};
+type Comment = {
+  id: string;
+  body: string;
+  createdAt: Date;
+  author: { ownerName: string; role: import("@prisma/client").Role };
+};
+type ActivityItem =
+  | { kind: "status"; at: Date; ev: StatusEvent }
+  | { kind: "comment"; at: Date; c: Comment };
+
+// Merge status events + comments into a single newest-first stream.
+// Same shape as either list on its own so the render loop stays trivial.
+function mergeActivity(events: StatusEvent[], comments: Comment[]): ActivityItem[] {
+  const out: ActivityItem[] = [];
+  for (const ev of events) out.push({ kind: "status", at: ev.createdAt, ev });
+  for (const c of comments) out.push({ kind: "comment", at: c.createdAt, c });
+  out.sort((a, b) => b.at.getTime() - a.at.getTime());
+  return out;
+}
 
 export default async function SalesOrderDetailPage({
   params,
@@ -40,6 +68,10 @@ export default async function SalesOrderDetailPage({
       documents: {
         orderBy: { createdAt: "desc" },
         include: { uploadedBy: { select: { ownerName: true } } },
+      },
+      comments: {
+        orderBy: { createdAt: "desc" },
+        include: { author: { select: { ownerName: true, role: true } } },
       },
     },
   });
@@ -164,29 +196,59 @@ export default async function SalesOrderDetailPage({
       </Card>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card title="Status history">
+        <Card title="Activity">
           <p className="mb-4 text-xs text-muted-foreground">
-            Live — updates from the factory appear here automatically.
+            One chronological view of status changes and comments.
+            Append-only — nothing here can be edited or deleted.
           </p>
-          {order.statusEvents.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No status events yet.</p>
+
+          <AddCommentForm orderId={order.id} />
+
+          {order.statusEvents.length + order.comments.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No activity yet.
+            </p>
           ) : (
             <ol className="space-y-4">
-              {order.statusEvents.map((ev) => (
-                <li key={ev.id} className="border-l-2 border-primary/30 pl-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge tone={statusTone(ev.status)}>
-                      {ORDER_STATUS_LABELS[ev.status]}
-                    </Badge>
-                    <span className="text-xs text-muted-foreground">
-                      {formatDateTime(ev.createdAt)} · {ev.updatedBy.ownerName}
-                    </span>
-                  </div>
-                  {ev.notes && (
-                    <p className="mt-1 text-sm text-foreground">{ev.notes}</p>
-                  )}
-                </li>
-              ))}
+              {mergeActivity(order.statusEvents, order.comments).map((item) =>
+                item.kind === "status" ? (
+                  <li
+                    key={`s:${item.ev.id}`}
+                    className="border-l-2 border-primary/30 pl-4"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge tone={statusTone(item.ev.status)}>
+                        {ORDER_STATUS_LABELS[item.ev.status]}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {formatDateTime(item.ev.createdAt)} ·{" "}
+                        {item.ev.updatedBy.ownerName}
+                      </span>
+                    </div>
+                    {item.ev.notes && (
+                      <p className="mt-1 text-sm text-foreground">
+                        {item.ev.notes}
+                      </p>
+                    )}
+                  </li>
+                ) : (
+                  <li
+                    key={`c:${item.c.id}`}
+                    className="border-l-2 border-amber-400/60 bg-amber-50/40 pl-4"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge tone="amber">Comment</Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {formatDateTime(item.c.createdAt)} ·{" "}
+                        {item.c.author.ownerName} ({item.c.author.role})
+                      </span>
+                    </div>
+                    <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">
+                      {item.c.body}
+                    </p>
+                  </li>
+                ),
+              )}
             </ol>
           )}
         </Card>

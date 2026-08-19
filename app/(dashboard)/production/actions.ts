@@ -365,3 +365,42 @@ export async function addDispatchLotAction(input: {
   revalidatePath(`/orders/${input.orderId}`);
   return { ok: true };
 }
+
+// ─────────────────────────────────────────────────────────────────
+// OrderComment — append-only. Any role that can access the order
+// per RLS can post. Server-side we also double-check for STAFF so
+// the client can't post to somebody else's order even if RLS were
+// misconfigured.
+// ─────────────────────────────────────────────────────────────────
+
+export async function addOrderCommentAction(input: {
+  orderId: string;
+  body: string;
+}): Promise<ActionResult> {
+  const profile = await requireProfile();
+  const body = input.body?.trim() ?? "";
+  if (!body) return { error: "Say something before sending." };
+  if (body.length > 4000) return { error: "Comment is too long (4000 char max)." };
+
+  const order = await db.salesOrder.findUnique({
+    where: { id: input.orderId },
+    select: { id: true, salespersonId: true },
+  });
+  if (!order) return { error: "Order not found." };
+
+  if (profile.role === "STAFF" && order.salespersonId !== profile.id) {
+    return { error: "You can only comment on your own orders." };
+  }
+
+  await db.orderComment.create({
+    data: {
+      salesOrderId: order.id,
+      authorId: profile.id,
+      body,
+    },
+  });
+
+  revalidatePath(`/orders/${order.id}`);
+  revalidatePath(`/production/${order.id}`);
+  return { ok: true };
+}

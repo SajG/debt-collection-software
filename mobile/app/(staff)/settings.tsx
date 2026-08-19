@@ -18,6 +18,7 @@ import { theme } from "@/theme";
 type Prefs = {
   notifyStatusChanges: boolean;
   notifyDocuments: boolean;
+  notifyComments: boolean;
   notifyStaleOrders: boolean;
   notifyCreditIssues: boolean;
 };
@@ -35,6 +36,7 @@ export default function SettingsScreen() {
     setPrefs({
       notifyStatusChanges: profile.notifyStatusChanges ?? true,
       notifyDocuments: profile.notifyDocuments ?? true,
+      notifyComments: profile.notifyComments ?? true,
       notifyStaleOrders: profile.notifyStaleOrders ?? true,
       notifyCreditIssues: profile.notifyCreditIssues ?? true,
     });
@@ -89,6 +91,13 @@ export default function SettingsScreen() {
               hint="When the factory uploads an invoice or lorry receipt against your order."
               value={prefs.notifyDocuments}
               onChange={(v) => update({ notifyDocuments: v })}
+              disabled={saving}
+            />
+            <Row
+              label="Comments"
+              hint="When anyone posts a comment on an order you're on."
+              value={prefs.notifyComments}
+              onChange={(v) => update({ notifyComments: v })}
               disabled={saving}
             />
             {role === "ADMIN" && (

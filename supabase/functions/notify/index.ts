@@ -43,6 +43,14 @@ type EventPayload =
       salesOrderId: string;
       orderNumber: string;
       hoursOld: number;
+    }
+  | {
+      event: "comment_added";
+      salesOrderId: string;
+      orderNumber: string;
+      salespersonId: string;
+      authorId: string;
+      preview: string;
     };
 
 type OrderStatus =
@@ -160,6 +168,30 @@ async function recipientsFor(payload: EventPayload): Promise<string[]> {
     return data ? [data.id] : [];
   }
 
+  if (payload.event === "comment_added") {
+    // Counterparty routing:
+    //   author is the salesperson (STAFF)   → notify FACTORY + ADMIN
+    //   author is anyone else               → notify the salesperson
+    // Everyone respects their own notifyComments pref.
+    if (payload.authorId === payload.salespersonId) {
+      const { data, error } = await supabase
+        .from("Profile")
+        .select("id")
+        .in("role", ["FACTORY", "ADMIN"])
+        .eq(prefColumn, true);
+      if (error) throw error;
+      return (data ?? []).map((p) => p.id);
+    }
+    const { data, error } = await supabase
+      .from("Profile")
+      .select("id")
+      .eq("id", payload.salespersonId)
+      .eq(prefColumn, true)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? [data.id] : [];
+  }
+
   // credit_issue / stale_order: all ADMINs opted in.
   const { data, error } = await supabase
     .from("Profile")
@@ -180,6 +212,8 @@ function prefColumnFor(event: EventPayload["event"]): string {
       return "notifyStaleOrders";
     case "credit_issue":
       return "notifyCreditIssues";
+    case "comment_added":
+      return "notifyComments";
   }
 }
 
@@ -193,6 +227,8 @@ function titleFor(p: EventPayload): string {
       return `Credit check failed`;
     case "stale_order":
       return `Order still not started`;
+    case "comment_added":
+      return `New comment on ${p.orderNumber}`;
   }
 }
 
@@ -206,6 +242,8 @@ function bodyFor(p: EventPayload): string {
       return `${p.orderNumber} was placed but did not pass the credit check.`;
     case "stale_order":
       return `${p.orderNumber} has been sitting in Order Placed for ${p.hoursOld}h.`;
+    case "comment_added":
+      return p.preview.length >= 140 ? `${p.preview}…` : p.preview;
   }
 }
 

@@ -17,6 +17,7 @@ import { PickList } from "@/components/PickList";
 import { PhotoPicker, type PickedPhoto } from "@/components/PhotoPicker";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Timeline } from "@/components/Timeline";
+import { ActivityFeed } from "@/components/ActivityFeed";
 import { useAuth } from "@/auth/AuthContext";
 import { useOrderDetail, useOrderEventStream } from "@/lib/queries";
 import {
@@ -114,6 +115,8 @@ export default function OrderDetailScreen() {
 
         <Text style={styles.timelineHeader}>{t("detail.timeline")}</Text>
         <Timeline events={data.events} currentStatus={data.currentStatus} />
+
+        {id ? <ActivityFeed orderId={id} events={data.events} /> : null}
 
         <View style={{ height: theme.spacing.md }} />
         <DocumentsSection orderId={id ?? null} />

@@ -201,6 +201,7 @@ model Profile {
   notifyDocuments     Boolean @default(true)
   notifyStaleOrders   Boolean @default(true)
   notifyCreditIssues  Boolean @default(true)
+  notifyComments      Boolean @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -220,6 +221,7 @@ model Profile {
   orderDocuments       OrderDocument[]    @relation("DocumentUploader")
   paymentDocuments     PaymentDocument[]  @relation("PaymentDocumentUploader")
   createdDispatchLots  DispatchLot[]      @relation("DispatchLotCreator")
+  orderComments        OrderComment[]     @relation("OrderCommentAuthor")
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -762,6 +764,7 @@ model SalesOrder {
   statusEvents OrderStatusEvent[]
   documents    OrderDocument[]
   dispatchLots DispatchLot[]
+  comments     OrderComment[]
 
   @@index([salespersonId, createdAt])
   @@index([partyId])
@@ -800,6 +803,20 @@ model DispatchLot {
   createdBy  Profile    @relation("DispatchLotCreator", fields: [createdById], references: [id])
 
   @@index([salesOrderId])
+}
+
+model OrderComment {
+  id           String   @id @default(cuid())
+  salesOrderId String
+  authorId     String   @db.Uuid
+  body         String
+  createdAt    DateTime @default(now()) @db.Timestamptz
+
+  salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  author     Profile    @relation("OrderCommentAuthor", fields: [authorId], references: [id])
+
+  @@index([salesOrderId, createdAt])
+  @@index([authorId])
 }
 
 model OrderDocument {

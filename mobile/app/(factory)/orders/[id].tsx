@@ -17,6 +17,7 @@ import { PickList } from "@/components/PickList";
 import { PhotoPicker, type PickedPhoto } from "@/components/PhotoPicker";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Timeline } from "@/components/Timeline";
+import { ActivityFeed } from "@/components/ActivityFeed";
 import { confirm } from "@/components/Confirm";
 import { useAuth } from "@/auth/AuthContext";
 import { useConnectivity } from "@/lib/connectivity";
@@ -219,6 +220,8 @@ export default function FactoryOrderDetail() {
         </View>
 
         <Timeline events={data.events} currentStatus={data.currentStatus} />
+
+        {id ? <ActivityFeed orderId={id} events={data.events} /> : null}
 
         <View style={{ height: theme.spacing.md }} />
         <DocumentsSection orderId={id ?? null} />
