@@ -14,10 +14,13 @@ export async function getProfile(): Promise<Profile | null> {
   return db.profile.findUnique({ where: { id: user.id } });
 }
 
-/** For pages & server actions: redirects to /login when unauthenticated. */
+/** For pages & server actions: redirects to /login when unauthenticated,
+ *  or to /account-disabled when the profile has been deactivated by an
+ *  admin. Never returns an inactive Profile to callers. */
 export async function requireProfile(): Promise<Profile> {
   const profile = await getProfile();
   if (!profile) redirect("/login");
+  if (!profile.isActive) redirect("/account-disabled");
   return profile;
 }
 
@@ -50,6 +53,12 @@ export async function requireProfileApi(opts?: {
     return {
       profile: null,
       failure: NextResponse.json({ error: "Unauthorised" }, { status: 401 }),
+    };
+  }
+  if (!profile.isActive) {
+    return {
+      profile: null,
+      failure: NextResponse.json({ error: "Account disabled" }, { status: 403 }),
     };
   }
   if (opts?.adminOnly && profile.role !== "ADMIN") {

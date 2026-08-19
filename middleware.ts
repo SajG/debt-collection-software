@@ -4,7 +4,7 @@ import { type NextRequest, NextResponse } from "next/server";
 // Routes that do NOT require a session.
 // /signup used to live here; self-registration was removed. Users are
 // now created only by an ADMIN (see /admin/users) or by the seed script.
-const PUBLIC_PATHS = new Set(["/", "/login"]);
+const PUBLIC_PATHS = new Set(["/", "/login", "/account-disabled"]);
 // /api/cron and /api/webhooks authenticate themselves (CRON_SECRET bearer,
 // Meta verify token) — no browser session exists on those requests.
 const PUBLIC_PREFIXES = [

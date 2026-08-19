@@ -194,6 +194,13 @@ model Profile {
   ownerName      String
   phone          String?
   role           Role     @default(STAFF)
+  // Managed by /admin/users. Deactivation is reversible; RLS lock-out
+  // is done at the DB via current_user_role() returning NULL when
+  // isActive = false.
+  isActive        Boolean   @default(true)
+  deactivatedAt   DateTime? @db.Timestamptz
+  deactivatedById String?   @db.Uuid
+  createdById     String?   @db.Uuid
   // Maps this salesperson to their Tally Cost Centre / Sales Executive name
   costCentreName String?
   // Notification prefs — default all ON; toggled from mobile settings.
@@ -222,6 +229,32 @@ model Profile {
   paymentDocuments     PaymentDocument[]  @relation("PaymentDocumentUploader")
   createdDispatchLots  DispatchLot[]      @relation("DispatchLotCreator")
   orderComments        OrderComment[]     @relation("OrderCommentAuthor")
+  auditLogsAsActor     UserAuditLog[]     @relation("UserAuditActor")
+  auditLogsAsTarget    UserAuditLog[]     @relation("UserAuditTarget")
+
+  @@index([isActive, role])
+}
+
+enum UserAuditAction {
+  CREATED
+  ACTIVATED
+  DEACTIVATED
+  ROLE_CHANGED
+  PHONE_CHANGED
+}
+
+model UserAuditLog {
+  id              String          @id @default(cuid())
+  actorId         String?         @db.Uuid
+  targetProfileId String          @db.Uuid
+  action          UserAuditAction
+  detail          String?
+  createdAt       DateTime        @default(now()) @db.Timestamptz
+
+  actor  Profile? @relation("UserAuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  target Profile  @relation("UserAuditTarget", fields: [targetProfileId], references: [id], onDelete: Cascade)
+
+  @@index([targetProfileId, createdAt])
 }
 
 // ─────────────────────────────────────────────────────────────────

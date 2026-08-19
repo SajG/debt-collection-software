@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { router } from "expo-router";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import type { Database, Role } from "@/lib/database.types";
@@ -58,6 +59,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     if (!ALLOWED_ROLES.includes(data.role as Role)) {
       setProfile(null);
+      await supabase.auth.signOut();
+      return;
+    }
+    // Deactivated by an admin — route to the disabled screen first,
+    // then sign out so the user sees the explanation before the
+    // session is torn down. current_user_role() also returns NULL on
+    // the server for this case so RLS denies everything regardless.
+    if (data.isActive === false) {
+      setProfile(null);
+      try {
+        router.replace("/account-disabled");
+      } catch {
+        /* router not ready pre-mount; sign-out fallback still runs */
+      }
       await supabase.auth.signOut();
       return;
     }

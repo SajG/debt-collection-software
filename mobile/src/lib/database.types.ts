@@ -48,6 +48,10 @@ export interface Database {
           ownerName: string;
           phone: string | null;
           role: Role;
+          isActive: boolean;
+          deactivatedAt: string | null;
+          deactivatedById: string | null;
+          createdById: string | null;
           notifyStatusChanges: boolean;
           notifyDocuments: boolean;
           notifyStaleOrders: boolean;

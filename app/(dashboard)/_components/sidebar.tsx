@@ -84,6 +84,12 @@ const NAV: NavItem[] = [
   },
   { href: "/import", label: "Import", icon: Upload, roles: ["ADMIN"] },
   {
+    href: "/admin/users",
+    label: "Users",
+    icon: PackageSearch,
+    roles: ["ADMIN"],
+  },
+  {
     href: "/admin/products",
     label: "Products",
     icon: PackageSearch,
