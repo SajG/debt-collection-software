@@ -305,6 +305,7 @@ export function statusTone(status: string): BadgeTone {
     case "READ":
     case "SENT":
     case "DISPATCHED":
+    case "DELIVERED":
       return "success";
     case "OVERDUE":
     case "CRITICAL":

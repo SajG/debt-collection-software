@@ -41,6 +41,12 @@ const NAV: NavItem[] = [
     roles: ["ADMIN", "FACTORY"],
   },
   {
+    href: "/production/planning",
+    label: "Planning",
+    icon: Factory,
+    roles: ["ADMIN", "FACTORY"],
+  },
+  {
     href: "/orders",
     label: "Orders",
     icon: Truck,

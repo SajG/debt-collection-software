@@ -64,6 +64,7 @@ const STEP_LABEL: Record<OrderStatus, string> = {
   LR_GENERATED: "LR generated",
   PARTIALLY_DISPATCHED: "Partially dispatched",
   DISPATCHED: "Mark dispatched",
+  DELIVERED: "Delivered",
   CANCELLED: "Cancelled",
 };
 

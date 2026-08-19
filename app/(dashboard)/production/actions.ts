@@ -526,3 +526,217 @@ export async function recordOrderInvoiceAction(input: {
   revalidatePath("/parties");
   return { ok: true };
 }
+
+// ─────────────────────────────────────────────────────────────────
+// F1 — Order editing before production starts.
+// Quantity, rate, delivery date. Every accepted change writes a row
+// on OrderStatusEvent with the current status unchanged and notes of
+// the form "[EDIT] <field>: <old>→<new>" so the timeline shows the
+// history without a parallel audit table.
+//
+// STAFF may edit only while the order is ORDER_PLACED, and only their
+// own order. ADMIN may edit at any status but must provide a reason.
+// FACTORY cannot edit — they change status, not order contents.
+// ─────────────────────────────────────────────────────────────────
+
+type OrderEdit = {
+  orderId: string;
+  quantity?: number | string;
+  productRate?: string;
+  expectedDeliveryDate?: string | Date | null;
+  reason?: string;
+};
+
+const EDITABLE_KEYS = ["quantity", "productRate", "expectedDeliveryDate"] as const;
+
+async function applyOrderEdit(
+  actorId: string,
+  input: OrderEdit,
+  allowAfterProduction: boolean,
+): Promise<ActionResult> {
+  const order = await db.salesOrder.findUnique({
+    where: { id: input.orderId },
+    select: {
+      id: true,
+      currentStatus: true,
+      salespersonId: true,
+      quantity: true,
+      productRate: true,
+      expectedDeliveryDate: true,
+      orderValue: true,
+    },
+  });
+  if (!order) return { error: "Order not found." };
+
+  const canEdit =
+    allowAfterProduction || order.currentStatus === "ORDER_PLACED";
+  if (!canEdit) {
+    return {
+      error:
+        "Production has started. Only an admin can edit this order, and a reason is required.",
+    };
+  }
+
+  const changes: string[] = [];
+  const patch: Record<string, unknown> = {};
+
+  if (input.quantity !== undefined && input.quantity !== "") {
+    const nextQty =
+      typeof input.quantity === "number" ? input.quantity : Number(input.quantity);
+    if (!Number.isFinite(nextQty) || nextQty <= 0) {
+      return { error: "Quantity must be a positive number." };
+    }
+    const prev = Number(order.quantity);
+    if (prev !== nextQty) {
+      changes.push(`quantity: ${prev}→${nextQty}`);
+      patch.quantity = nextQty;
+      // Recompute orderValue when qty changes.
+      const rateStr = (input.productRate ?? order.productRate) as string;
+      const parsedRate = Number(rateStr.replace(/[₹,\s]/g, "").match(/-?[\d.]+/)?.[0] ?? 0);
+      if (Number.isFinite(parsedRate)) {
+        patch.orderValue = Number((nextQty * parsedRate).toFixed(2));
+      }
+    }
+  }
+
+  if (input.productRate !== undefined) {
+    const nextRate = input.productRate.trim();
+    if (nextRate !== order.productRate) {
+      changes.push(`rate: ${order.productRate}→${nextRate}`);
+      patch.productRate = nextRate;
+      const qtyForValue = (patch.quantity as number | undefined) ?? Number(order.quantity);
+      const parsedRate = Number(nextRate.replace(/[₹,\s]/g, "").match(/-?[\d.]+/)?.[0] ?? 0);
+      if (Number.isFinite(parsedRate)) {
+        patch.orderValue = Number((qtyForValue * parsedRate).toFixed(2));
+      }
+    }
+  }
+
+  if (input.expectedDeliveryDate !== undefined) {
+    const nextDate = input.expectedDeliveryDate
+      ? new Date(input.expectedDeliveryDate)
+      : null;
+    const prevDate = order.expectedDeliveryDate;
+    const prevIso = prevDate ? prevDate.toISOString().slice(0, 10) : "null";
+    const nextIso = nextDate ? nextDate.toISOString().slice(0, 10) : "null";
+    if (prevIso !== nextIso) {
+      if (nextDate && isNaN(nextDate.getTime())) {
+        return { error: "Invalid delivery date." };
+      }
+      changes.push(`delivery: ${prevIso}→${nextIso}`);
+      patch.expectedDeliveryDate = nextDate;
+    }
+  }
+
+  if (changes.length === 0) return { error: "Nothing to change." };
+
+  const reason = allowAfterProduction ? (input.reason ?? "").trim() : "";
+  if (allowAfterProduction && order.currentStatus !== "ORDER_PLACED" && !reason) {
+    return { error: "Reason is required for edits after production starts." };
+  }
+
+  const noteBody = [
+    "[EDIT]",
+    ...changes,
+    reason ? `— ${reason}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .slice(0, 1000);
+
+  await db.$transaction([
+    db.salesOrder.update({ where: { id: order.id }, data: patch }),
+    db.orderStatusEvent.create({
+      data: {
+        salesOrderId: order.id,
+        status: order.currentStatus,
+        notes: noteBody,
+        updatedById: actorId,
+      },
+    }),
+  ]);
+
+  revalidatePath(`/orders/${order.id}`);
+  revalidatePath(`/production/${order.id}`);
+  return { ok: true };
+}
+
+export async function editOrderBeforeProductionAction(
+  input: OrderEdit,
+): Promise<ActionResult> {
+  const profile = await requireProfile();
+  const order = await db.salesOrder.findUnique({
+    where: { id: input.orderId },
+    select: { salespersonId: true },
+  });
+  if (!order) return { error: "Order not found." };
+  if (profile.role === "STAFF" && order.salespersonId !== profile.id) {
+    return { error: "You can only edit your own orders." };
+  }
+  if (profile.role !== "STAFF" && profile.role !== "ADMIN") {
+    return { error: "Only STAFF or ADMIN may edit orders." };
+  }
+  return applyOrderEdit(profile.id, input, /* allowAfterProduction */ false);
+}
+
+export async function adminEditOrderAction(
+  input: OrderEdit,
+): Promise<ActionResult> {
+  const { requireAdmin } = await import("@/lib/authz");
+  const admin = await requireAdmin();
+  return applyOrderEdit(admin.id, input, /* allowAfterProduction */ true);
+}
+
+// ─────────────────────────────────────────────────────────────────
+// F3 — Delivery confirmation. Salesperson (or customer via signed
+// link — ships in Batch 2) marks the order DELIVERED. Stamps
+// deliveredAt for the analytics dashboard.
+// ─────────────────────────────────────────────────────────────────
+
+export async function confirmOrderDeliveryAction(input: {
+  orderId: string;
+  note?: string;
+}): Promise<ActionResult> {
+  const profile = await requireProfile();
+  const order = await db.salesOrder.findUnique({
+    where: { id: input.orderId },
+    select: {
+      id: true,
+      currentStatus: true,
+      salespersonId: true,
+      deliveredAt: true,
+    },
+  });
+  if (!order) return { error: "Order not found." };
+  if (order.currentStatus !== "DISPATCHED") {
+    return {
+      error: `Only dispatched orders can be marked delivered (current: ${order.currentStatus}).`,
+    };
+  }
+  if (profile.role === "STAFF" && order.salespersonId !== profile.id) {
+    return { error: "You can only confirm your own orders." };
+  }
+  if (order.deliveredAt) {
+    return { error: "Order was already marked delivered." };
+  }
+
+  const now = new Date();
+  await db.$transaction([
+    db.salesOrder.update({
+      where: { id: order.id },
+      data: { currentStatus: "DELIVERED", deliveredAt: now },
+    }),
+    db.orderStatusEvent.create({
+      data: {
+        salesOrderId: order.id,
+        status: "DELIVERED",
+        notes: input.note?.trim().slice(0, 1000) || "Delivery confirmed",
+        updatedById: profile.id,
+      },
+    }),
+  ]);
+
+  revalidatePath(`/orders/${order.id}`);
+  revalidatePath(`/production/${order.id}`);
+  return { ok: true };
+}

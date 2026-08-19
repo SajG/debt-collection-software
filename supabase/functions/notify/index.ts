@@ -61,6 +61,7 @@ type OrderStatus =
   | "LR_GENERATED"
   | "PARTIALLY_DISPATCHED"
   | "DISPATCHED"
+  | "DELIVERED"
   | "CANCELLED";
 
 const STATUS_LABEL: Record<OrderStatus, string> = {
@@ -71,6 +72,7 @@ const STATUS_LABEL: Record<OrderStatus, string> = {
   LR_GENERATED: "LR generated",
   PARTIALLY_DISPATCHED: "Partially dispatched",
   DISPATCHED: "Dispatched",
+  DELIVERED: "Delivered",
   CANCELLED: "Cancelled",
 };
 

@@ -24,6 +24,9 @@ export function statusStyle(status: OrderStatus): {
       return { bg: "#ECFCCB", fg: "#3F6212" };
     case "DISPATCHED":
       return { bg: "#D1FAE5", fg: "#064E3B" }; // green
+    case "DELIVERED":
+      // Deeper green than DISPATCHED — closes the loop.
+      return { bg: "#A7F3D0", fg: "#064E3B" };
     case "CANCELLED":
       return { bg: "#FEE2E2", fg: "#7F1D1D" }; // red
   }

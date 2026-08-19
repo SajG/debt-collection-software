@@ -21,6 +21,7 @@ import { CancelOrderButton } from "../cancel-order";
 import { DocumentUploadForm } from "../../production/order-actions";
 import { AddCommentForm } from "./add-comment-form";
 import { RecordInvoiceForm } from "./record-invoice-form";
+import { EditOrderForm, ConfirmDeliveryButton } from "./edit-order-form";
 
 type StatusEvent = {
   id: string;
@@ -253,6 +254,39 @@ export default async function SalesOrderDetailPage({
             </ol>
           )}
         </Card>
+
+        {profile.role !== "FACTORY" &&
+          order.currentStatus !== "CANCELLED" && (
+            (profile.role === "ADMIN" ||
+              order.currentStatus === "ORDER_PLACED") && (
+              <Card title="Edit order" className="mb-6">
+                <EditOrderForm
+                  orderId={order.id}
+                  role={profile.role}
+                  currentStatus={order.currentStatus}
+                  currentQuantity={order.quantity.toString()}
+                  currentQuantityUnit={order.quantityUnit}
+                  currentRate={order.productRate}
+                  currentDeliveryDate={
+                    order.expectedDeliveryDate
+                      ? order.expectedDeliveryDate.toISOString().slice(0, 10)
+                      : null
+                  }
+                />
+              </Card>
+            )
+          )}
+
+        {order.currentStatus === "DISPATCHED" && (
+          <Card title="Delivery confirmation" className="mb-6">
+            <p className="mb-3 text-sm text-muted-foreground">
+              Confirm receipt so the order-to-delivery time series is
+              accurate. In Batch 2 the customer will be able to
+              self-confirm via a signed link.
+            </p>
+            <ConfirmDeliveryButton orderId={order.id} />
+          </Card>
+        )}
 
         {(profile.role === "ADMIN" || profile.role === "FACTORY") &&
           order.partyId &&

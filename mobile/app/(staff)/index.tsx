@@ -17,6 +17,7 @@ import { useFocusEffect } from "expo-router";
 import { useAuth } from "@/auth/AuthContext";
 import { useOrderEventStream, useOwnOrders } from "@/lib/queries";
 import { useQueue } from "@/lib/order-queue";
+import { useDocQueue } from "@/lib/order-doc-queue";
 import { useDraftPreview } from "@/lib/order-draft";
 import { t } from "@/lib/i18n";
 import { theme } from "@/theme";
@@ -51,6 +52,7 @@ type Row =
         | "LR_GENERATED"
         | "PARTIALLY_DISPATCHED"
         | "DISPATCHED"
+        | "DELIVERED"
         | "CANCELLED";
       orderNumber: string;
       salespersonName: string | null;
@@ -73,6 +75,8 @@ export default function HomeScreen() {
   );
   useOrderEventStream(refetch, user?.id ?? null);
   const queue = useQueue();
+  const docQueue = useDocQueue();
+  const pendingUnsent = queue.length + docQueue.length;
   const draftPreview = useDraftPreview();
   useFocusEffect(
     useCallback(() => {
@@ -175,6 +179,15 @@ export default function HomeScreen() {
           </Pressable>
         </View>
       </View>
+
+      {pendingUnsent > 0 && (
+        <View style={styles.pendingBanner}>
+          <Text style={styles.pendingText}>
+            {pendingUnsent} unsent — will send automatically when
+            connectivity returns.
+          </Text>
+        </View>
+      )}
 
       <View style={styles.tilesRow}>
         <NavTile
@@ -384,6 +397,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     color: theme.colors.text,
+  },
+  pendingBanner: {
+    marginHorizontal: theme.spacing.lg,
+    marginTop: theme.spacing.md,
+    padding: theme.spacing.md,
+    borderRadius: theme.radius,
+    borderWidth: 1,
+    borderColor: "#F59E0B",
+    backgroundColor: "#FFFBEB",
+  },
+  pendingText: {
+    fontSize: theme.type.bodySmall,
+    color: "#78350F",
+    fontWeight: "600",
   },
   tilesRow: {
     flexDirection: "row",

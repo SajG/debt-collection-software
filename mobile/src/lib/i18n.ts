@@ -53,6 +53,7 @@ const en = {
   "status.LR_GENERATED": "LR generated",
   "status.PARTIALLY_DISPATCHED": "Partially dispatched",
   "status.DISPATCHED": "Dispatched",
+  "status.DELIVERED": "Delivered",
   "status.CANCELLED": "Cancelled",
 
   "confirm.signOut.title": "Sign out?",

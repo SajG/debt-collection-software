@@ -21,6 +21,7 @@ export type OrderStatus =
   | "LR_GENERATED"
   | "PARTIALLY_DISPATCHED"
   | "DISPATCHED"
+  | "DELIVERED"
   | "CANCELLED";
 export type QuantityUnit = "PCS" | "KG" | "NOS";
 export type PaymentTerm =

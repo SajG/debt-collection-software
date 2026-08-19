@@ -159,6 +159,7 @@ enum OrderStatus {
   LR_GENERATED
   PARTIALLY_DISPATCHED
   DISPATCHED
+  DELIVERED
   CANCELLED
 }
 
@@ -781,6 +782,10 @@ model SalesOrder {
   expectedProductionDate DateTime?
   notes                String?
   currentStatus        OrderStatus @default(ORDER_PLACED)
+  // Stamped when a salesperson (or the customer via a signed link)
+  // confirms receipt. Lets us compute order-to-delivery time without
+  // scanning the event log.
+  deliveredAt          DateTime?   @db.Timestamptz
   // Set by putOrderOnHold; releaseOrderHold restores currentStatus to this.
   statusBeforeHold     OrderStatus?
   holdReasonCategory   HoldReasonCategory?

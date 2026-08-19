@@ -1,7 +1,9 @@
 import type { OrderStatus, DocumentType } from "@prisma/client";
 
 /** Happy-path factory pipeline. CANCELLED / ON_HOLD /
- *  PARTIALLY_DISPATCHED are side branches and not in this list. */
+ *  PARTIALLY_DISPATCHED are side branches and not in this list.
+ *  DELIVERED is a separate confirmation loop (salesperson or customer
+ *  via signed link) and not on the linear factory path. */
 export const ORDER_STATUS_SEQUENCE: OrderStatus[] = [
   "ORDER_PLACED",
   "IN_PRODUCTION",
@@ -18,6 +20,7 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   LR_GENERATED: "LR generated",
   PARTIALLY_DISPATCHED: "Partially dispatched",
   DISPATCHED: "Dispatched",
+  DELIVERED: "Delivered",
   CANCELLED: "Cancelled",
 };
 
