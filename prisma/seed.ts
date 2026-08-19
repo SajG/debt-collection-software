@@ -1,7 +1,235 @@
-import { PrismaClient, OrderStatus } from "@prisma/client";
+import { PrismaClient, OrderStatus, type Role } from "@prisma/client";
 import { randomUUID } from "crypto";
+import { createClient } from "@supabase/supabase-js";
 
 const db = new PrismaClient();
+
+// ─────────────────────────────────────────────────────────────────
+// Real team seed. Idempotent — running twice never creates duplicates
+// and never resets isActive. Uses Supabase Auth Admin API to create
+// the phone-auth user + our Profile row together; on Profile-insert
+// failure the auth user is rolled back so no orphan can log in.
+//
+// Storage format: Profile.phone = "+91XXXXXXXXXX" (E.164), matching
+// what toE164() sends at login. A mismatch here means the user
+// authenticates with Supabase but AuthContext finds no Profile and
+// signs them straight back out.
+// ─────────────────────────────────────────────────────────────────
+
+const PHONE_10 = /^[6-9]\d{9}$/;
+
+type TeamRow = {
+  ownerName: string;
+  role: Role;
+  /** 10-digit local number or "PENDING" for rows we intentionally skip. */
+  phone: string;
+  note?: string;
+};
+
+const TEAM: TeamRow[] = [
+  // Admins — also route into the staff group on mobile so they can
+  // place orders alongside the salespeople.
+  { ownerName: "Vaibhav Ghatpande", role: "ADMIN",   phone: "9371635315" },
+  { ownerName: "Sajal Ghatpande",   role: "ADMIN",   phone: "7774055316" },
+
+  // Factory / dispatch team.
+  { ownerName: "Chaitanya Deshpande", role: "FACTORY", phone: "8626010898" },
+  { ownerName: "Mahesh Jadhav",       role: "FACTORY", phone: "9604558658" },
+  {
+    ownerName: "Seema Patil",
+    role: "FACTORY",
+    phone: "9921336535",
+    note: "accountant; needs order rates for invoicing",
+  },
+  { ownerName: "Sachin Haveli",       role: "FACTORY", phone: "9923139100" },
+
+  // Salespeople.
+  { ownerName: "Sanjay Thorat",   role: "STAFF", phone: "9552670106" },
+  { ownerName: "Vikas Chaudhari", role: "STAFF", phone: "7020791094" },
+  { ownerName: "Sunil Karle",     role: "STAFF", phone: "7709545662" },
+  { ownerName: "Irshad Jamadar",  role: "STAFF", phone: "9158464446" },
+  { ownerName: "Om Sharma",       role: "STAFF", phone: "9822569216" },
+  { ownerName: "Monesh Pattar",   role: "STAFF", phone: "9901112508" },
+  { ownerName: "Sunil Gaikwad",   role: "STAFF", phone: "9975370106" },
+  { ownerName: "Nitin Kosandar",  role: "STAFF", phone: "7028166235" },
+];
+
+const BUSINESS_NAME = "Synergy Bonding Solutions Pvt Ltd";
+
+type SeedOutcome = "created" | "skipped-exists" | "skipped-invalid" | "failed";
+
+function toE164(local: string): string {
+  return `+91${local}`;
+}
+
+function makeSupabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    throw new Error(
+      "SUPABASE_SERVICE_ROLE_KEY + NEXT_PUBLIC_SUPABASE_URL must be set to seed users.",
+    );
+  }
+  return createClient(url, key, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
+
+async function findExistingProfileForPhone(local: string) {
+  // Match either the new E.164 format or the legacy 10-digit format so
+  // running the seed on top of a partly-migrated DB stays idempotent.
+  const e164 = toE164(local);
+  return db.profile.findFirst({
+    where: { OR: [{ phone: e164 }, { phone: local }] },
+  });
+}
+
+async function seedTeam(): Promise<
+  { row: TeamRow; outcome: SeedOutcome; detail?: string; profileId?: string }[]
+> {
+  const results: {
+    row: TeamRow;
+    outcome: SeedOutcome;
+    detail?: string;
+    profileId?: string;
+  }[] = [];
+
+  const supabase = makeSupabaseAdmin();
+
+  for (const row of TEAM) {
+    if (!PHONE_10.test(row.phone)) {
+      console.warn(
+        `[seed] WARNING: skipping ${row.ownerName} (${row.role}) — phone "${row.phone}" is not a valid 10-digit Indian mobile.`,
+      );
+      results.push({ row, outcome: "skipped-invalid" });
+      continue;
+    }
+
+    const existing = await findExistingProfileForPhone(row.phone);
+    if (existing) {
+      // Idempotent: never touch isActive, deactivatedAt, deactivatedById,
+      // createdById. Only backfill fields that could genuinely be empty
+      // from an older run — ownerName, role, businessName, and phone
+      // format (10-digit → +91XXXXXXXXXX).
+      const patch: Record<string, unknown> = {};
+      if (existing.phone !== toE164(row.phone)) patch.phone = toE164(row.phone);
+      if (existing.ownerName !== row.ownerName) patch.ownerName = row.ownerName;
+      if (existing.role !== row.role) patch.role = row.role;
+      if (!existing.businessName) patch.businessName = BUSINESS_NAME;
+      if (Object.keys(patch).length > 0) {
+        await db.profile.update({ where: { id: existing.id }, data: patch });
+      }
+      results.push({
+        row,
+        outcome: "skipped-exists",
+        detail: `profile ${existing.id.slice(0, 8)}…`,
+        profileId: existing.id,
+      });
+      continue;
+    }
+
+    const e164 = toE164(row.phone);
+
+    // Check Supabase Auth for an orphaned user with the same phone (a
+    // previous half-succeeded run) so we don't get "phone already
+    // registered" and never touch the DB.
+    const { data: existingList } = await supabase.auth.admin.listUsers({
+      perPage: 1000,
+    });
+    const existingAuth = (existingList?.users ?? []).find(
+      (u) => u.phone === e164 || u.phone === row.phone,
+    );
+
+    let userId: string;
+    if (existingAuth) {
+      userId = existingAuth.id;
+    } else {
+      const { data: created, error: createErr } =
+        await supabase.auth.admin.createUser({
+          phone: e164,
+          phone_confirm: true,
+        });
+      if (createErr || !created?.user) {
+        console.error(
+          `[seed] FAILED auth.createUser for ${row.ownerName}: ${createErr?.message}`,
+        );
+        results.push({
+          row,
+          outcome: "failed",
+          detail: createErr?.message ?? "unknown auth error",
+        });
+        continue;
+      }
+      userId = created.user.id;
+    }
+
+    try {
+      await db.profile.create({
+        data: {
+          id: userId,
+          businessName: BUSINESS_NAME,
+          ownerName: row.ownerName,
+          phone: e164,
+          role: row.role,
+          // No costCentreName — Tally reconciliation is deferred.
+        },
+      });
+      results.push({
+        row,
+        outcome: "created",
+        detail: `profile ${userId.slice(0, 8)}…`,
+        profileId: userId,
+      });
+    } catch (e) {
+      // Only roll back the auth user we just created (not a pre-
+      // existing orphan we adopted — that could belong to something else).
+      if (!existingAuth) {
+        await supabase.auth.admin
+          .deleteUser(userId)
+          .catch(() => undefined);
+      }
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(
+        `[seed] FAILED profile.create for ${row.ownerName}: ${msg}`,
+      );
+      results.push({ row, outcome: "failed", detail: msg });
+    }
+  }
+
+  return results;
+}
+
+function printTeamSummary(
+  results: Awaited<ReturnType<typeof seedTeam>>,
+): void {
+  const nameW = Math.max(...results.map((r) => r.row.ownerName.length), 4);
+  const roleW = 7;
+  const phoneW = 12;
+  const outW = 18;
+  const line = (
+    name: string,
+    role: string,
+    phone: string,
+    outcome: string,
+  ) =>
+    `  ${name.padEnd(nameW)}  ${role.padEnd(roleW)}  ${phone.padEnd(phoneW)}  ${outcome.padEnd(outW)}`;
+  console.log("\nSeed summary:");
+  console.log(line("Name", "Role", "Phone", "Outcome"));
+  console.log(
+    "  " +
+      "-".repeat(nameW) +
+      "  " +
+      "-".repeat(roleW) +
+      "  " +
+      "-".repeat(phoneW) +
+      "  " +
+      "-".repeat(outW),
+  );
+  for (const r of results) {
+    const phone = PHONE_10.test(r.row.phone) ? toE164(r.row.phone) : r.row.phone;
+    console.log(line(r.row.ownerName, r.row.role, phone, r.outcome));
+  }
+}
 
 // Product catalogue mirrors the Google Form's "Name of the product?"
 // dropdown (24 options). `brand` on Product is a hint for the branded
@@ -48,14 +276,15 @@ async function seedProducts() {
 }
 
 async function ensureSalesperson() {
+  // After seedTeam() runs, the first ADMIN or STAFF Profile is our
+  // sample-orders owner. Fall back to a synthetic Prisma-only Profile
+  // for local dev where seedTeam() isn't run (no service-role key).
   const existing = await db.profile.findFirst({
     where: { role: { in: ["STAFF", "ADMIN"] } },
     orderBy: { createdAt: "asc" },
   });
   if (existing) return existing;
 
-  // Demo salesperson for local seeds — Profile.id mirrors auth.users.id in
-  // production; here we mint a UUID so sample orders have a valid FK.
   return db.profile.create({
     data: {
       id: randomUUID(),
@@ -63,7 +292,6 @@ async function ensureSalesperson() {
       ownerName: "Demo Salesperson",
       phone: "9999999999",
       role: "STAFF",
-      costCentreName: "North-Sales-01",
     },
   });
 }
@@ -195,6 +423,20 @@ async function seedSampleOrders(
 async function main() {
   const products = await seedProducts();
   console.log(`Product catalogue: ${products.length} items`);
+
+  // Real team seed. Skipped when service-role creds aren't provided so
+  // a local dev clone without Supabase access can still seed products.
+  const canSeedTeam =
+    !!process.env.NEXT_PUBLIC_SUPABASE_URL &&
+    !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (canSeedTeam) {
+    const teamResults = await seedTeam();
+    printTeamSummary(teamResults);
+  } else {
+    console.log(
+      "\nSkipping team seed — set NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY to enable.",
+    );
+  }
 
   const salesperson = await ensureSalesperson();
   const party = await ensureParty(salesperson.id);

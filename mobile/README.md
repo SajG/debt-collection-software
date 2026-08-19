@@ -59,6 +59,39 @@ straight to `/(auth)/phone`. Configure the following in this order:
    The mobile app calls them anonymously to throttle brute-force
    verify attempts (5 fails / 15 min blocks the phone).
 
+### OTP allowlist — server-side enforcement
+
+The mobile phone screen calls `is_provisioned_phone(p_phone)` (Postgres
+RPC, `SECURITY DEFINER`, granted to `anon`) **before** `signInWithOtp`.
+An unknown number never costs an SMS.
+
+The RPC is deliberately a phone-number oracle, so:
+
+- Every call is passed through the existing
+  `check_phone_otp_rate_limit(p_phone)` first (5 fails / 15 min blocks
+  further attempts).
+- Unprovisioned / rate-limited / RPC-error all show the SAME generic
+  message — "This number is not registered. Contact your administrator."
+
+**The client-side check is a cost control, not a security boundary.**
+Anyone with a fresh install could bypass it and still hit
+`signInWithOtp` directly. Close that with Supabase's own settings:
+
+- Supabase dashboard → **Authentication → Providers → Phone**:
+  - Turn **Phone confirmations** ON.
+  - Under the SMS provider (Twilio / MessageBird / etc.), configure a
+    per-number allowlist if the provider supports one. Twilio has
+    per-number geographic permissions + a "Verified Caller IDs" list
+    for trial accounts.
+- Supabase dashboard → **Authentication → Auth Settings**:
+  - Turn **Enable phone signups** OFF once the initial user list is
+    seeded. Together with the RPC gate, this means new phones cannot
+    self-provision even if the client is bypassed.
+- Every mobile session also runs through `AuthContext`, which signs
+  the user out when either the Profile is missing or `isActive` is
+  false — so even a JWT minted for an unprovisioned phone lasts
+  fractions of a second before being torn down.
+
 ### Testing without a real SMS provider
 
 The simplest way to log in during dev without paying for SMS is

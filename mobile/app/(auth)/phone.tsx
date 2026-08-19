@@ -37,23 +37,45 @@ export default function PhoneScreen() {
     }
     setSending(true);
     try {
-      // Defense in depth: even though Supabase throttles OTP sends
-      // itself, we check our own LoginAttempt-backed limit so an
-      // attacker who bypasses the client also can't grind verifies.
+      const e164 = toE164(digits);
+
+      // OTP allowlist. is_provisioned_phone is a phone-number oracle
+      // by design, so we deliberately show the SAME generic message
+      // for three distinct failure states — unprovisioned, rate-
+      // limited, and RPC failure. This is a cost control (no wasted
+      // SMS on unknown numbers); the real security boundary is
+      // Supabase Auth's own allowlist / phone-provider config.
+      const GENERIC =
+        "This number is not registered. Contact your administrator.";
+
       const { data: rl } = await supabase.rpc(
         "check_phone_otp_rate_limit",
-        { p_phone: toE164(digits) },
+        { p_phone: e164 },
       );
       const limited = Array.isArray(rl) && rl[0]?.limited;
       if (limited) {
-        setError(
-          `Too many attempts. Try again in ${rl?.[0]?.retry_after_minutes ?? 15} minutes.`,
-        );
+        setError(GENERIC);
+        return;
+      }
+
+      let allowed = false;
+      try {
+        const { data, error } = await supabase.rpc("is_provisioned_phone", {
+          p_phone: e164,
+        });
+        if (error) throw error;
+        allowed = data === true;
+      } catch {
+        // Fall through to the generic error rather than leaking
+        // "the network is down" — attacker learns nothing either way.
+      }
+      if (!allowed) {
+        setError(GENERIC);
         return;
       }
 
       const { error: sendError } = await supabase.auth.signInWithOtp({
-        phone: toE164(digits),
+        phone: e164,
       });
       if (sendError) {
         setError(t("auth.phone.error"));

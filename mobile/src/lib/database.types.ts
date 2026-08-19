@@ -279,6 +279,10 @@ export interface Database {
         Args: { p_phone: string; p_successful: boolean };
         Returns: null;
       };
+      is_provisioned_phone: {
+        Args: { p_phone: string };
+        Returns: boolean;
+      };
       create_sales_order: {
         Args: {
           p_party_id: string | null;
