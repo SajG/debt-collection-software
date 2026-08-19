@@ -89,6 +89,12 @@ const NAV: NavItem[] = [
     icon: PackageSearch,
     roles: ["ADMIN"],
   },
+  {
+    href: "/admin/reconciliation",
+    label: "Reconciliation",
+    icon: PackageSearch,
+    roles: ["ADMIN"],
+  },
   { href: "/settings", label: "Settings", icon: Settings, roles: ["ADMIN"] },
 ];
 

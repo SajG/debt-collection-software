@@ -104,6 +104,7 @@ enum SyncType {
   IMPORT_PARTIES
   IMPORT_INVOICES
   IMPORT_PAYMENTS
+  IMPORT_RECEIPTS
   IMPORT_STOCK_ITEMS
   FULL_IMPORT
   EXPORT_PAYMENTS
@@ -308,6 +309,10 @@ model Party {
 
   // Cached AR balance — update via app whenever invoices or payments change
   totalOutstanding Decimal @default(0) @db.Decimal(12, 2)
+  // Snapshot from the last Tally ledger sync — the reconciliation
+  // report compares this against totalOutstanding to catch sync bugs.
+  tallyOutstanding Decimal? @db.Decimal(14, 2)
+  tallyBalanceAsOf DateTime? @db.Timestamptz
 
   // Tally Cost Centre / Sales Executive name — used for auto-assignment
   // to the Profile whose costCentreName matches this value
@@ -410,7 +415,10 @@ model Payment {
 
   recordedById String        @db.Uuid
   source       PaymentSource @default(MANUAL)
-  tallyRef     String?
+  // Format: 'receipt:<voucher-guid>:<invoice-number>' for allocated rows,
+  // 'receipt:<voucher-guid>:onaccount' for the residual. Partial-unique
+  // in the DB so re-runs of the Tally sync upsert instead of duplicating.
+  tallyRef     String?       @unique
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

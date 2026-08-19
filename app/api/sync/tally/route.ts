@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   ingestPartyRows,
   ingestInvoiceRows,
+  ingestReceiptRows,
   ingestStockItemRows,
   MAX_ROWS,
 } from "@/lib/import/ingest";
@@ -20,9 +21,13 @@ export const maxDuration = 300;
 // pipeline (Zod validation, tallyRef dedupe, SyncLog) as a CSV upload.
 
 const rowArray = z.array(z.record(z.string())).max(MAX_ROWS);
+// Receipts carry nested allocations, so they aren't flat records.
+// ingestReceiptRows re-validates against a stricter schema.
+const receiptArray = z.array(z.record(z.unknown())).max(MAX_ROWS);
 const payloadSchema = z.object({
   parties: rowArray.optional(),
   invoices: rowArray.optional(),
+  receipts: receiptArray.optional(),
   stockItems: rowArray.optional(),
 });
 
@@ -57,16 +62,22 @@ export async function POST(request: NextRequest) {
   if (parsed.data.invoices?.length) {
     summary.invoices = await ingestInvoiceRows(parsed.data.invoices, opts);
   }
+  // Receipts must run after invoices so allocations can find the
+  // Invoice rows they refer to.
+  if (parsed.data.receipts?.length) {
+    summary.receipts = await ingestReceiptRows(parsed.data.receipts, opts);
+  }
   if (parsed.data.stockItems?.length) {
     summary.stockItems = await ingestStockItemRows(parsed.data.stockItems, opts);
   }
   if (
     !parsed.data.parties?.length &&
     !parsed.data.invoices?.length &&
+    !parsed.data.receipts?.length &&
     !parsed.data.stockItems?.length
   ) {
     return NextResponse.json(
-      { error: "Send parties, invoices, and/or stockItems" },
+      { error: "Send parties, invoices, receipts, and/or stockItems" },
       { status: 400 }
     );
   }

@@ -8,6 +8,8 @@
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
+
+type Tx = Prisma.TransactionClient;
 import {
   deriveInvoiceStatus,
   recomputePartyOutstanding,
@@ -77,6 +79,35 @@ const partyRowSchema = z.object({
   // Tally Cost Centre / Sales Executive — used for auto-assignment
   costCentre: optionalCell(120),
   tallyRef: optionalCell(100),
+  // Party ledger closing balance from Tally (snapshot, signed —
+  // positive when the customer owes us).
+  tallyOutstanding: z
+    .preprocess(
+      (v) => (v === "" || v == null ? null : Number(String(v).replace(/[₹,\s]/g, ""))),
+      z.number().finite().nullable(),
+    )
+    .optional(),
+});
+
+const receiptAllocationSchema = z.object({
+  invoiceNumber: z.string().trim().min(1).max(50),
+  amount: z.preprocess(
+    (v) => Number(String(v).replace(/[₹,\s]/g, "")),
+    z.number().nonnegative().max(10_000_000_000),
+  ),
+  billType: z.string().trim().max(30).optional(),
+});
+
+const receiptRowSchema = z.object({
+  voucherNumber: z.string().trim().min(1).max(50),
+  date: csvDate,
+  partyName: z.string().trim().min(1).max(120),
+  totalAmount: z.preprocess(
+    (v) => Number(String(v).replace(/[₹,\s]/g, "")),
+    z.number().positive().max(10_000_000_000),
+  ),
+  tallyRef: z.string().trim().min(1).max(100),
+  allocations: z.array(receiptAllocationSchema).max(500).default([]),
 });
 
 const invoiceRowSchema = z.object({
@@ -178,11 +209,21 @@ export async function ingestPartyRows(
       unmatchedCostCentres
     );
     // Don't wipe costCentre / assignedToId when Tally omitted them on this run
-    const { costCentre, ...partyFields } = data;
+    const { costCentre, tallyOutstanding, ...partyFields } = data;
     const assignmentPatch = {
       ...(costCentre ? { costCentre } : {}),
       ...(assigneeId ? { assignedToId: assigneeId } : {}),
     };
+    // Snapshot the Tally ledger closing balance whenever it's provided.
+    // The reconciliation report reads this against the app-computed
+    // totalOutstanding to catch sync bugs.
+    const tallySnapshot =
+      tallyOutstanding == null
+        ? {}
+        : {
+            tallyOutstanding: new Prisma.Decimal(tallyOutstanding),
+            tallyBalanceAsOf: new Date(),
+          };
 
     try {
       if (data.tallyRef) {
@@ -192,7 +233,7 @@ export async function ingestPartyRows(
         if (existing) {
           await db.party.update({
             where: { id: existing.id },
-            data: { ...partyFields, ...assignmentPatch },
+            data: { ...partyFields, ...assignmentPatch, ...tallySnapshot },
           });
           result.skipped++; // counted as updated-in-place, not a new record
           continue;
@@ -207,7 +248,7 @@ export async function ingestPartyRows(
         }
       }
       await db.party.create({
-        data: { ...partyFields, ...assignmentPatch },
+        data: { ...partyFields, ...assignmentPatch, ...tallySnapshot },
       });
       result.imported++;
     } catch {
@@ -477,4 +518,288 @@ export async function ingestStockItemRows(
   });
 
   return result;
+}
+
+/**
+ * Tally receipt vouchers → Payment rows, one per bill allocation, plus
+ * one on-account row for any unallocated remainder. Idempotent: each
+ * synthesised row's tallyRef is
+ *   `receipt:<guid>:<invoice-number>` for allocated rows
+ *   `receipt:<guid>:onaccount`        for the residual
+ * and Payment.tallyRef is DB-unique on non-null values.
+ *
+ * Sync bug that this closes: prior versions of sync-core.mjs only
+ * imported sales vouchers, so outstanding balances only ever went up,
+ * never down. Customers with genuine payments looked delinquent, and
+ * credit-limit blocking in lib/orders/create.ts refused otherwise-fine
+ * orders.
+ */
+export async function ingestReceiptRows(
+  rows: Array<Record<string, unknown>>,
+  opts: IngestOptions,
+): Promise<ImportResult | { error: string }> {
+  if (rows.length === 0) return { error: "No rows to import." };
+  if (rows.length > MAX_ROWS)
+    return { error: `Maximum ${MAX_ROWS} rows per import.` };
+
+  const result: ImportResult = {
+    imported: 0,
+    skipped: 0,
+    failed: 0,
+    errors: [],
+  };
+  const affectedPartyIds = new Set<string>();
+
+  const sync = await db.syncLog.create({
+    data: {
+      syncType: "IMPORT_RECEIPTS",
+      status: "IN_PROGRESS",
+      recordsTotal: rows.length,
+      triggeredById: opts.triggeredById,
+    },
+  });
+
+  for (let i = 0; i < rows.length; i++) {
+    const parsed = receiptRowSchema.safeParse(rows[i]);
+    if (!parsed.success) {
+      result.failed++;
+      if (result.errors.length < 20) {
+        result.errors.push(`row ${i + 2}: ${parsed.error.errors[0].message}`);
+      }
+      continue;
+    }
+    const r = parsed.data;
+
+    try {
+      const party = await db.party.findFirst({
+        where: { name: { equals: r.partyName, mode: "insensitive" } },
+      });
+      if (!party) {
+        result.failed++;
+        if (result.errors.length < 20) {
+          result.errors.push(
+            `row ${i + 2}: party "${r.partyName}" not found — import parties first`,
+          );
+        }
+        continue;
+      }
+
+      // Resolve invoices for each allocation up front. Skip allocations
+      // that don't match any Invoice — those become on-account amounts
+      // rather than failing the whole receipt.
+      const allocationsWithInvoice = [] as Array<{
+        invoiceNumber: string;
+        amount: Prisma.Decimal;
+        invoiceId: string;
+        priorPaid: Prisma.Decimal;
+        totalAmount: Prisma.Decimal;
+        creditedAmount: Prisma.Decimal;
+        dueDate: Date;
+      }>;
+      let unmatchedAmount = new Prisma.Decimal(0);
+      for (const a of r.allocations) {
+        const amt = new Prisma.Decimal(a.amount);
+        if (amt.isZero()) continue;
+        const inv = await db.invoice.findUnique({
+          where: {
+            partyId_invoiceNumber: {
+              partyId: party.id,
+              invoiceNumber: a.invoiceNumber,
+            },
+          },
+          select: {
+            id: true,
+            paidAmount: true,
+            totalAmount: true,
+            creditedAmount: true,
+            dueDate: true,
+          },
+        });
+        if (!inv) {
+          // Bill exists in Tally's ledger but not on our side yet.
+          // Treat as on-account until the invoice syncs; a later
+          // receipt-sync run will find it and re-allocate.
+          unmatchedAmount = unmatchedAmount.plus(amt);
+          continue;
+        }
+        allocationsWithInvoice.push({
+          invoiceNumber: a.invoiceNumber,
+          amount: amt,
+          invoiceId: inv.id,
+          priorPaid: inv.paidAmount,
+          totalAmount: inv.totalAmount,
+          creditedAmount: inv.creditedAmount,
+          dueDate: inv.dueDate,
+        });
+      }
+
+      const allocated = allocationsWithInvoice.reduce(
+        (acc, a) => acc.plus(a.amount),
+        new Prisma.Decimal(0),
+      );
+      const total = new Prisma.Decimal(r.totalAmount);
+      const onAccount = total
+        .minus(allocated)
+        .minus(unmatchedAmount)
+        // Tally-side rounding may push us a paisa negative; clamp.
+        .toDecimalPlaces(2);
+      const residual = onAccount.lessThan(0)
+        ? new Prisma.Decimal(0)
+        : onAccount.plus(unmatchedAmount);
+
+      await db.$transaction(async (tx) => {
+        for (const a of allocationsWithInvoice) {
+          const ref = `${r.tallyRef}:${a.invoiceNumber}`;
+          const existing = await tx.payment.findUnique({
+            where: { tallyRef: ref },
+            select: { id: true, amount: true },
+          });
+          if (existing) {
+            // Amount can drift if Tally was edited after our last pull.
+            // Update the row + adjust invoice.paidAmount by the delta.
+            const delta = a.amount.minus(existing.amount);
+            if (!delta.isZero()) {
+              await tx.payment.update({
+                where: { id: existing.id },
+                data: {
+                  amount: a.amount,
+                  paymentDate: r.date,
+                  reference: r.voucherNumber,
+                },
+              });
+              const newPaid = a.priorPaid.plus(delta);
+              await tx.invoice.update({
+                where: { id: a.invoiceId },
+                data: {
+                  paidAmount: newPaid,
+                  status: deriveInvoiceStatus(
+                    a.totalAmount,
+                    newPaid.plus(a.creditedAmount),
+                    a.dueDate,
+                  ),
+                },
+              });
+            }
+            result.skipped++;
+            continue;
+          }
+          await tx.payment.create({
+            data: {
+              partyId: party.id,
+              invoiceId: a.invoiceId,
+              amount: a.amount,
+              paymentDate: r.date,
+              method: "OTHER",
+              reference: r.voucherNumber,
+              source: "TALLY",
+              tallyRef: ref,
+              // Recorded-by must be non-null; use a well-known system
+              // profile id if configured, else fall back to any admin.
+              recordedById: await systemProfileId(tx),
+            },
+          });
+          const newPaid = a.priorPaid.plus(a.amount);
+          await tx.invoice.update({
+            where: { id: a.invoiceId },
+            data: {
+              paidAmount: newPaid,
+              status: deriveInvoiceStatus(
+                a.totalAmount,
+                newPaid.plus(a.creditedAmount),
+                a.dueDate,
+              ),
+            },
+          });
+          result.imported++;
+        }
+
+        if (residual.greaterThan(0)) {
+          const ref = `${r.tallyRef}:onaccount`;
+          const existing = await tx.payment.findUnique({
+            where: { tallyRef: ref },
+            select: { id: true, amount: true },
+          });
+          if (existing) {
+            if (!existing.amount.equals(residual)) {
+              await tx.payment.update({
+                where: { id: existing.id },
+                data: {
+                  amount: residual,
+                  paymentDate: r.date,
+                  reference: r.voucherNumber,
+                },
+              });
+            }
+            result.skipped++;
+          } else {
+            await tx.payment.create({
+              data: {
+                partyId: party.id,
+                invoiceId: null,
+                amount: residual,
+                paymentDate: r.date,
+                method: "OTHER",
+                reference: r.voucherNumber,
+                source: "TALLY",
+                tallyRef: ref,
+                recordedById: await systemProfileId(tx),
+              },
+            });
+            result.imported++;
+          }
+        }
+
+        await recomputePartyOutstanding(tx, party.id);
+      });
+      affectedPartyIds.add(party.id);
+    } catch (e) {
+      result.failed++;
+      if (result.errors.length < 20) {
+        result.errors.push(
+          `row ${i + 2}: database error while saving receipt "${r.voucherNumber}": ${
+            e instanceof Error ? e.message : String(e)
+          }`,
+        );
+      }
+    }
+  }
+
+  await db.syncLog.update({
+    where: { id: sync.id },
+    data: {
+      status: result.failed > 0 ? "PARTIAL" : "COMPLETED",
+      completedAt: new Date(),
+      recordsProcessed: result.imported + result.skipped,
+      recordsFailed: result.failed,
+      details: {
+        source: opts.source,
+        errors: result.errors,
+        partiesTouched: affectedPartyIds.size,
+      },
+    },
+  });
+
+  return result;
+}
+
+// Payment.recordedById is UUID + NOT NULL. Tally imports have no
+// human triggerer, so fall back to the first ADMIN in the system.
+// Cached across a request to avoid per-row lookups. If no admin
+// exists yet the ingest throws — this must be seeded before Tally
+// sync runs against a real project.
+let _cachedSystemProfileId: string | null = null;
+async function systemProfileId(tx: Tx | typeof db): Promise<string> {
+  if (_cachedSystemProfileId) return _cachedSystemProfileId;
+  const admin = await tx.profile.findFirst({
+    where: { role: "ADMIN" },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+  if (!admin) {
+    throw new Error(
+      "No ADMIN profile exists to attribute Tally-imported receipts to.",
+    );
+  }
+  _cachedSystemProfileId = admin.id;
+  return admin.id;
 }

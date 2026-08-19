@@ -66,10 +66,50 @@ const LEDGERS_REQUEST = `<ENVELOPE>
         <NATIVEMETHOD>ADDRESS</NATIVEMETHOD>
         <NATIVEMETHOD>LEDSTATENAME</NATIVEMETHOD>
         <NATIVEMETHOD>BILLCREDITPERIOD</NATIVEMETHOD>
+        <NATIVEMETHOD>CLOSINGBALANCE</NATIVEMETHOD>
       </COLLECTION>
     </TDLMESSAGE></TDL>
   </DESC></BODY>
 </ENVELOPE>`;
+
+function buildReceiptsRequest({ from, to }) {
+  const staticVars =
+    from && to
+      ? `<STATICVARIABLES>
+      <SVFROMDATE Type="Date">${toTallyDate(from)}</SVFROMDATE>
+      <SVTODATE Type="Date">${toTallyDate(to)}</SVTODATE>
+      <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+    </STATICVARIABLES>`
+      : "";
+  // Receipt vouchers. BILLALLOCATIONS.LIST lives inside the
+  // <LEDGERENTRIES.LIST> for the customer ledger (the credit side of
+  // the receipt). We fetch the whole voucher and parse allocations
+  // client-side because Tally's collection filters can't pull the
+  // nested list cleanly.
+  return `<ENVELOPE>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>PayTrackReceipts</ID></HEADER>
+  <BODY><DESC>
+    ${staticVars}
+    <TDL><TDLMESSAGE>
+      <COLLECTION NAME="PayTrackReceipts" ISMODIFY="No" FETCH="AllLedgerEntries.*, LedgerEntries.*, BillAllocations.*">
+        <TYPE>Voucher</TYPE>
+        <FILTERS>PayTrackIsReceipt</FILTERS>
+      </COLLECTION>
+      <SYSTEM TYPE="Formulae" NAME="PayTrackIsReceipt">$$IsReceipt:$VoucherTypeName</SYSTEM>
+    </TDLMESSAGE></TDL>
+  </DESC></BODY>
+</ENVELOPE>`;
+}
+
+// Tally amounts arrive as "1,234.50" for debits and "-1,234.50" (or
+// "(1,234.50)") for credits. Strip everything but digits, minus and
+// decimal so the sign survives.
+function tallyAmount(raw) {
+  if (!raw) return 0;
+  const s = String(raw).replace(/[₹,\s]/g, "").replace(/[()]/g, "");
+  const n = Number(s);
+  return Number.isFinite(n) ? n : 0;
+}
 
 function buildVouchersRequest({ from, to }) {
   const staticVars =
@@ -194,6 +234,10 @@ export async function runSync(config, opts = {}) {
     .map((b) => {
       const name = value(b, "NAME");
       const creditDays = (value(b, "BILLCREDITPERIOD").match(/\d+/) || [""])[0];
+      // Tally's ClosingBalance for a Sundry Debtors ledger is positive
+      // when the customer owes us. Preserve the sign so the recon
+      // report can highlight advances (negative outstanding) too.
+      const closing = tallyAmount(value(b, "CLOSINGBALANCE"));
       return {
         name,
         gstNumber: value(b, "PARTYGSTIN"),
@@ -203,6 +247,7 @@ export async function runSync(config, opts = {}) {
         address: value(b, "ADDRESS"),
         state: value(b, "LEDSTATENAME"),
         creditDays,
+        tallyOutstanding: String(closing),
         tallyRef: `ledger:${name}`,
       };
     })
@@ -249,6 +294,68 @@ export async function runSync(config, opts = {}) {
 
   await sleep(REQUEST_GAP_MS);
 
+  log("Reading receipt vouchers…");
+  const receiptXml = await tallyRequest(
+    tallyHost,
+    tallyPort,
+    buildReceiptsRequest(window),
+  );
+  const receipts = blocks(receiptXml, "VOUCHER")
+    .map((v) => {
+      const guid = value(v, "GUID");
+      const voucherNumber = value(v, "VOUCHERNUMBER");
+      const date = tallyDate(value(v, "DATE"));
+      // Every LedgerEntries.LIST inside a receipt is one leg of the
+      // journal. The party ledger is the one that has BILLALLOCATIONS
+      // (allocations are only meaningful against bills-outstanding
+      // ledgers). Non-party legs are Bank / Cash / TDS accounts.
+      const legs = blocks(v, "ALLLEDGERENTRIES.LIST").concat(
+        blocks(v, "LEDGERENTRIES.LIST"),
+      );
+      let partyName = "";
+      let totalAmount = 0;
+      const allocations = [];
+      for (const leg of legs) {
+        const ledgerName = value(leg, "LEDGERNAME");
+        const amount = tallyAmount(value(leg, "AMOUNT"));
+        const bill = blocks(leg, "BILLALLOCATIONS.LIST");
+        if (bill.length > 0) {
+          partyName = ledgerName;
+          // Amounts in a receipt on the party leg are credits (negative
+          // in Tally XML). Flip to positive for our purposes.
+          totalAmount = Math.abs(amount);
+          for (const a of bill) {
+            const invoiceNumber = value(a, "NAME");
+            const allocatedAmount = Math.abs(tallyAmount(value(a, "AMOUNT")));
+            const billType = value(a, "BILLTYPE"); // 'Agst Ref' | 'New Ref' | 'On Account' | 'Advance'
+            allocations.push({
+              invoiceNumber,
+              amount: String(allocatedAmount),
+              billType,
+            });
+          }
+        }
+      }
+      return {
+        voucherNumber,
+        date,
+        partyName,
+        totalAmount: String(totalAmount),
+        tallyRef: guid ? `receipt:${guid}` : "",
+        allocations,
+      };
+    })
+    .filter(
+      (r) =>
+        r.partyName &&
+        r.tallyRef &&
+        r.voucherNumber &&
+        Number(r.totalAmount) > 0,
+    );
+  log(`  ${receipts.length} receipts`);
+
+  await sleep(REQUEST_GAP_MS);
+
   log("Reading stock items…");
   const stockXml = await tallyRequest(tallyHost, tallyPort, STOCKITEMS_REQUEST);
   const stockItems = blocks(stockXml, "STOCKITEM")
@@ -275,7 +382,7 @@ export async function runSync(config, opts = {}) {
       "Content-Type": "application/json",
       Authorization: `Bearer ${secret}`,
     },
-    body: JSON.stringify({ parties, invoices, stockItems }),
+    body: JSON.stringify({ parties, invoices, receipts, stockItems }),
   });
   const ingest = await res.json();
   if (!res.ok) throw new Error(`Ingest failed: ${JSON.stringify(ingest)}`);
@@ -305,6 +412,7 @@ export async function runSync(config, opts = {}) {
     counts: {
       parties: parties.length,
       invoices: invoices.length,
+      receipts: receipts.length,
       stockItems: stockItems.length,
     },
     ingest,
