@@ -60,19 +60,23 @@ export function ActivityFeed({
   // thread. Bounded to this specific order so we don't wake up on
   // other orders' comments.
   useEffect(() => {
-    const channel = supabase
-      .channel(`order-comments-${orderId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "OrderComment",
-          filter: `salesOrderId=eq.${orderId}`,
-        },
-        () => void refetch(),
-      )
-      .subscribe();
+    // Unique per mount — supabase caches channels by name, and a
+    // second mount (StrictMode / navigation) that hits a cached-and-
+    // already-subscribed channel throws
+    // "cannot add postgres_changes callbacks after subscribe()".
+    const name = `order-comments:${orderId}:${Math.random().toString(36).slice(2, 10)}`;
+    const channel = supabase.channel(name);
+    channel.on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "OrderComment",
+        filter: `salesOrderId=eq.${orderId}`,
+      },
+      () => void refetch(),
+    );
+    channel.subscribe();
     return () => {
       void supabase.removeChannel(channel);
     };

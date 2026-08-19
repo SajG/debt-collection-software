@@ -136,19 +136,20 @@ function DocumentsSection({ orderId }: { orderId: string | null }) {
   // while the salesperson has the screen open.
   useEffect(() => {
     if (!orderId) return;
-    const channel = supabase
-      .channel(`order-docs-${orderId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "OrderDocument",
-          filter: `salesOrderId=eq.${orderId}`,
-        },
-        () => void refetch()
-      )
-      .subscribe();
+    // Unique per mount (see ActivityFeed comment).
+    const name = `order-docs:${orderId}:${Math.random().toString(36).slice(2, 10)}`;
+    const channel = supabase.channel(name);
+    channel.on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "OrderDocument",
+        filter: `salesOrderId=eq.${orderId}`,
+      },
+      () => void refetch(),
+    );
+    channel.subscribe();
     return () => {
       void supabase.removeChannel(channel);
     };

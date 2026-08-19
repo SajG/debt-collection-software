@@ -51,19 +51,20 @@ export default function PaymentDetailScreen() {
   // without a manual refresh.
   useEffect(() => {
     if (!paymentId) return;
-    const channel = supabase
-      .channel(`payment-detail-${paymentId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "PaymentDocument",
-          filter: `paymentId=eq.${paymentId}`,
-        },
-        () => void refetch()
-      )
-      .subscribe();
+    // Unique per mount (see ActivityFeed comment).
+    const name = `payment-detail:${paymentId}:${Math.random().toString(36).slice(2, 10)}`;
+    const channel = supabase.channel(name);
+    channel.on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "PaymentDocument",
+        filter: `paymentId=eq.${paymentId}`,
+      },
+      () => void refetch(),
+    );
+    channel.subscribe();
     return () => {
       void supabase.removeChannel(channel);
     };

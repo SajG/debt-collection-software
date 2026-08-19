@@ -263,27 +263,31 @@ export function useOrderEventStream(onEvent: () => void, salespersonId: string |
 
   useEffect(() => {
     if (!salespersonId) return;
-    const channel = supabase
-      .channel("order-status-events")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "OrderStatusEvent",
-        },
-        () => cbRef.current(),
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "SalesOrder",
-        },
-        () => cbRef.current(),
-      )
-      .subscribe();
+    // Unique per mount so a second mount (StrictMode double-invoke,
+    // fast navigation) does NOT hit supabase's cached channel and try
+    // to call `.on()` after `.subscribe()` — that path throws
+    // "cannot add postgres_changes callbacks after subscribe()".
+    const channelName = `order-events:${salespersonId}:${Math.random().toString(36).slice(2, 10)}`;
+    const channel = supabase.channel(channelName);
+    channel.on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "OrderStatusEvent",
+      },
+      () => cbRef.current(),
+    );
+    channel.on(
+      "postgres_changes",
+      {
+        event: "UPDATE",
+        schema: "public",
+        table: "SalesOrder",
+      },
+      () => cbRef.current(),
+    );
+    channel.subscribe();
     return () => {
       void supabase.removeChannel(channel);
     };
