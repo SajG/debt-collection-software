@@ -10,17 +10,17 @@ import {
   normalisePhoneInput,
   toE164,
 } from "@/auth/phone-utils";
+import {
+  DEV_TEST_EMAIL,
+  DEV_TEST_OTP,
+  DEV_TEST_PASSWORD,
+  DEV_TEST_PHONE,
+  isDevPasswordLoginEnabled,
+  isDevTestOtpEnabled,
+  isDevTestPhone,
+} from "@/auth/dev-test";
 import { t } from "@/lib/i18n";
 import { theme } from "@/theme";
-
-// Optional dev shortcut: when EXPO_PUBLIC_DEV_TEST_EMAIL /
-// EXPO_PUBLIC_DEV_TEST_PASSWORD are set AND we're running a dev build,
-// a "Sign in with test account" button appears. Uses Supabase's
-// password grant against a seeded user — no code path bypasses the
-// OTP flow itself; production builds (env vars absent) never see it.
-const DEV_EMAIL = process.env.EXPO_PUBLIC_DEV_TEST_EMAIL;
-const DEV_PASSWORD = process.env.EXPO_PUBLIC_DEV_TEST_PASSWORD;
-const DEV_SHORTCUT_AVAILABLE = __DEV__ && !!DEV_EMAIL && !!DEV_PASSWORD;
 
 export default function PhoneScreen() {
   const [phone, setPhone] = useState("");
@@ -74,11 +74,21 @@ export default function PhoneScreen() {
         return;
       }
 
+      // Dev-only: skip the SMS provider and go straight to verify.
+      // The verify screen accepts EXPO_PUBLIC_DEV_TEST_OTP for this
+      // number. Production builds never take this branch.
+      if (isDevTestPhone(digits)) {
+        router.push({ pathname: "/(auth)/verify", params: { phone: digits } });
+        return;
+      }
+
       const { error: sendError } = await supabase.auth.signInWithOtp({
         phone: e164,
       });
       if (sendError) {
-        setError(t("auth.phone.error"));
+        setError(
+          __DEV__ ? sendError.message : t("auth.phone.error"),
+        );
         return;
       }
       router.push({ pathname: "/(auth)/verify", params: { phone: digits } });
@@ -88,13 +98,13 @@ export default function PhoneScreen() {
   }
 
   async function devSignIn() {
-    if (!DEV_EMAIL || !DEV_PASSWORD) return;
+    if (!DEV_TEST_EMAIL || !DEV_TEST_PASSWORD) return;
     setError(null);
     setDevSigningIn(true);
     try {
       const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: DEV_EMAIL,
-        password: DEV_PASSWORD,
+        email: DEV_TEST_EMAIL,
+        password: DEV_TEST_PASSWORD,
       });
       if (signInError) {
         setError(signInError.message);
@@ -132,9 +142,14 @@ export default function PhoneScreen() {
         onPress={sendCode}
       />
 
-      {DEV_SHORTCUT_AVAILABLE && (
+      {isDevPasswordLoginEnabled() && (
         <View style={styles.devSection}>
           <Text style={styles.devLabel}>Dev build</Text>
+          {isDevTestOtpEnabled() && (
+            <Text style={styles.devHint}>
+              Test phone {DEV_TEST_PHONE} · code {DEV_TEST_OTP}
+            </Text>
+          )}
           <Pressable
             onPress={devSignIn}
             disabled={devSigningIn}
@@ -146,13 +161,12 @@ export default function PhoneScreen() {
             accessibilityRole="button"
           >
             <Text style={styles.devBtnText}>
-              {devSigningIn ? "Signing in…" : `Sign in as ${DEV_EMAIL}`}
+              {devSigningIn ? "Signing in…" : `Sign in as ${DEV_TEST_EMAIL}`}
             </Text>
           </Pressable>
           <Text style={styles.devHint}>
-            Visible only in __DEV__ with EXPO_PUBLIC_DEV_TEST_EMAIL +
-            EXPO_PUBLIC_DEV_TEST_PASSWORD set. Never appears in release
-            builds.
+            Visible only in __DEV__ with EXPO_PUBLIC_DEV_TEST_* set. Never
+            appears in release builds.
           </Text>
         </View>
       )}

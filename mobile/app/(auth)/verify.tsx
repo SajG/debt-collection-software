@@ -6,6 +6,13 @@ import { TextField } from "@/components/TextField";
 import { Button } from "@/components/Button";
 import { supabase } from "@/lib/supabase";
 import { formatForDisplay, toE164 } from "@/auth/phone-utils";
+import {
+  DEV_TEST_EMAIL,
+  DEV_TEST_OTP,
+  DEV_TEST_PASSWORD,
+  isDevTestOtp,
+  isDevTestPhone,
+} from "@/auth/dev-test";
 import { t } from "@/lib/i18n";
 import { theme } from "@/theme";
 
@@ -38,6 +45,28 @@ export default function VerifyScreen() {
     }
     setVerifying(true);
     const e164 = toE164(phone ?? "");
+
+    // Dev-only test OTP: skip SMS verify and use the password grant
+    // against the seeded test user. Production never takes this branch.
+    if (isDevTestOtp(phone ?? "", code)) {
+      if (!DEV_TEST_EMAIL || !DEV_TEST_PASSWORD) {
+        setVerifying(false);
+        setError(t("auth.verify.invalid"));
+        return;
+      }
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: DEV_TEST_EMAIL,
+        password: DEV_TEST_PASSWORD,
+      });
+      setVerifying(false);
+      if (signInError) {
+        setError(__DEV__ ? signInError.message : t("auth.verify.invalid"));
+        return;
+      }
+      router.replace("/");
+      return;
+    }
+
     const { error: verifyError } = await supabase.auth.verifyOtp({
       phone: e164,
       token: code,
@@ -85,6 +114,10 @@ export default function VerifyScreen() {
           })}
         </Text>
       </View>
+
+      {isDevTestPhone(phone ?? "") && (
+        <Text style={styles.devHint}>Dev OTP {DEV_TEST_OTP}</Text>
+      )}
 
       <TextField
         label={t("auth.verify.label")}
@@ -150,6 +183,11 @@ const styles = StyleSheet.create({
   link: {
     fontSize: theme.type.body,
     color: theme.colors.primary,
+    fontWeight: "600",
+  },
+  devHint: {
+    fontSize: theme.type.bodySmall,
+    color: theme.colors.textMuted,
     fontWeight: "600",
   },
 });
