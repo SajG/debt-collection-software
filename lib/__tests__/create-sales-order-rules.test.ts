@@ -334,6 +334,53 @@ describe.runIf(required)("create_sales_order — rule matrix (P0-A)", () => {
     expect(order?.partyId).toBeNull();
   });
 
+  it("P0-B regression — dispatchLocation, tokenType, and seed event notes are all preserved", async () => {
+    // The old web retry branch (deleted by P0-A) silently dropped
+    // these fields on any orderNumber P2002 collision. The RPC now
+    // has no retry branch — advisory lock + MAX(seq)+1 prevents
+    // collision — so we just assert the single write path keeps
+    // every field the client sent.
+    const dispatch = `Godown 4, Pune — test ${stamp}`;
+    const token = "With Synergy Barcode Token";
+    const { data, error } = await rpcCreate(owner.client, {
+      p_party_id: partyId,
+      p_product_id: productWithinFloorId,
+      p_quantity: 1,
+      p_product_rate: "100",
+      p_dispatch_location: dispatch,
+      p_token_type: token,
+      p_notes: "Ship urgently",
+    });
+    expect(error, JSON.stringify(error)).toBeNull();
+    const orderId = (Array.isArray(data) ? data[0] : data)?.id as string;
+    const order = await db.salesOrder.findUnique({
+      where: { id: orderId },
+      include: { statusEvents: true },
+    });
+    expect(order?.dispatchLocation).toBe(dispatch);
+    expect(order?.tokenType).toBe(token);
+    expect(order?.notes).toBe("Ship urgently");
+    // The seed OrderStatusEvent should also carry the "Order placed"
+    // note — the old retry branch dropped it.
+    expect(order?.statusEvents.length).toBe(1);
+    expect(order?.statusEvents[0].notes).toContain("Order placed");
+  });
+
+  it("P0-B regression — createSalesOrderAction has no P2002 retry branch", async () => {
+    // Static assertion — if a future refactor re-introduces a retry
+    // path on the web that duplicates the create block, this test
+    // fails loudly. Guards against the "two blocks drift" bug class.
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const src = readFileSync(
+      resolve(__dirname, "..", "..", "app", "(dashboard)", "orders", "actions.ts"),
+      "utf8",
+    );
+    expect(src).not.toMatch(/P2002/);
+    expect(src).not.toMatch(/salesOrder\.create/);
+    expect(src).not.toMatch(/\bretry\b/i);
+  });
+
   it("STAFF touching not-their-party → assignment error", async () => {
     // OTHER is a different salesperson; the party is assigned to OWNER.
     const { error } = await rpcCreate(other.client, {
