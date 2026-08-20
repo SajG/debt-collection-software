@@ -284,6 +284,14 @@ export interface Database {
         Args: { p_phone: string };
         Returns: boolean;
       };
+      advance_order_status: {
+        Args: {
+          p_order_id: string;
+          p_target: OrderStatus;
+          p_note?: string | null;
+        };
+        Returns: { id: string; currentStatus: OrderStatus }[];
+      };
       is_notification_config_ready: {
         Args: Record<string, never>;
         Returns: boolean;

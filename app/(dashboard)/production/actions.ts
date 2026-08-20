@@ -24,11 +24,19 @@ export async function advanceOrderStatusAction(
   expectedNext: OrderStatus,
   notes?: string
 ): Promise<ActionResult> {
-  const profile = await requireFactoryOrAdmin();
+  // Role + rate-approval + isActive gates + the transition validity
+  // check + the atomic write are ALL in the RPC now (see migration
+  // 20260821170000_advance_order_status_rpc). We keep the outer
+  // requireFactoryOrAdmin so the redirect-to-/dashboard happens for a
+  // STAFF caller before we hit Supabase, and so the pre-flight
+  // "expected next status still matches" refresh check still runs.
+  await requireFactoryOrAdmin();
 
-  const order = await db.salesOrder.findUnique({ where: { id: orderId } });
+  const order = await db.salesOrder.findUnique({
+    where: { id: orderId },
+    select: { currentStatus: true },
+  });
   if (!order) return { error: "Order not found." };
-
   const next = nextOrderStatus(order.currentStatus);
   if (!next) {
     return { error: "This order cannot be advanced further." };
@@ -39,24 +47,19 @@ export async function advanceOrderStatusAction(
     };
   }
 
-  const note = notes?.trim() ? notes.trim().slice(0, 1000) : null;
-
-  // Append-only audit: update currentStatus + insert a new event. Never mutate
-  // or delete prior OrderStatusEvent rows.
-  await db.$transaction([
-    db.salesOrder.update({
-      where: { id: orderId },
-      data: { currentStatus: next },
-    }),
-    db.orderStatusEvent.create({
-      data: {
-        salesOrderId: orderId,
-        status: next,
-        notes: note,
-        updatedById: profile.id,
-      },
-    }),
-  ]);
+  const { createClient } = await import("@/lib/supabase/server");
+  const supabase = createClient();
+  const { error: rpcErr } = await supabase.rpc("advance_order_status", {
+    p_order_id: orderId,
+    p_target: next,
+    p_note: notes?.trim() ? notes.trim().slice(0, 1000) : null,
+  });
+  if (rpcErr) {
+    // The RPC's own message is the safest thing to surface — it
+    // already names the source condition ("awaiting admin rate
+    // approval", "cannot advance … backwards or skip", etc.).
+    return { error: rpcErr.message || "Could not advance order." };
+  }
 
   // F7 — Fire the WhatsApp dispatch confirmation on the DISPATCHED
   // edge. Best-effort; a WhatsApp failure never blocks the status
@@ -67,8 +70,6 @@ export async function advanceOrderStatusAction(
       const { sendDispatchConfirmation } = await import(
         "@/lib/messaging/dispatch-confirmation"
       );
-      // Fire-and-forget: awaited so DB errors surface in server logs,
-      // but the result isn't returned to the caller.
       await sendDispatchConfirmation(orderId);
     } catch (e) {
       // Never blocks status advance; logged inside the module.

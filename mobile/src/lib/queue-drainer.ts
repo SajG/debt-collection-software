@@ -3,6 +3,7 @@ import { AppState } from "react-native";
 import { useConnectivity } from "./connectivity";
 import { drainOnce } from "./order-queue";
 import { drainDocsOnce } from "./order-doc-queue";
+import { drainStatusOnce } from "./status-queue";
 
 /**
  * Fires drainOnce() whenever we transition to online, or the app comes
@@ -19,6 +20,10 @@ export function useQueueDrainer(): void {
     draining.current = true;
     try {
       await drainOnce();
+      // Status advances are cheap (one RPC) so run them BEFORE the
+      // photo uploads so a factory tap made offline reaches the
+      // salesperson via a push as soon as connectivity returns.
+      await drainStatusOnce();
       // Doc uploads share the same connectivity trigger; run them
       // sequentially so we don't slam the phone's radio with a big
       // photo upload and an RPC call at the same time.

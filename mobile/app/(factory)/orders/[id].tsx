@@ -30,6 +30,7 @@ import {
   type OrderDocType,
 } from "@/lib/order-doc-queries";
 import { enqueueDocument, useDocQueue } from "@/lib/order-doc-queue";
+import { submitStatusAdvance, useStatusQueue } from "@/lib/status-queue";
 import { ORDER_DOC_BUCKET, getSignedUrl } from "@/lib/uploads";
 import { supabase } from "@/lib/supabase";
 import { formatDate } from "@/lib/format";
@@ -80,33 +81,52 @@ export default function FactoryOrderDetail() {
     [data],
   );
 
+  const { online } = useConnectivity();
+  const statusQueue = useStatusQueue();
+  const pendingForThisOrder = useMemo(
+    () => statusQueue.filter((q) => q.orderId === id).length,
+    [statusQueue, id],
+  );
+
   const advance = useCallback(
     async (target: OrderStatus, note: string) => {
-      if (!id || !user) return;
+      if (!id || !user || !data) return;
       setSubmitting(true);
       try {
-        const { error: upErr } = await supabase
-          .from("SalesOrder")
-          .update({ currentStatus: target })
-          .eq("id", id);
-        if (upErr) throw upErr;
-        const { error: evErr } = await supabase
-          .from("OrderStatusEvent")
-          .insert({
-            salesOrderId: id,
-            status: target,
-            notes: note,
-            updatedById: user.id,
-          });
-        if (evErr) throw evErr;
+        // Single, atomic path — advance_order_status RPC (migration
+        // 20260821170000) does the UPDATE + INSERT in one txn AND
+        // re-validates the transition server-side. The old two-write
+        // path left status advanced with no audit row on a dropped
+        // connection between statements.
+        //
+        // Offline / network-shape errors are queued so a factory-floor
+        // Wi-Fi blip does not lose the tap. App-shape errors (bad
+        // transition, awaiting rate approval, unauthorized) surface
+        // immediately without queuing.
+        const res = await submitStatusAdvance({
+          orderId: id,
+          orderNumber: data.orderNumber,
+          target,
+          note: note || null,
+          online,
+        });
+        if ("error" in res) {
+          Alert.alert("Update failed", res.error);
+          return;
+        }
+        if ("queued" in res) {
+          Alert.alert(
+            "Saved for retry",
+            "No network right now — this status change will be applied automatically when the phone is back online.",
+          );
+          return;
+        }
         await refetch();
-      } catch (e: any) {
-        Alert.alert("Update failed", e?.message ?? "Please try again.");
       } finally {
         setSubmitting(false);
       }
     },
-    [id, user, refetch],
+    [id, user, data, online, refetch],
   );
 
   if (loading && !data) {
@@ -176,6 +196,17 @@ export default function FactoryOrderDetail() {
             </InfoCard>
           ) : null}
         </View>
+
+        {pendingForThisOrder > 0 && (
+          <View style={styles.pendingBanner}>
+            <Text style={styles.pendingBannerText}>
+              {pendingForThisOrder} status change
+              {pendingForThisOrder === 1 ? "" : "s"} waiting to sync for
+              this order. Will apply automatically when the phone is
+              back online.
+            </Text>
+          </View>
+        )}
 
         <View style={styles.actions}>
           {next && data.currentStatus !== "CANCELLED" ? (
@@ -652,6 +683,19 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   actions: { gap: theme.spacing.sm },
+  pendingBanner: {
+    marginBottom: theme.spacing.md,
+    padding: theme.spacing.md,
+    borderRadius: theme.radius,
+    borderWidth: 1,
+    borderColor: "#F59E0B",
+    backgroundColor: "#FFFBEB",
+  },
+  pendingBannerText: {
+    fontSize: theme.type.bodySmall,
+    color: "#78350F",
+    fontWeight: "600",
+  },
   doneLabel: {
     textAlign: "center",
     fontSize: theme.type.bodySmall,

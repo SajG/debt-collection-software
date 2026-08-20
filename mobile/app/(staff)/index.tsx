@@ -18,6 +18,7 @@ import { useAuth } from "@/auth/AuthContext";
 import { useOrderEventStream, useOwnOrders } from "@/lib/queries";
 import { useQueue } from "@/lib/order-queue";
 import { useDocQueue } from "@/lib/order-doc-queue";
+import { useStatusQueue } from "@/lib/status-queue";
 import { useDraftPreview } from "@/lib/order-draft";
 import { t } from "@/lib/i18n";
 import { theme } from "@/theme";
@@ -76,7 +77,8 @@ export default function HomeScreen() {
   useOrderEventStream(refetch, user?.id ?? null);
   const queue = useQueue();
   const docQueue = useDocQueue();
-  const pendingUnsent = queue.length + docQueue.length;
+  const statusQueue = useStatusQueue();
+  const pendingUnsent = queue.length + docQueue.length + statusQueue.length;
   const draftPreview = useDraftPreview();
   useFocusEffect(
     useCallback(() => {
