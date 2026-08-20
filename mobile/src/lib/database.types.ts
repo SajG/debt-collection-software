@@ -314,6 +314,7 @@ export interface Database {
           p_new_customer_name?: string | null;
           p_dispatch_location?: string | null;
           p_new_product_name?: string | null;
+          p_credit_override_note?: string | null;
         };
         Returns: { id: string; orderNumber: string }[];
       };

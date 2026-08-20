@@ -1,12 +1,12 @@
 "use server";
 
-import { Prisma, OrderStatus } from "@prisma/client";
+import { OrderStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireProfile } from "@/lib/authz";
-import { nextOrderNumber, previewCredit } from "@/lib/orders/create";
+import { createClient } from "@/lib/supabase/server";
 
 export type CreateOrderResult =
   | { ok: true; id: string; orderNumber: string }
@@ -61,22 +61,51 @@ const createSchema = z
     }
   });
 
-function parseDeliveryDate(raw: string | undefined): Date | null {
-  if (!raw) return null;
-  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return null;
-  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-  return isNaN(d.getTime()) ? null : d;
-}
-
-/** Best-effort — takes "185", "42.50", "185 / pc". */
-function parseRate(raw: string): number {
-  const m = raw.replace(/[₹,\s]/g, "").match(/-?[\d.]+/);
-  return m ? Number(m[0]) : 0;
+// Map raw RPC exception text → the strings the UI already knows how
+// to render. Keeps app/(dashboard)/orders/new/order-form.tsx
+// completely unchanged. Order matters — most specific first.
+function mapRpcError(raw: string): {
+  error: string;
+  fieldErrors?: Record<string, string>;
+} {
+  if (/credit limit would be exceeded/i.test(raw)) {
+    return {
+      error:
+        "Credit limit would be exceeded. Ask an admin to review, or collect outstanding first.",
+      fieldErrors: { creditOverride: "blocked" },
+    };
+  }
+  if (/override note required/i.test(raw)) {
+    return {
+      error:
+        "Enter an override note to place this order past the credit limit.",
+      fieldErrors: {
+        creditOverrideNote: "Required to override credit limit.",
+      },
+    };
+  }
+  if (/customer is assigned to another salesperson/i.test(raw)) {
+    return { error: "This customer is assigned to another salesperson." };
+  }
+  if (/selected product is unavailable/i.test(raw)) {
+    return { error: "Selected product is unavailable." };
+  }
+  if (/customer not found/i.test(raw)) {
+    return { error: "Customer not found." };
+  }
+  if (/too many orders/i.test(raw)) {
+    return {
+      error: "Too many orders in the last hour. Try again shortly.",
+    };
+  }
+  if (/account disabled/i.test(raw)) {
+    return { error: "Your account is disabled." };
+  }
+  return { error: "Could not save order — please try again." };
 }
 
 export async function createSalesOrderAction(
-  formData: FormData
+  formData: FormData,
 ): Promise<CreateOrderResult> {
   const profile = await requireProfile();
   if (profile.role === "FACTORY") {
@@ -96,158 +125,65 @@ export async function createSalesOrderAction(
   }
   const data = parsed.data;
 
-  const product = await db.product.findUnique({
-    where: { id: data.productId },
-  });
-  if (!product || !product.isActive) {
-    return { error: "Selected product is unavailable." };
+  // Single write path — the create_sales_order RPC. Enforces:
+  //   role gate (STAFF/ADMIN, active)
+  //   party ownership (STAFF only)
+  //   product availability + custom-product stub
+  //   rate limit (check_order_create_rate_limit)
+  //   floor-rate → needsRateApproval
+  //   credit-limit gate + admin override with note
+  //   order-number advisory lock
+  //   seed OrderStatusEvent with credit / rate context
+  //
+  // The web action's job here is Zod validation, RPC call, error-
+  // message mapping into the shape the client form expects.
+  const supabase = createClient();
+  const rpcPayload = {
+    p_party_id: data.customerMode === "existing" ? data.partyId! : null,
+    p_new_customer_name:
+      data.customerMode === "new" ? data.newCustomerName! : null,
+    p_dispatch_location: data.dispatchLocation ?? null,
+    p_product_id: data.productId,
+    p_new_product_name: null,
+    p_brand: null, // RPC falls back to product.brand
+    p_quantity: data.quantity,
+    p_quantity_unit: data.quantityUnit,
+    p_packing_type: data.packingType ?? "",
+    p_size_kg: data.sizeKg ?? "",
+    p_product_rate: data.productRate,
+    p_payment_term: data.paymentTerm ?? "",
+    p_transport_type: data.transportType ?? "",
+    p_expected_delivery_date: data.expectedDeliveryDate || null,
+    p_token_type: data.tokenType ?? null,
+    p_notes: data.notes ?? null,
+    p_credit_override_note: data.creditOverrideNote ?? null,
+  };
+
+  const { data: rpcData, error: rpcErr } = await supabase.rpc(
+    "create_sales_order",
+    rpcPayload,
+  );
+  if (rpcErr) {
+    return mapRpcError(rpcErr.message ?? "");
   }
 
-  // Resolve customer + credit gate
-  let partyId: string | null = null;
-  let newCustomerName: string | null = null;
-  let creditCheckPassed = true;
-  let creditOverrideById: string | null = null;
-
-  const rate = parseRate(data.productRate);
-  const orderValue = Number((data.quantity * rate).toFixed(2));
-
-  if (data.customerMode === "existing") {
-    const party = await db.party.findUnique({ where: { id: data.partyId! } });
-    if (!party) return { error: "Customer not found." };
-    if (
-      profile.role === "STAFF" &&
-      party.assignedToId &&
-      party.assignedToId !== profile.id
-    ) {
-      return { error: "This customer is assigned to another salesperson." };
-    }
-    partyId = party.id;
-
-    const credit = previewCredit(party, orderValue);
-    if (credit.wouldExceed) {
-      // Only ADMIN can override, and must supply a note.
-      if (profile.role !== "ADMIN") {
-        return {
-          error:
-            "Credit limit would be exceeded. Ask an admin to review, or collect outstanding first.",
-          fieldErrors: { creditOverride: "blocked" },
-        };
-      }
-      if (!data.creditOverrideNote) {
-        return {
-          error: "Enter an override note to place this order past the credit limit.",
-          fieldErrors: { creditOverrideNote: "Required to override credit limit." },
-        };
-      }
-      creditCheckPassed = false;
-      creditOverrideById = profile.id;
-    }
-  } else {
-    newCustomerName = data.newCustomerName!;
-  }
-
-  const expectedDate = parseDeliveryDate(data.expectedDeliveryDate);
-
-  try {
-    const created = await db.$transaction(async (tx) => {
-      const orderNumber = await nextOrderNumber(tx);
-      return tx.salesOrder.create({
-        data: {
-          orderNumber,
-          partyId,
-          newCustomerName,
-          salespersonId: profile.id,
-          productId: product.id,
-          brand: product.brand,
-          quantity: new Prisma.Decimal(data.quantity),
-          quantityUnit: data.quantityUnit,
-          packingType: data.packingType || null,
-          sizeKg: data.sizeKg || null,
-          productRate: data.productRate,
-          orderValue: new Prisma.Decimal(orderValue),
-          paymentTerm: data.paymentTerm || null,
-          transportType: data.transportType || null,
-          expectedDeliveryDate: expectedDate,
-          dispatchLocation: data.dispatchLocation || null,
-          tokenType: data.tokenType || null,
-          notes: data.notes || null,
-          currentStatus: OrderStatus.ORDER_PLACED,
-          creditCheckPassed,
-          creditOverrideById,
-          creditOverrideNote: creditOverrideById ? data.creditOverrideNote! : null,
-          statusEvents: {
-            create: {
-              status: OrderStatus.ORDER_PLACED,
-              notes: creditOverrideById
-                ? `Order placed with credit override: ${data.creditOverrideNote}`
-                : "Order placed",
-              updatedById: profile.id,
-            },
-          },
-        },
-      });
-    });
-
-    revalidatePath("/orders");
-    revalidatePath("/production");
-    return { ok: true, id: created.id, orderNumber: created.orderNumber };
-  } catch (e) {
-    if (
-      e instanceof Prisma.PrismaClientKnownRequestError &&
-      e.code === "P2002"
-    ) {
-      // Retry once — unique orderNumber collision under concurrent creates.
-      try {
-        const retry = await db.$transaction(async (tx) => {
-          const orderNumber = await nextOrderNumber(tx);
-          return tx.salesOrder.create({
-            data: {
-              orderNumber,
-              partyId,
-              newCustomerName,
-              salespersonId: profile.id,
-              productId: product.id,
-              brand: product.brand,
-              quantity: new Prisma.Decimal(data.quantity),
-              quantityUnit: data.quantityUnit,
-              packingType: data.packingType || null,
-              sizeKg: data.sizeKg || null,
-              productRate: data.productRate,
-              orderValue: new Prisma.Decimal(orderValue),
-              paymentTerm: data.paymentTerm || null,
-              transportType: data.transportType || null,
-              expectedDeliveryDate: expectedDate,
-              notes: data.notes || null,
-              currentStatus: OrderStatus.ORDER_PLACED,
-              creditCheckPassed,
-              creditOverrideById,
-              creditOverrideNote: creditOverrideById
-                ? data.creditOverrideNote!
-                : null,
-              statusEvents: {
-                create: {
-                  status: OrderStatus.ORDER_PLACED,
-                  updatedById: profile.id,
-                },
-              },
-            },
-          });
-        });
-        revalidatePath("/orders");
-        revalidatePath("/production");
-        return { ok: true, id: retry.id, orderNumber: retry.orderNumber };
-      } catch {
-        return { error: "Could not save order — please try again." };
-      }
-    }
+  const row = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+  if (!row || typeof row.id !== "string") {
     return { error: "Could not save order — please try again." };
   }
+
+  revalidatePath("/orders");
+  revalidatePath("/production");
+  return {
+    ok: true,
+    id: row.id,
+    orderNumber: (row.orderNumber ?? row.order_number) as string,
+  };
 }
 
 export async function cancelSalesOrderAction(
   orderId: string,
-  reason: string
+  reason: string,
 ): Promise<{ ok: true } | { error: string }> {
   const profile = await requireProfile();
   const order = await db.salesOrder.findUnique({ where: { id: orderId } });

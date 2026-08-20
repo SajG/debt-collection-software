@@ -24,6 +24,7 @@ export type OrderRpcPayload = {
   p_dispatch_location?: string | null;
   p_product_id: string | null;
   p_new_product_name?: string | null;
+  p_credit_override_note?: string | null;
   p_brand: string | null;
   p_quantity: number;
   p_quantity_unit: QuantityUnit;
