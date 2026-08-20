@@ -15,9 +15,16 @@ export default async function ProductionQueuePage() {
   const orders = await db.salesOrder.findMany({
     where: {
       currentStatus: { notIn: ["DISPATCHED", "DELIVERED", "CANCELLED"] },
-      // F6 — orders below the product floor rate are hidden from the
-      // factory queue until an admin approves the rate. Admins still
-      // see them so they can approve or decide.
+      // F6 — needsRateApproval=true orders are hidden from FACTORY,
+      // shown to ADMIN so they can approve or cancel. The DB-layer
+      // gate (RLS sales_order_select_factory in migration
+      // 20260821160000_factory_rls_needs_rate_approval) already
+      // enforces this for any FACTORY JWT talking to Supabase
+      // directly (mobile). This app-level filter STAYS as defence
+      // in depth: Prisma connects with the schema owner and
+      // BYPASSES RLS, so without this the web console would still
+      // leak below-floor orders to FACTORY users even after the
+      // RLS fix.
       ...(profile.role === "FACTORY" ? { needsRateApproval: false } : {}),
     },
     include: {
