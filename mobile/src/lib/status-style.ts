@@ -7,6 +7,12 @@ export function statusStyle(status: OrderStatus): {
   fg: string;
 } {
   switch (status) {
+    case "PENDING_APPROVAL":
+      // Amber — held pending admin decision.
+      return { bg: "#FEF3C7", fg: "#78350F" };
+    case "REJECTED":
+      // Red on cream — terminal negative outcome, distinct from ON_HOLD.
+      return { bg: "#FEE2E2", fg: "#991B1B" };
     case "ORDER_PLACED":
       return { bg: "#E5E7EB", fg: "#111827" }; // gray
     case "IN_PRODUCTION":

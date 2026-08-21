@@ -217,7 +217,13 @@ export async function putOrderOnHoldAction(input: {
   if (order.currentStatus === "ON_HOLD") {
     return { error: "Order is already on hold." };
   }
-  if (order.currentStatus === "DISPATCHED" || order.currentStatus === "CANCELLED") {
+  if (
+    order.currentStatus === "DISPATCHED" ||
+    order.currentStatus === "DELIVERED" ||
+    order.currentStatus === "CANCELLED" ||
+    order.currentStatus === "REJECTED" ||
+    order.currentStatus === "PENDING_APPROVAL"
+  ) {
     return { error: `Cannot hold an order that is ${order.currentStatus}.` };
   }
 
@@ -376,8 +382,11 @@ export async function addDispatchLotAction(input: {
     select: { id: true, quantity: true, currentStatus: true },
   });
   if (!order) return { error: "Order not found." };
-  if (order.currentStatus === "CANCELLED") {
-    return { error: "Cannot dispatch a cancelled order." };
+  if (order.currentStatus === "CANCELLED" || order.currentStatus === "REJECTED") {
+    return { error: "Cannot dispatch a cancelled or rejected order." };
+  }
+  if (order.currentStatus === "PENDING_APPROVAL") {
+    return { error: "This order is awaiting admin approval and cannot be dispatched." };
   }
 
   await db.dispatchLot.create({
@@ -495,8 +504,12 @@ export async function recordOrderInvoiceAction(input: {
   // Blocks recording an invoice against a cancelled order — the invoice
   // wouldn't be paid anyway. IN_PRODUCTION and earlier are allowed
   // because invoicing before dispatch is common in this trade.
-  if (order.currentStatus === "CANCELLED") {
-    return { error: "Cannot record an invoice against a cancelled order." };
+  if (
+    order.currentStatus === "CANCELLED" ||
+    order.currentStatus === "REJECTED" ||
+    order.currentStatus === "PENDING_APPROVAL"
+  ) {
+    return { error: "Cannot record an invoice against this order." };
   }
 
   const dupe = await db.invoice.findUnique({
@@ -816,5 +829,57 @@ export async function approveOrderRateAction(input: {
   revalidatePath(`/orders/${order.id}`);
   revalidatePath(`/production/${order.id}`);
   revalidatePath("/admin/rate-approvals");
+  return { ok: true };
+}
+
+// ─────────────────────────────────────────────────────────────────
+// P1 — first-class approve / reject for PENDING_APPROVAL orders.
+// ADMIN only. Reject is terminal — the salesperson gets a push via
+// the existing OrderStatusEvent → notify trigger.
+// ─────────────────────────────────────────────────────────────────
+
+// Both paths (web + mobile) go through approve_order / reject_order
+// RPCs — one atomic body, one place to audit. Web just does the
+// requireAdmin redirect + revalidatePath around the RPC call.
+
+export async function approveOrderAction(input: {
+  orderId: string;
+  note?: string;
+}): Promise<ActionResult> {
+  const { requireAdmin } = await import("@/lib/authz");
+  await requireAdmin();
+  const { createClient } = await import("@/lib/supabase/server");
+  const supabase = createClient();
+  const { error } = await supabase.rpc("approve_order", {
+    p_order_id: input.orderId,
+    p_note: input.note?.trim().slice(0, 1000) || null,
+  });
+  if (error) return { error: error.message || "Approval failed." };
+
+  revalidatePath("/admin/approvals");
+  revalidatePath("/admin/rate-approvals");
+  revalidatePath(`/orders/${input.orderId}`);
+  revalidatePath(`/production/${input.orderId}`);
+  return { ok: true };
+}
+
+export async function rejectOrderAction(input: {
+  orderId: string;
+  reason: string;
+}): Promise<ActionResult> {
+  const { requireAdmin } = await import("@/lib/authz");
+  await requireAdmin();
+  const { createClient } = await import("@/lib/supabase/server");
+  const supabase = createClient();
+  const { error } = await supabase.rpc("reject_order", {
+    p_order_id: input.orderId,
+    p_reason: input.reason,
+  });
+  if (error) return { error: error.message || "Rejection failed." };
+
+  revalidatePath("/admin/approvals");
+  revalidatePath("/admin/rate-approvals");
+  revalidatePath(`/orders/${input.orderId}`);
+  revalidatePath(`/production/${input.orderId}`);
   return { ok: true };
 }

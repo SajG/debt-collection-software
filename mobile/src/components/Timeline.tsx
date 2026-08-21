@@ -36,7 +36,7 @@ export function Timeline({
 
   // Future: anything in the pipeline the order hasn't reached yet.
   // Skip if the order is cancelled — cancellation is a terminal branch.
-  if (currentStatus !== "CANCELLED") {
+  if (currentStatus !== "CANCELLED" && currentStatus !== "REJECTED") {
     const seen = new Set(events.map((e) => e.status));
     for (const status of STATUS_PIPELINE) {
       if (!seen.has(status)) rows.push({ kind: "future", status });

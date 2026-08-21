@@ -21,7 +21,7 @@ export async function ordersBySalesperson(range: AnalyticsRange) {
     by: ["salespersonId"],
     where: {
       createdAt: { gte: range.from, lt: range.to },
-      currentStatus: { not: "CANCELLED" },
+      currentStatus: { notIn: ["CANCELLED", "REJECTED"] },
     },
     _count: { _all: true },
     _sum: { orderValue: true },
@@ -47,7 +47,7 @@ export async function ordersByProduct(range: AnalyticsRange) {
     by: ["productId"],
     where: {
       createdAt: { gte: range.from, lt: range.to },
-      currentStatus: { not: "CANCELLED" },
+      currentStatus: { notIn: ["CANCELLED", "REJECTED"] },
     },
     _count: { _all: true },
     _sum: { orderValue: true, quantity: true },
@@ -74,7 +74,7 @@ export async function ordersByBrand(range: AnalyticsRange) {
     by: ["brand"],
     where: {
       createdAt: { gte: range.from, lt: range.to },
-      currentStatus: { not: "CANCELLED" },
+      currentStatus: { notIn: ["CANCELLED", "REJECTED"] },
     },
     _count: { _all: true },
     _sum: { orderValue: true },
@@ -95,7 +95,7 @@ export async function ordersByMonth(range: AnalyticsRange) {
   const orders = await db.salesOrder.findMany({
     where: {
       createdAt: { gte: range.from, lt: range.to },
-      currentStatus: { not: "CANCELLED" },
+      currentStatus: { notIn: ["CANCELLED", "REJECTED"] },
     },
     select: { createdAt: true, orderValue: true },
   });
@@ -118,7 +118,7 @@ export async function topCustomers(range: AnalyticsRange, limit = 10) {
     where: {
       partyId: { not: null },
       createdAt: { gte: range.from, lt: range.to },
-      currentStatus: { not: "CANCELLED" },
+      currentStatus: { notIn: ["CANCELLED", "REJECTED"] },
     },
     _count: { _all: true },
     _sum: { orderValue: true, quantity: true },

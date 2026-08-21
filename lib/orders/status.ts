@@ -1,10 +1,12 @@
 import type { OrderStatus, DocumentType } from "@prisma/client";
 
-/** Happy-path factory pipeline. CANCELLED / ON_HOLD /
- *  PARTIALLY_DISPATCHED are side branches and not in this list.
- *  DELIVERED is a separate confirmation loop (salesperson or customer
- *  via signed link) and not on the linear factory path. */
+/** Happy-path factory pipeline. PENDING_APPROVAL comes first — an
+ *  order in that state hasn't been released to the factory yet.
+ *  CANCELLED / REJECTED / ON_HOLD / PARTIALLY_DISPATCHED are side
+ *  branches. DELIVERED is a separate confirmation loop
+ *  (salesperson or customer via signed link). */
 export const ORDER_STATUS_SEQUENCE: OrderStatus[] = [
+  "PENDING_APPROVAL",
   "ORDER_PLACED",
   "IN_PRODUCTION",
   "READY_TO_DISPATCH",
@@ -12,7 +14,30 @@ export const ORDER_STATUS_SEQUENCE: OrderStatus[] = [
   "DISPATCHED",
 ];
 
+/** Terminal branches — never in "open" queues or factory lists. */
+export const TERMINAL_ORDER_STATUSES: OrderStatus[] = [
+  "CANCELLED",
+  "REJECTED",
+];
+
+export function isTerminalOrderStatus(status: OrderStatus): boolean {
+  return status === "CANCELLED" || status === "REJECTED";
+}
+
+/** FACTORY RLS + Prisma defence-in-depth. Matches sales_order_select_factory. */
+export function isFactoryHiddenOrder(order: {
+  currentStatus: OrderStatus;
+  needsRateApproval?: boolean | null;
+}): boolean {
+  return (
+    order.needsRateApproval === true ||
+    order.currentStatus === "PENDING_APPROVAL" ||
+    order.currentStatus === "REJECTED"
+  );
+}
+
 export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
+  PENDING_APPROVAL: "Awaiting approval",
   ORDER_PLACED: "Order placed",
   IN_PRODUCTION: "In production",
   ON_HOLD: "On hold",
@@ -21,6 +46,7 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   PARTIALLY_DISPATCHED: "Partially dispatched",
   DISPATCHED: "Dispatched",
   DELIVERED: "Delivered",
+  REJECTED: "Rejected",
   CANCELLED: "Cancelled",
 };
 
@@ -39,9 +65,17 @@ export const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
 };
 
 export function nextOrderStatus(current: OrderStatus): OrderStatus | null {
-  // ON_HOLD / PARTIALLY_DISPATCHED aren't on the linear path — their
-  // exits are release-hold and record-another-dispatch-lot respectively.
-  if (current === "ON_HOLD" || current === "PARTIALLY_DISPATCHED") return null;
+  // ON_HOLD / PARTIALLY_DISPATCHED / PENDING_APPROVAL / REJECTED
+  // aren't on the linear pipeline — their exits are release-hold,
+  // record-another-dispatch-lot, approve/reject, and (terminal).
+  if (
+    current === "ON_HOLD" ||
+    current === "PARTIALLY_DISPATCHED" ||
+    current === "PENDING_APPROVAL" ||
+    current === "REJECTED"
+  ) {
+    return null;
+  }
   const idx = ORDER_STATUS_SEQUENCE.indexOf(current);
   if (idx < 0 || idx >= ORDER_STATUS_SEQUENCE.length - 1) return null;
   return ORDER_STATUS_SEQUENCE[idx + 1];

@@ -58,6 +58,7 @@ const NEXT_STEP: Partial<Record<OrderStatus, OrderStatus>> = {
 };
 
 const STEP_LABEL: Record<OrderStatus, string> = {
+  PENDING_APPROVAL: "Awaiting approval",
   ORDER_PLACED: "Order placed",
   IN_PRODUCTION: "Start production",
   ON_HOLD: "On hold",
@@ -66,6 +67,7 @@ const STEP_LABEL: Record<OrderStatus, string> = {
   PARTIALLY_DISPATCHED: "Partially dispatched",
   DISPATCHED: "Mark dispatched",
   DELIVERED: "Delivered",
+  REJECTED: "Rejected",
   CANCELLED: "Cancelled",
 };
 
@@ -232,7 +234,10 @@ export default function FactoryOrderDetail() {
             </Text>
           )}
           {data.currentStatus !== "DISPATCHED" &&
-            data.currentStatus !== "CANCELLED" && (
+            data.currentStatus !== "CANCELLED" &&
+            data.currentStatus !== "REJECTED" &&
+            data.currentStatus !== "PENDING_APPROVAL" &&
+            data.currentStatus !== "DELIVERED" && (
               <Button
                 variant="secondary"
                 label="Cancel order"

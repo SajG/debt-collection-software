@@ -120,8 +120,8 @@ const NAV: NavItem[] = [
     roles: ["ADMIN"],
   },
   {
-    href: "/admin/rate-approvals",
-    label: "Rate approvals",
+    href: "/admin/approvals",
+    label: "Approvals",
     icon: PackageSearch,
     roles: ["ADMIN"],
   },

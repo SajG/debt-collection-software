@@ -14,6 +14,7 @@ export type Json =
 
 export type Role = "ADMIN" | "STAFF" | "FACTORY";
 export type OrderStatus =
+  | "PENDING_APPROVAL"
   | "ORDER_PLACED"
   | "IN_PRODUCTION"
   | "ON_HOLD"
@@ -22,6 +23,7 @@ export type OrderStatus =
   | "PARTIALLY_DISPATCHED"
   | "DISPATCHED"
   | "DELIVERED"
+  | "REJECTED"
   | "CANCELLED";
 export type QuantityUnit = "PCS" | "KG" | "NOS";
 export type PaymentTerm =
@@ -167,7 +169,8 @@ export interface Database {
         Row: {
           id: string;
           orderNumber: string;
-          partyId: string;
+          partyId: string | null;
+          newCustomerName: string | null;
           salespersonId: string;
           productId: string;
           brand: string | null;
@@ -185,6 +188,14 @@ export interface Database {
           notes: string | null;
           currentStatus: OrderStatus;
           linkedInvoiceId: string | null;
+          needsRateApproval: boolean;
+          creditCheckPassed: boolean;
+          approvedById: string | null;
+          approvedAt: string | null;
+          rejectedById: string | null;
+          rejectedAt: string | null;
+          rejectionReason: string | null;
+          deliveredAt: string | null;
           createdAt: string;
           updatedAt: string;
         };
@@ -290,6 +301,14 @@ export interface Database {
           p_target: OrderStatus;
           p_note?: string | null;
         };
+        Returns: { id: string; currentStatus: OrderStatus }[];
+      };
+      approve_order: {
+        Args: { p_order_id: string; p_note?: string | null };
+        Returns: { id: string; currentStatus: OrderStatus }[];
+      };
+      reject_order: {
+        Args: { p_order_id: string; p_reason: string };
         Returns: { id: string; currentStatus: OrderStatus }[];
       };
       is_notification_config_ready: {

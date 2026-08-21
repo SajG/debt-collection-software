@@ -23,7 +23,7 @@ import { useDraftPreview } from "@/lib/order-draft";
 import { t } from "@/lib/i18n";
 import { theme } from "@/theme";
 
-type Filter = "all" | "active" | "dispatched";
+type Filter = "all" | "waiting" | "active" | "dispatched";
 type Scope = "mine" | "all";
 
 type Row =
@@ -46,6 +46,7 @@ type Row =
       quantity: string;
       quantityUnit: "KG" | "PCS" | "NOS";
       status:
+        | "PENDING_APPROVAL"
         | "ORDER_PLACED"
         | "IN_PRODUCTION"
         | "ON_HOLD"
@@ -54,6 +55,7 @@ type Row =
         | "PARTIALLY_DISPATCHED"
         | "DISPATCHED"
         | "DELIVERED"
+        | "REJECTED"
         | "CANCELLED";
       orderNumber: string;
       salespersonName: string | null;
@@ -130,7 +132,9 @@ export default function HomeScreen() {
   }, [queue, data, effectiveScope, user?.id]);
 
   const emptyMessage =
-    filter === "active"
+    filter === "waiting"
+      ? t("home.empty.waiting")
+      : filter === "active"
       ? t("home.empty.active")
       : filter === "dispatched"
         ? t("home.empty.dispatched")
@@ -259,6 +263,7 @@ export default function HomeScreen() {
           onChange={setFilter}
           options={[
             { label: t("home.filter.all"), value: "all" },
+            { label: t("home.filter.waiting"), value: "waiting" },
             { label: t("home.filter.active"), value: "active" },
             { label: t("home.filter.dispatched"), value: "dispatched" },
           ]}

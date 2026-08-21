@@ -13,6 +13,7 @@ import {
 import { useLocalSearchParams } from "expo-router";
 import { Screen } from "@/components/Screen";
 import { Button } from "@/components/Button";
+import { TextField } from "@/components/TextField";
 import { PickList } from "@/components/PickList";
 import { PhotoPicker, type PickedPhoto } from "@/components/PhotoPicker";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -33,11 +34,14 @@ import { supabase } from "@/lib/supabase";
 import { formatDate } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { theme } from "@/theme";
+import { confirm } from "@/components/Confirm";
 
 export default function OrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { user } = useAuth();
+  const { user, role } = useAuth();
   const { data, loading, error, refetch } = useOrderDetail(id ?? null);
+  const [approvalBusy, setApprovalBusy] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
   // Timeline auto-updates as new events land on this or any of the
   // user's orders.
   useOrderEventStream(refetch, user?.id ?? null);
@@ -66,10 +70,102 @@ export default function OrderDetailScreen() {
         <View style={styles.headerRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>{data.orderNumber}</Text>
-            <Text style={styles.subtitle}>{data.party?.name ?? "—"}</Text>
+            <Text style={styles.subtitle}>
+              {data.party?.name ?? data.newCustomerName ?? "—"}
+            </Text>
           </View>
           <StatusBadge status={data.currentStatus} size="lg" />
         </View>
+
+        {data.currentStatus === "REJECTED" && data.rejectionReason ? (
+          <View style={styles.rejectionBanner}>
+            <Text style={styles.rejectionBannerTitle}>
+              {t("detail.rejected")}
+            </Text>
+            <Text style={styles.rejectionBannerBody}>
+              {data.rejectionReason}
+            </Text>
+          </View>
+        ) : null}
+
+        {data.currentStatus === "PENDING_APPROVAL" && role !== "ADMIN" ? (
+          <View style={styles.approvalPanel}>
+            <Text style={styles.approvalPanelTitle}>
+              {t("detail.waitingApproval")}
+            </Text>
+            <Text style={styles.approvalHint}>
+              {t("detail.waitingApprovalHint")}
+            </Text>
+          </View>
+        ) : null}
+
+        {data.currentStatus === "PENDING_APPROVAL" && role === "ADMIN" ? (
+          <View style={styles.approvalPanel}>
+            <Text style={styles.approvalPanelTitle}>
+              Awaiting your decision
+            </Text>
+            <Text style={styles.approvalHint}>
+              Approve to release the order to the factory. Reject with
+              a reason — the salesperson gets a push.
+            </Text>
+            <Button
+              label={approvalBusy ? "…" : "Approve"}
+              loading={approvalBusy}
+              disabled={approvalBusy}
+              onPress={async () => {
+                setApprovalBusy(true);
+                const { error: err } = await supabase.rpc("approve_order", {
+                  p_order_id: data.id,
+                  p_note: null,
+                });
+                setApprovalBusy(false);
+                if (err) {
+                  Alert.alert("Approve failed", err.message);
+                  return;
+                }
+                await refetch();
+              }}
+            />
+            <TextField
+              label="Rejection reason"
+              value={rejectReason}
+              onChangeText={setRejectReason}
+              placeholder="e.g. price too low / customer credit hold"
+              multiline
+              numberOfLines={2}
+            />
+            <Button
+              variant="secondary"
+              label={approvalBusy ? "…" : "Reject with reason"}
+              loading={approvalBusy}
+              disabled={approvalBusy || rejectReason.trim().length === 0}
+              onPress={() => {
+                const reason = rejectReason.trim();
+                if (!reason) return;
+                confirm({
+                  title: "Reject this order?",
+                  body: `The salesperson gets a push. Reason: "${reason}"`,
+                  confirmLabel: "Reject",
+                  destructive: true,
+                  onConfirm: async () => {
+                    setApprovalBusy(true);
+                    const { error: err } = await supabase.rpc("reject_order", {
+                      p_order_id: data.id,
+                      p_reason: reason,
+                    });
+                    setApprovalBusy(false);
+                    if (err) {
+                      Alert.alert("Reject failed", err.message);
+                      return;
+                    }
+                    setRejectReason("");
+                    await refetch();
+                  },
+                });
+              }}
+            />
+          </View>
+        ) : null}
 
         <View style={styles.cards}>
           <InfoCard label={t("detail.product")}>
@@ -300,6 +396,45 @@ function InfoCard({ label, children }: { label: string; children: React.ReactNod
 }
 
 const styles = StyleSheet.create({
+  rejectionBanner: {
+    padding: theme.spacing.md,
+    borderRadius: theme.radius,
+    borderWidth: 1,
+    borderColor: theme.colors.danger,
+    backgroundColor: theme.colors.dangerBg,
+    gap: 4,
+    marginTop: theme.spacing.sm,
+  },
+  rejectionBannerTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: theme.colors.danger,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  rejectionBannerBody: {
+    fontSize: theme.type.body,
+    color: theme.colors.text,
+    fontWeight: "600",
+  },
+  approvalPanel: {
+    padding: theme.spacing.md,
+    borderRadius: theme.radius,
+    borderWidth: 1,
+    borderColor: "#F59E0B",
+    backgroundColor: "#FFFBEB",
+    gap: theme.spacing.md,
+    marginTop: theme.spacing.sm,
+  },
+  approvalPanelTitle: {
+    fontSize: theme.type.body,
+    fontWeight: "700",
+    color: "#78350F",
+  },
+  approvalHint: {
+    fontSize: theme.type.bodySmall,
+    color: "#78350F",
+  },
   scroll: {
     padding: theme.spacing.lg,
     paddingBottom: theme.spacing.xl,

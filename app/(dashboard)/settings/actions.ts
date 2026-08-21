@@ -32,6 +32,7 @@ const settingsSchema = z
     maxMessagesPerDay: z.coerce.number().int().min(1).max(10),
     maxMessagesPerWeek: z.coerce.number().int().min(1).max(30),
     autoRemindersEnabled: z.coerce.boolean(),
+    orderApprovalMode: z.enum(["NONE", "EXCEPTIONS_ONLY", "ALL"]),
 
     whatsappPhoneNumberId: optional(64),
     whatsappBusinessAccountId: optional(64),
@@ -96,6 +97,7 @@ export type SettingsInput = {
   maxMessagesPerDay: string;
   maxMessagesPerWeek: string;
   autoRemindersEnabled: boolean;
+  orderApprovalMode: "NONE" | "EXCEPTIONS_ONLY" | "ALL";
   whatsappPhoneNumberId?: string;
   whatsappBusinessAccountId?: string;
   whatsappTemplateName?: string;

@@ -323,12 +323,14 @@ export function statusTone(status: string): BadgeTone {
     case "READY_TO_DISPATCH":
     case "LR_GENERATED":
     case "PARTIALLY_DISPATCHED":
+    case "PENDING_APPROVAL":
       return "amber";
     case "UNPAID":
     case "LOW":
     case "ORDER_PLACED":
       return "info";
     case "ON_HOLD":
+    case "REJECTED":
       return "danger";
     default:
       return "neutral";

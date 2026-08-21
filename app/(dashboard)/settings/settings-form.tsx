@@ -17,6 +17,7 @@ export type SettingsFormValues = {
   maxMessagesPerDay: string;
   maxMessagesPerWeek: string;
   autoRemindersEnabled: boolean;
+  orderApprovalMode: "NONE" | "EXCEPTIONS_ONLY" | "ALL";
   whatsappPhoneNumberId: string;
   whatsappBusinessAccountId: string;
   whatsappTemplateName: string;
@@ -343,6 +344,33 @@ export function SettingsForm({
           />
           Enable automated daily reminders for overdue, opted-in parties
         </label>
+      </Section>
+
+      <Section
+        title="Order approval"
+        hint="Controls whether a director must approve an order before the factory sees it. Default is exceptions only so routine orders are not held."
+      >
+        <Field label="When to hold an order">
+          <select
+            className={inputCls}
+            value={values.orderApprovalMode}
+            onChange={(e) =>
+              set(
+                "orderApprovalMode",
+                e.target.value as SettingsFormValues["orderApprovalMode"],
+              )
+            }
+          >
+            <option value="NONE">
+              None — factory can start as soon as the order is placed
+            </option>
+            <option value="EXCEPTIONS_ONLY">
+              Exceptions only — below floor rate, over credit limit, or new
+              customer
+            </option>
+            <option value="ALL">All orders — every staff order waits</option>
+          </select>
+        </Field>
       </Section>
 
       <Section

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
-import { requireFactoryOrAdmin } from "@/lib/authz";
+import { requireFactoryOrAdmin, canAccessOrder } from "@/lib/authz";
 import { formatDate, formatDateTime, toNumber } from "@/lib/format";
 import { getOrderDocumentSignedUrl } from "@/lib/storage";
 import {
@@ -30,7 +30,7 @@ export default async function ProductionOrderPage({
 }: {
   params: { id: string };
 }) {
-  await requireFactoryOrAdmin();
+  const profile = await requireFactoryOrAdmin();
 
   const order = await db.salesOrder.findUnique({
     where: { id: params.id },
@@ -49,6 +49,7 @@ export default async function ProductionOrderPage({
     },
   });
   if (!order) notFound();
+  if (!canAccessOrder(profile, order)) notFound();
 
   const next = nextOrderStatus(order.currentStatus);
   const urgency = deliveryUrgency(order.expectedDeliveryDate);

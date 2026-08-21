@@ -23,6 +23,7 @@ type StatusFilter = "open" | "all" | OrderStatus;
 
 const STATUS_TABS: { key: StatusFilter; label: string }[] = [
   { key: "open", label: "Open" },
+  { key: "PENDING_APPROVAL", label: "Awaiting approval" },
   { key: "ORDER_PLACED", label: "Placed" },
   { key: "IN_PRODUCTION", label: "In production" },
   { key: "READY_TO_DISPATCH", label: "Ready" },
@@ -47,7 +48,7 @@ export default async function OrdersPage({
     where.salespersonId = profile.id;
   }
   if (active === "open") {
-    where.currentStatus = { notIn: ["DISPATCHED", "CANCELLED"] };
+    where.currentStatus = { notIn: ["DISPATCHED", "CANCELLED", "REJECTED"] };
   } else if (active !== "all") {
     where.currentStatus = active as OrderStatus;
   }
@@ -66,7 +67,7 @@ export default async function OrdersPage({
     db.salesOrder.aggregate({
       where: {
         ...(profile.role === "STAFF" ? { salespersonId: profile.id } : {}),
-        currentStatus: { notIn: ["DISPATCHED", "CANCELLED"] },
+        currentStatus: { notIn: ["DISPATCHED", "CANCELLED", "REJECTED"] },
       },
       _sum: { orderValue: true },
       _count: true,

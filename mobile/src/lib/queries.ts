@@ -65,7 +65,7 @@ export type OrderListRow = Pick<
 };
 
 export function useOwnOrders(
-  filter: "all" | "active" | "dispatched",
+  filter: "all" | "waiting" | "active" | "dispatched",
   scope: "mine" | "all",
   userId: string | null,
 ) {
@@ -92,7 +92,9 @@ export function useOwnOrders(
       q = q.eq("salespersonId", userId);
     }
 
-    if (filter === "active") {
+    if (filter === "waiting") {
+      q = q.eq("currentStatus", "PENDING_APPROVAL" satisfies OrderStatus);
+    } else if (filter === "active") {
       q = q.in("currentStatus", [
         "ORDER_PLACED",
         "IN_PRODUCTION",

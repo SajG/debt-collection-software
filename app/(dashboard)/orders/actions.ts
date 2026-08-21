@@ -192,7 +192,12 @@ export async function cancelSalesOrderAction(
   if (profile.role !== "ADMIN" && !isOwner) {
     return { error: "You cannot cancel this order." };
   }
-  if (order.currentStatus === "DISPATCHED" || order.currentStatus === "CANCELLED") {
+  if (
+    order.currentStatus === "DISPATCHED" ||
+    order.currentStatus === "DELIVERED" ||
+    order.currentStatus === "CANCELLED" ||
+    order.currentStatus === "REJECTED"
+  ) {
     return { error: "This order can no longer be cancelled." };
   }
   const note = reason.trim().slice(0, 500) || "Cancelled";

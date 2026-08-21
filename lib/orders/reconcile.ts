@@ -22,7 +22,7 @@ export async function findPendingCustomerMatches(): Promise<PendingOrderMatch[]>
     where: {
       partyId: null,
       newCustomerName: { not: null },
-      currentStatus: { notIn: ["CANCELLED"] },
+      currentStatus: { notIn: ["CANCELLED", "REJECTED"] },
     },
     select: {
       id: true,
@@ -136,7 +136,7 @@ export async function reconcileNewCustomerOrders(): Promise<ReconcileResult> {
     where: {
       partyId: null,
       newCustomerName: { not: null },
-      currentStatus: { notIn: ["CANCELLED"] },
+      currentStatus: { notIn: ["CANCELLED", "REJECTED"] },
     },
     select: {
       id: true,

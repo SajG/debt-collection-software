@@ -1,4 +1,5 @@
-import type { Prisma, Profile } from "@prisma/client";
+import type { OrderStatus, Prisma, Profile } from "@prisma/client";
+import { isFactoryHiddenOrder } from "./orders/status";
 
 // Pure predicates split out of lib/authz.ts so tests can import them
 // without pulling in next/headers via the Supabase server client.
@@ -37,11 +38,23 @@ export function canAccessParty(
 }
 
 /** True when this profile may view a sales order. Matches the RLS
- *  SELECT predicates on public."SalesOrder". */
+ *  SELECT predicates on public."SalesOrder" (staff isolation + the
+ *  P0-C / P1 FACTORY hide for pending / rejected / below-floor). */
 export function canAccessOrder(
   profile: Profile,
-  order: { salespersonId: string },
+  order: {
+    salespersonId: string;
+    currentStatus?: OrderStatus;
+    needsRateApproval?: boolean | null;
+  },
 ): boolean {
-  if (profile.role === "ADMIN" || profile.role === "FACTORY") return true;
+  if (profile.role === "ADMIN") return true;
+  if (profile.role === "FACTORY") {
+    if (order.currentStatus == null) return true;
+    return !isFactoryHiddenOrder({
+      currentStatus: order.currentStatus,
+      needsRateApproval: order.needsRateApproval,
+    });
+  }
   return order.salespersonId === profile.id;
 }

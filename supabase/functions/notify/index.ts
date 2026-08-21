@@ -25,6 +25,7 @@ type EventPayload =
       orderNumber: string;
       status: OrderStatus;
       salespersonId: string;
+      rejectionReason?: string | null;
     }
   | {
       event: "document_upload";
@@ -54,6 +55,7 @@ type EventPayload =
     };
 
 type OrderStatus =
+  | "PENDING_APPROVAL"
   | "ORDER_PLACED"
   | "IN_PRODUCTION"
   | "ON_HOLD"
@@ -62,9 +64,11 @@ type OrderStatus =
   | "PARTIALLY_DISPATCHED"
   | "DISPATCHED"
   | "DELIVERED"
+  | "REJECTED"
   | "CANCELLED";
 
 const STATUS_LABEL: Record<OrderStatus, string> = {
+  PENDING_APPROVAL: "Awaiting approval",
   ORDER_PLACED: "Order placed",
   IN_PRODUCTION: "In production",
   ON_HOLD: "On hold",
@@ -73,6 +77,7 @@ const STATUS_LABEL: Record<OrderStatus, string> = {
   PARTIALLY_DISPATCHED: "Partially dispatched",
   DISPATCHED: "Dispatched",
   DELIVERED: "Delivered",
+  REJECTED: "Rejected",
   CANCELLED: "Cancelled",
 };
 
@@ -237,6 +242,12 @@ function titleFor(p: EventPayload): string {
 function bodyFor(p: EventPayload): string {
   switch (p.event) {
     case "status_change":
+      if (p.status === "REJECTED") {
+        const reason = p.rejectionReason?.trim();
+        return reason
+          ? `Your order ${p.orderNumber} was rejected: ${reason}`
+          : `Your order ${p.orderNumber} was rejected.`;
+      }
       return `Your order ${p.orderNumber} is now ${STATUS_LABEL[p.status] ?? p.status}.`;
     case "document_upload":
       return `${DOC_LABEL[p.documentType]} uploaded for ${p.orderNumber}.`;

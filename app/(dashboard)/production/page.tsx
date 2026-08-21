@@ -14,7 +14,18 @@ export default async function ProductionQueuePage() {
 
   const orders = await db.salesOrder.findMany({
     where: {
-      currentStatus: { notIn: ["DISPATCHED", "DELIVERED", "CANCELLED"] },
+      currentStatus: {
+        notIn: [
+          "DISPATCHED",
+          "DELIVERED",
+          "CANCELLED",
+          // P1 — approval queue is a separate screen; rejected is
+          // terminal. Neither belongs on the production queue for
+          // any role.
+          "PENDING_APPROVAL",
+          "REJECTED",
+        ],
+      },
       // F6 — needsRateApproval=true orders are hidden from FACTORY,
       // shown to ADMIN so they can approve or cancel. The DB-layer
       // gate (RLS sales_order_select_factory in migration

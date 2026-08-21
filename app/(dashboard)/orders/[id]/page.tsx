@@ -22,6 +22,7 @@ import { DocumentUploadForm } from "../../production/order-actions";
 import { AddCommentForm } from "./add-comment-form";
 import { RecordInvoiceForm } from "./record-invoice-form";
 import { EditOrderForm, ConfirmDeliveryButton } from "./edit-order-form";
+import { ApprovalActions } from "../../admin/approvals/approval-actions";
 import { statusLinkUrl } from "@/lib/status-link";
 
 type StatusEvent = {
@@ -97,7 +98,9 @@ export default async function SalesOrderDetailPage({
 
   const canCancel =
     order.currentStatus !== "DISPATCHED" &&
+    order.currentStatus !== "DELIVERED" &&
     order.currentStatus !== "CANCELLED" &&
+    order.currentStatus !== "REJECTED" &&
     (profile.role === "ADMIN" || order.salespersonId === profile.id);
 
   return (
@@ -120,6 +123,29 @@ export default async function SalesOrderDetailPage({
           </Badge>
         }
       />
+
+      {order.currentStatus === "REJECTED" && order.rejectionReason ? (
+        <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-red-800">
+            Order rejected
+          </p>
+          <p className="mt-1 text-sm font-medium text-foreground">
+            {order.rejectionReason}
+          </p>
+        </div>
+      ) : null}
+
+      {profile.role === "ADMIN" &&
+        (order.currentStatus === "PENDING_APPROVAL" ||
+          order.needsRateApproval) && (
+          <Card title="Approval" className="mb-6">
+            <p className="mb-3 text-sm text-muted-foreground">
+              Approve to release this order to the factory. Reject with a
+              reason — the salesperson gets a push.
+            </p>
+            <ApprovalActions orderId={order.id} />
+          </Card>
+        )}
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
@@ -257,7 +283,8 @@ export default async function SalesOrderDetailPage({
         </Card>
 
         {profile.role !== "FACTORY" &&
-          order.currentStatus !== "CANCELLED" && (
+          order.currentStatus !== "CANCELLED" &&
+          order.currentStatus !== "REJECTED" && (
             (profile.role === "ADMIN" ||
               order.currentStatus === "ORDER_PLACED") && (
               <Card title="Edit order" className="mb-6">
@@ -323,7 +350,9 @@ export default async function SalesOrderDetailPage({
         {(profile.role === "ADMIN" || profile.role === "FACTORY") &&
           order.partyId &&
           !order.linkedInvoiceId &&
-          order.currentStatus !== "CANCELLED" && (
+          order.currentStatus !== "CANCELLED" &&
+          order.currentStatus !== "REJECTED" &&
+          order.currentStatus !== "PENDING_APPROVAL" && (
             <Card title="Record invoice" className="mb-6">
               <RecordInvoiceForm orderId={order.id} />
             </Card>

@@ -152,6 +152,7 @@ enum MessageStatus {
 }
 
 enum OrderStatus {
+  PENDING_APPROVAL
   ORDER_PLACED
   IN_PRODUCTION
   ON_HOLD
@@ -160,7 +161,14 @@ enum OrderStatus {
   PARTIALLY_DISPATCHED
   DISPATCHED
   DELIVERED
+  REJECTED
   CANCELLED
+}
+
+enum OrderApprovalMode {
+  NONE
+  EXCEPTIONS_ONLY
+  ALL
 }
 
 enum HoldReasonCategory {
@@ -291,6 +299,10 @@ model BusinessSettings {
   // When false: hide every Tally UI surface, skip Tally-only cron
   // passes, and switch honest empty states in for "Last synced" banners.
   tallyEnabled Boolean @default(false)
+
+  // P1 — order approval workflow. See migration
+  // 20260821200000_order_approval_workflow for the mode semantics.
+  orderApprovalMode OrderApprovalMode @default(EXCEPTIONS_ONLY)
 
   // Proforma number sequence
   // Incremented atomically on each proforma creation.
@@ -809,6 +821,15 @@ model SalesOrder {
   rateApprovedById   String?   @db.Uuid
   rateApprovedAt     DateTime? @db.Timestamptz
   rateApprovalNote   String?
+
+  // P1 — general order-approval workflow. Filled by
+  // approveOrderAction / rejectOrderAction; rejectionReason is
+  // required by the action, so REJECTED rows always have context.
+  approvedById       String?   @db.Uuid
+  approvedAt         DateTime? @db.Timestamptz
+  rejectedById       String?   @db.Uuid
+  rejectedAt         DateTime? @db.Timestamptz
+  rejectionReason    String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

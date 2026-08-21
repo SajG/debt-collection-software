@@ -32,6 +32,7 @@ export default async function SettingsPage() {
     maxMessagesPerDay: (settings?.maxMessagesPerDay ?? 1).toString(),
     maxMessagesPerWeek: (settings?.maxMessagesPerWeek ?? 3).toString(),
     autoRemindersEnabled: settings?.autoRemindersEnabled ?? false,
+    orderApprovalMode: settings?.orderApprovalMode ?? "EXCEPTIONS_ONLY",
     whatsappPhoneNumberId: settings?.whatsappPhoneNumberId ?? "",
     whatsappBusinessAccountId: settings?.whatsappBusinessAccountId ?? "",
     whatsappTemplateName: settings?.whatsappTemplateName ?? "",

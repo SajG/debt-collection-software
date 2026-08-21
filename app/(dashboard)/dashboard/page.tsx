@@ -92,7 +92,7 @@ export default async function DashboardPage() {
     db.salesOrder.aggregate({
       where: {
         ...orderScope,
-        currentStatus: { notIn: ["DISPATCHED", "CANCELLED"] },
+        currentStatus: { notIn: ["DISPATCHED", "CANCELLED", "REJECTED"] },
       },
       _count: true,
       _sum: { orderValue: true },
@@ -100,7 +100,7 @@ export default async function DashboardPage() {
     db.salesOrder.findMany({
       where: {
         ...orderScope,
-        currentStatus: { notIn: ["DISPATCHED", "CANCELLED"] },
+        currentStatus: { notIn: ["DISPATCHED", "CANCELLED", "REJECTED"] },
       },
       include: {
         party: { select: { name: true } },

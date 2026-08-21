@@ -6,15 +6,17 @@
  *   - ADMIN
  *
  * Verifies:
- *   - below-floor + STAFF          → order created, needsRateApproval=true
- *   - below-floor + ADMIN          → order created, needsRateApproval=true
- *   - over-limit + STAFF           → RPC raises credit-limit error
+ *   - below-floor + STAFF          → PENDING_APPROVAL, needsRateApproval=true
+ *   - below-floor + ADMIN          → ORDER_PLACED, rate self-approved
+ *   - over-limit + STAFF + NONE    → RPC raises credit-limit error
+ *   - over-limit + STAFF + EXCEPTIONS_ONLY → PENDING_APPROVAL
  *   - over-limit + ADMIN, no note  → RPC raises override-note error
  *   - over-limit + ADMIN, w/ note  → order created,
  *                                    creditCheckPassed=false,
  *                                    creditOverrideById=admin,
  *                                    creditOverrideNote set
- *   - new-customer (no party)      → no credit check runs
+ *   - new-customer (no party)      → PENDING_APPROVAL, no credit check
+ *   - mode ALL                     → even a routine order is PENDING_APPROVAL
  *   - STAFF touching not-their-party → assignment error
  *
  * Skips cleanly when service-role creds aren't in .env (same
@@ -197,6 +199,8 @@ describe.runIf(required)("create_sales_order — rule matrix (P0-A)", () => {
         },
       },
     });
+
+    await setApprovalMode("EXCEPTIONS_ONLY");
   }, 60_000);
 
   afterAll(async () => {
@@ -237,10 +241,11 @@ describe.runIf(required)("create_sales_order — rule matrix (P0-A)", () => {
     expect(orderId).toBeTruthy();
     const order = await db.salesOrder.findUnique({ where: { id: orderId } });
     expect(order?.needsRateApproval).toBe(true);
+    expect(order?.currentStatus).toBe("PENDING_APPROVAL");
     expect(order?.creditCheckPassed).toBe(true); // ₹100 < ₹200 headroom
   });
 
-  it("below-floor + ADMIN → order created with needsRateApproval=true (admin can't self-approve at placement)", async () => {
+  it("below-floor + ADMIN → ORDER_PLACED, rate self-approved at placement", async () => {
     // Admin placing on an admin-owned or unassigned party. Move the
     // party's assignee to the admin to avoid the assignment gate.
     await db.party.update({
@@ -256,7 +261,9 @@ describe.runIf(required)("create_sales_order — rule matrix (P0-A)", () => {
     expect(error, JSON.stringify(error)).toBeNull();
     const orderId = (Array.isArray(data) ? data[0] : data)?.id as string;
     const order = await db.salesOrder.findUnique({ where: { id: orderId } });
-    expect(order?.needsRateApproval).toBe(true);
+    expect(order?.currentStatus).toBe("ORDER_PLACED");
+    expect(order?.needsRateApproval).toBe(false);
+    expect(order?.rateApprovedById).toBe(adminSession.userId);
     // Restore for later cases
     await db.party.update({
       where: { id: partyId },
@@ -264,14 +271,56 @@ describe.runIf(required)("create_sales_order — rule matrix (P0-A)", () => {
     });
   });
 
-  it("over-limit + STAFF → RPC raises credit-limit error", async () => {
-    const { error } = await rpcCreate(owner.client, {
+  async function setApprovalMode(mode: "NONE" | "EXCEPTIONS_ONLY" | "ALL") {
+    const rows = await db.$queryRawUnsafe<{ id: string }[]>(
+      `SELECT id FROM "BusinessSettings"`,
+    );
+    if (rows.length === 0) {
+      await db.businessSettings.create({
+        data: {
+          profileId: adminSession.userId,
+          orderApprovalMode: mode,
+        },
+      });
+    } else {
+      await db.$executeRawUnsafe(
+        `UPDATE "BusinessSettings" SET "orderApprovalMode" = $1::"OrderApprovalMode"`,
+        mode,
+      );
+    }
+  }
+
+  it("over-limit + STAFF under mode NONE → RPC raises credit-limit error", async () => {
+    await setApprovalMode("NONE");
+    try {
+      const { error } = await rpcCreate(owner.client, {
+        p_party_id: partyId,
+        p_product_id: productWithinFloorId,
+        p_quantity: 10, // 10 * ₹100 = 1000; outstanding 800 → projected 1800 > 1000
+        p_product_rate: "100",
+      });
+      expect(error?.message ?? "").toMatch(/credit limit would be exceeded/i);
+    } finally {
+      await setApprovalMode("EXCEPTIONS_ONLY");
+    }
+  });
+
+  it("over-limit + STAFF under mode EXCEPTIONS_ONLY → order lands in PENDING_APPROVAL", async () => {
+    // Default mode. STAFF over-limit no longer raises; the order is
+    // written with creditCheckPassed=false and routed to the admin
+    // approval queue.
+    await setApprovalMode("EXCEPTIONS_ONLY");
+    const { data, error } = await rpcCreate(owner.client, {
       p_party_id: partyId,
       p_product_id: productWithinFloorId,
-      p_quantity: 10, // 10 * ₹100 = 1000; outstanding 800 → projected 1800 > 1000
+      p_quantity: 10,
       p_product_rate: "100",
     });
-    expect(error?.message ?? "").toMatch(/credit limit would be exceeded/i);
+    expect(error, JSON.stringify(error)).toBeNull();
+    const orderId = (Array.isArray(data) ? data[0] : data)?.id as string;
+    const order = await db.salesOrder.findUnique({ where: { id: orderId } });
+    expect(order?.currentStatus).toBe("PENDING_APPROVAL");
+    expect(order?.creditCheckPassed).toBe(false);
   });
 
   it("over-limit + ADMIN, no override note → RPC raises note-required error", async () => {
@@ -332,6 +381,27 @@ describe.runIf(required)("create_sales_order — rule matrix (P0-A)", () => {
     expect(order?.creditOverrideById).toBeNull();
     expect(order?.newCustomerName).toBe(`RuleNewCust ${stamp}`);
     expect(order?.partyId).toBeNull();
+    expect(order?.currentStatus).toBe("PENDING_APPROVAL");
+  });
+
+  it("mode ALL → even a routine in-limit order lands in PENDING_APPROVAL", async () => {
+    await setApprovalMode("ALL");
+    try {
+      const { data, error } = await rpcCreate(owner.client, {
+        p_party_id: partyId,
+        p_product_id: productWithinFloorId,
+        p_quantity: 1,
+        p_product_rate: "100",
+      });
+      expect(error, JSON.stringify(error)).toBeNull();
+      const orderId = (Array.isArray(data) ? data[0] : data)?.id as string;
+      const order = await db.salesOrder.findUnique({ where: { id: orderId } });
+      expect(order?.currentStatus).toBe("PENDING_APPROVAL");
+      expect(order?.needsRateApproval).toBe(false);
+      expect(order?.creditCheckPassed).toBe(true);
+    } finally {
+      await setApprovalMode("EXCEPTIONS_ONLY");
+    }
   });
 
   it("P0-B regression — dispatchLocation, tokenType, and seed event notes are all preserved", async () => {

@@ -66,6 +66,7 @@ describe.runIf(required)(
     let productId!: string;
     let pendingOrderId!: string;
     let clearedOrderId!: string;
+    let pendingApprovalOrderId!: string;
 
     beforeAll(async () => {
       admin = createClient(SUPABASE_URL!, SERVICE_KEY!, {
@@ -152,6 +153,27 @@ describe.runIf(required)(
       });
       pendingOrderId = pending.id;
 
+      const pendingApproval = await db.salesOrder.create({
+        data: {
+          orderNumber: `RATETEST/${stamp}/3`,
+          partyId,
+          salespersonId: ownerUserId,
+          productId,
+          brand: "TestBrand",
+          quantity: 1,
+          quantityUnit: "KG",
+          packingType: "Bag",
+          sizeKg: "25",
+          productRate: "300",
+          orderValue: 300,
+          paymentTerm: "NET_30",
+          transportType: "SELF_PICKUP",
+          needsRateApproval: false,
+          currentStatus: "PENDING_APPROVAL",
+        },
+      });
+      pendingApprovalOrderId = pendingApproval.id;
+
       const cleared = await db.salesOrder.create({
         data: {
           orderNumber: `RATETEST/${stamp}/2`,
@@ -187,7 +209,9 @@ describe.runIf(required)(
     afterAll(async () => {
       try {
         await db.salesOrder.deleteMany({
-          where: { id: { in: [pendingOrderId, clearedOrderId] } },
+          where: {
+            id: { in: [pendingOrderId, clearedOrderId, pendingApprovalOrderId] },
+          },
         });
         await db.party.deleteMany({ where: { id: partyId } });
         await db.product.deleteMany({ where: { id: productId } });
@@ -199,6 +223,15 @@ describe.runIf(required)(
         await db.$disconnect();
       }
     }, 60_000);
+
+    it("FACTORY .select cannot see a PENDING_APPROVAL order even when needsRateApproval is false", async () => {
+      const { data, error } = await factory
+        .from("SalesOrder")
+        .select("id, orderNumber, currentStatus")
+        .eq("id", pendingApprovalOrderId);
+      expect(error, JSON.stringify(error)).toBeNull();
+      expect(data ?? []).toHaveLength(0);
+    });
 
     it("FACTORY .select cannot see a needsRateApproval=true order", async () => {
       const { data, error } = await factory
