@@ -14,6 +14,7 @@ import { OrderCard } from "@/components/OrderCard";
 import { confirm } from "@/components/Confirm";
 import { useAuth } from "@/auth/AuthContext";
 import { useOrderEventStream, useOwnOrders } from "@/lib/queries";
+import type { QuantityUnit } from "@/lib/database.types";
 import { t } from "@/lib/i18n";
 import { theme } from "@/theme";
 
@@ -126,7 +127,7 @@ export default function FactoryHome() {
             productName={item.product?.name ?? "—"}
             brand={item.brand ?? item.product?.brand ?? null}
             quantity={String(item.quantity)}
-            quantityUnit={item.quantityUnit}
+            quantityUnit={item.quantityUnit as QuantityUnit}
             status={item.currentStatus}
             orderNumber={item.orderNumber}
             salespersonName={item.salesperson?.ownerName ?? null}

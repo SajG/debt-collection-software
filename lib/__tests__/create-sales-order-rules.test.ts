@@ -104,9 +104,9 @@ async function rpcCreate(
 describe.runIf(required)("create_sales_order — rule matrix (P0-A)", () => {
   const stamp = Date.now();
   const password = `Rule_${stamp}!Aa1`;
-  const emailOwner = `create-rules-owner-${stamp}@paytrack.test`;
-  const emailOther = `create-rules-other-${stamp}@paytrack.test`;
-  const emailAdmin = `create-rules-admin-${stamp}@paytrack.test`;
+  const emailOwner = `create-rules-owner-${stamp}@synworks.test`;
+  const emailOther = `create-rules-other-${stamp}@synworks.test`;
+  const emailAdmin = `create-rules-admin-${stamp}@synworks.test`;
 
   let admin!: SupabaseClient;
   let db!: PrismaClient;

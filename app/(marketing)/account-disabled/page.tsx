@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Account disabled — PayTrack" };
+export const metadata = { title: "Account disabled — SynWorks" };
 
 // Anyone who lands here still has an active Supabase session (we
 // deliberately do NOT force sign-out at the middleware layer — the
@@ -35,7 +35,7 @@ export default async function AccountDisabledPage() {
         Your account is disabled
       </h1>
       <p className="mt-3 text-sm text-muted-foreground">
-        An administrator has removed your access to PayTrack. Contact
+        An administrator has removed your access to SynWorks. Contact
         your admin to be reactivated — your data has not been deleted.
       </p>
       <Link

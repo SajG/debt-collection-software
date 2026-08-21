@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { OnboardingForm } from "./onboarding-form";
 
 export const metadata: Metadata = {
-  title: "Get started — PayTrack",
+  title: "Get started — SynWorks",
 };
 
 export default async function OnboardingPage() {

@@ -116,7 +116,7 @@ export default function OrderDetailScreen() {
                 setApprovalBusy(true);
                 const { error: err } = await supabase.rpc("approve_order", {
                   p_order_id: data.id,
-                  p_note: null,
+                  p_note: undefined,
                 });
                 setApprovalBusy(false);
                 if (err) {
@@ -194,11 +194,11 @@ export default function OrderDetailScreen() {
           </InfoCard>
 
           <InfoCard label={t("detail.payment")}>
-            <Text style={styles.value}>{data.paymentTerm.replace(/_/g, " ")}</Text>
+            <Text style={styles.value}>{(data.paymentTerm ?? "—").replace(/_/g, " ")}</Text>
           </InfoCard>
 
           <InfoCard label={t("detail.transport")}>
-            <Text style={styles.value}>{data.transportType.replace(/_/g, " ")}</Text>
+            <Text style={styles.value}>{(data.transportType ?? "—").replace(/_/g, " ")}</Text>
           </InfoCard>
         </View>
 

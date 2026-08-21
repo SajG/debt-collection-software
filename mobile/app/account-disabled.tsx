@@ -14,7 +14,7 @@ export default function AccountDisabled() {
       <View style={styles.wrap}>
         <Text style={styles.title}>Your access has been removed</Text>
         <Text style={styles.body}>
-          An administrator has disabled your PayTrack account. Your
+          An administrator has disabled your SynWorks account. Your
           data is safe — nothing has been deleted. Contact your admin
           to be reactivated.
         </Text>

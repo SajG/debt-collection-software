@@ -1,4 +1,4 @@
-# PayTrack — Phase 1 hardening & build-out plan
+# SynWorks — Phase 1 hardening & build-out plan
 
 Working plan for this session. Delete when merged.
 
@@ -59,7 +59,7 @@ Working plan for this session. Delete when merged.
    `partyId+invoiceNumber`. Live sync stays future work.
 9. **Tests**: `vitest` (dev-only) for the pure logic the brief requires to be
    testable: risk score, aging buckets, sending gate.
-10. **Rename**: `package.json` name → `paytrack`; no "debt collection"
+10. **Rename**: `package.json` name → `synworks`; no "debt collection"
     wording anywhere in code/docs/UI. The repo *directory* on disk is still
     `debt-collection-software` — renaming the working directory mid-session
     breaks tooling; rename the folder + any git remote yourself after this

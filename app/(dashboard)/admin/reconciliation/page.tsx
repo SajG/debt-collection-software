@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 // The two fields on Party are populated by the Tally sync agent:
 //   tallyOutstanding — CLOSINGBALANCE from the Sundry Debtors ledger
 //   tallyBalanceAsOf — server-side timestamp on that sync run
-// The trigger paytrack_recompute_party_outstanding keeps
+// The trigger synworks_recompute_party_outstanding keeps
 // totalOutstanding in sync with app-side invoices + payments.
 
 const TOLERANCE = new Prisma.Decimal(1); // ₹1 tolerance for rounding drift
@@ -68,7 +68,7 @@ export default async function ReconciliationPage() {
         <Card title="Nothing to reconcile">
           <p className="text-sm text-muted-foreground">
             Reconciliation compares Tally&apos;s ledger closing balance
-            against PayTrack&apos;s computed outstanding. Without a live
+            against SynWorks&apos;s computed outstanding. Without a live
             Tally feed there is no source-of-truth to compare against.
           </p>
         </Card>
@@ -133,7 +133,7 @@ export default async function ReconciliationPage() {
     <div className="p-4 sm:p-8">
       <PageHeader
         title="Tally reconciliation"
-        subtitle="Ledger closing balance from Tally vs the balance PayTrack computes from invoices + payments. Mismatches above ₹1 usually point at a sync bug."
+        subtitle="Ledger closing balance from Tally vs the balance SynWorks computes from invoices + payments. Mismatches above ₹1 usually point at a sync bug."
       />
 
       <div className="mb-6 grid gap-3 sm:grid-cols-3">
@@ -157,7 +157,7 @@ export default async function ReconciliationPage() {
               <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="py-2 pr-3">Customer</th>
                 <th className="py-2 pr-3 text-right">Tally</th>
-                <th className="py-2 pr-3 text-right">PayTrack</th>
+                <th className="py-2 pr-3 text-right">SynWorks</th>
                 <th className="py-2 pr-3 text-right">Diff</th>
                 <th className="py-2 pr-3">Last Tally sync</th>
                 <th className="py-2 pr-3">Status</th>
@@ -220,7 +220,7 @@ export default async function ReconciliationPage() {
       </Card>
 
       <p className="text-xs text-muted-foreground">
-        Diff = PayTrack − Tally. Positive: we think the customer owes
+        Diff = SynWorks − Tally. Positive: we think the customer owes
         more than Tally does (usually a missing receipt on our side).
         Negative: we think they owe less (usually a missing invoice or
         a duplicated payment). &quot;No Tally snapshot&quot; means the

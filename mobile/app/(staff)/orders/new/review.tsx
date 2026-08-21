@@ -145,7 +145,7 @@ export default function StepReview() {
             <Text style={styles.creditHint}>
               No invoices are on record for this customer yet. Until
               Tally is enabled (or an admin records invoices manually),
-              PayTrack cannot compute a real credit position.
+              SynWorks cannot compute a real credit position.
             </Text>
           </View>
         ) : credit && (

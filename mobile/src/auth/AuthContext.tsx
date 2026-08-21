@@ -18,7 +18,7 @@ import type { Database, Role } from "@/lib/database.types";
 // more than IDLE_TIMEOUT_MS wakes up signed out and has to re-auth.
 // Independent of Supabase's own refresh-token TTL — this is the
 // physical-device layer.
-const IDLE_STORAGE_KEY = "paytrack:lastActiveAt";
+const IDLE_STORAGE_KEY = "synworks:lastActiveAt";
 const IDLE_TIMEOUT_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 type Profile = Database["public"]["Tables"]["Profile"]["Row"];

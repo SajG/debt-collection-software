@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "PayTrack — Accounts Receivable for MSME Distributors",
+  title: "SynWorks — Accounts Receivable for MSME Distributors",
   description:
     "Track outstanding invoices, manage overdue customers, and send follow-ups — without the chaos of WhatsApp threads and phone calls. Built for Indian MSME distributors.",
 };
@@ -82,7 +82,7 @@ function SiteNav() {
             className="font-display font-semibold text-lg tracking-tight"
             style={{ color: C.ink }}
           >
-            PayTrack
+            SynWorks
           </span>
         </Link>
 
@@ -186,7 +186,7 @@ function HeroSection() {
               style={{ color: C.ink2, animationDelay: "0.18s" }}
             >
               Stop managing credit sales in Excel and chasing thirty customers
-              one WhatsApp at a time. PayTrack shows you exactly who&apos;s
+              one WhatsApp at a time. SynWorks shows you exactly who&apos;s
               overdue, drafts your follow-up message, and logs every
               promise — so nothing falls through the cracks.
             </p>
@@ -283,7 +283,7 @@ function DashboardMockup() {
           />
         ))}
         <span className="ml-auto text-xs" style={{ color: "rgba(255,255,255,0.65)" }}>
-          PayTrack Dashboard
+          SynWorks Dashboard
         </span>
       </div>
 
@@ -473,7 +473,7 @@ function HowItWorksSection() {
       num: "01",
       icon: Database,
       title: "Connect your accounting data",
-      body: "Import parties and invoices from Tally, Zoho Books, or upload an Excel file. PayTrack handles the mapping — no manual re-entry.",
+      body: "Import parties and invoices from Tally, Zoho Books, or upload an Excel file. SynWorks handles the mapping — no manual re-entry.",
     },
     {
       num: "02",
@@ -485,7 +485,7 @@ function HowItWorksSection() {
       num: "03",
       icon: Zap,
       title: "Send a follow-up in one click",
-      body: "PayTrack drafts a message based on the invoice and the party's history. You review it, edit if needed, and send via WhatsApp or SMS.",
+      body: "SynWorks drafts a message based on the invoice and the party's history. You review it, edit if needed, and send via WhatsApp or SMS.",
     },
     {
       num: "04",
@@ -510,7 +510,7 @@ function HowItWorksSection() {
             From chaos to clarity in four steps
           </h2>
           <p className="text-lg max-w-xl mx-auto" style={{ color: C.ink2 }}>
-            PayTrack replaces the spreadsheet + WhatsApp + phone-note combination
+            SynWorks replaces the spreadsheet + WhatsApp + phone-note combination
             that most distributors piece together.
           </p>
         </div>
@@ -568,7 +568,7 @@ function TrustSection() {
   const points = [
     {
       title: "No shared database",
-      body: "Your customer names, invoice amounts, and payment history are stored only in a database that belongs to you — completely separate from every other business using PayTrack.",
+      body: "Your customer names, invoice amounts, and payment history are stored only in a database that belongs to you — completely separate from every other business using SynWorks.",
     },
     {
       title: "You control the data",
@@ -605,7 +605,7 @@ function TrustSection() {
           className="text-lg max-w-2xl mx-auto mb-12 leading-relaxed"
           style={{ color: "rgba(255,255,255,0.72)" }}
         >
-          PayTrack is deployed separately for each business. Nothing is shared
+          SynWorks is deployed separately for each business. Nothing is shared
           with other companies using this product. This is the core architectural
           difference from most SaaS tools — and it&apos;s not a marketing claim,
           it&apos;s how the infrastructure works.
@@ -678,22 +678,16 @@ function PricingSection() {
           className="rounded-3xl border p-10 shadow-sm text-left"
           style={{ backgroundColor: C.white, borderColor: C.border }}
         >
-          {/* TODO: replace placeholder with actual price */}
           <div className="text-center mb-8">
             <div
               className="font-display font-bold leading-none"
-              style={{ fontSize: "3.5rem", color: C.ink }}
+              style={{ fontSize: "2.25rem", color: C.ink }}
             >
-              ₹ X,XXX
-              <span
-                className="text-xl font-normal ml-1"
-                style={{ color: C.ink3 }}
-              >
-                /month
-              </span>
+              Talk to us
             </div>
-            <p className="mt-2 text-sm" style={{ color: C.ink2 }}>
-              per business · all features included
+            <p className="mt-3 text-sm" style={{ color: C.ink2 }}>
+              Pricing is scoped to your team size and volume. Book a 20-min
+              call and we&rsquo;ll quote before we onboard.
             </p>
           </div>
 
@@ -751,7 +745,7 @@ function SiteFooter() {
                 ₹
               </div>
               <span className="font-display font-semibold text-lg text-white">
-                PayTrack
+                SynWorks
               </span>
             </div>
             <p className="text-sm leading-relaxed" style={{ color: "#71717A" }}>
@@ -818,7 +812,7 @@ function SiteFooter() {
           style={{ borderColor: "#2A2A2E" }}
         >
           <p className="text-xs" style={{ color: "#52525B" }}>
-            © {year} PayTrack. All rights reserved.
+            © {year} SynWorks. All rights reserved.
           </p>
           <p className="text-xs" style={{ color: "#52525B" }}>
             Each customer deployment is fully isolated. No shared data.

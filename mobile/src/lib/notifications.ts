@@ -41,11 +41,11 @@ async function ensureAndroidChannel(): Promise<void> {
 }
 
 async function getProjectId(): Promise<string | undefined> {
-  return (
-    (Constants.expoConfig?.extra as any)?.eas?.projectId ??
-    (Constants.easConfig as any)?.projectId ??
-    undefined
-  );
+  const extra = Constants.expoConfig?.extra as
+    | { eas?: { projectId?: string } }
+    | undefined;
+  const easCfg = Constants.easConfig as { projectId?: string } | undefined;
+  return extra?.eas?.projectId ?? easCfg?.projectId ?? undefined;
 }
 
 async function requestAndRegisterToken(profileId: string): Promise<void> {
@@ -86,7 +86,7 @@ async function requestAndRegisterToken(profileId: string): Promise<void> {
   // Upsert on token so re-registrations bump lastSeenAt rather than
   // duplicating rows. Since token is UNIQUE, on-conflict picks the
   // right row even if profileId changed (rare — user re-installed).
-  const { error } = await (supabase as any)
+  const { error } = await supabase
     .from("PushToken")
     .upsert(
       {

@@ -5,7 +5,7 @@ const path = require("node:path");
 const { Service } = require("node-windows");
 
 const svc = new Service({
-  name: "PayTrack Tally Connector",
+  name: "SynWorks Tally Connector",
   script: path.join(__dirname, "service.js"),
 });
 

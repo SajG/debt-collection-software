@@ -1,7 +1,7 @@
-# PayTrack Tally Connector
+# SynWorks Tally Connector
 
 Windows Service + tray app that bridges a Tally installation (XML/HTTP on
-`localhost:9000`) to the PayTrack cloud. Same pattern as Tally's own BI
+`localhost:9000`) to the SynWorks cloud. Same pattern as Tally's own BI
 Connector: runs on the machine where Tally is open, pushes ledger +
 voucher + stock snapshots to `/api/sync/tally` on the deployment.
 
@@ -17,7 +17,7 @@ tools/tally-connector/
 │   ├── main.js              # Electron main: tray + settings window
 │   ├── preload.js
 │   ├── renderer/settings.html
-│   └── config.js            # %ProgramData%\PayTrack\config.json
+│   └── config.js            # %ProgramData%\SynWorks\config.json
 ├── assets/                  # icon.ico, iconTemplate.png (add before build)
 ├── installer.nsh            # NSIS hooks (registers service, adds Startup shortcut)
 ├── package.json
@@ -36,9 +36,9 @@ tools/tally-connector/
 cd tools/tally-connector
 npm install
 # Drop icon.ico + iconTemplate.png into assets/ first (see assets/README.txt)
-npm run dist            # → dist/PayTrack Tally Connector Setup <version>.exe (NSIS)
+npm run dist            # → dist/SynWorks Tally Connector Setup <version>.exe (NSIS)
 # or:
-npm run dist:portable   # → dist/PayTrack Tally Connector <version>.exe (portable, no install)
+npm run dist:portable   # → dist/SynWorks Tally Connector <version>.exe (portable, no install)
 ```
 
 `electron-builder` can cross-build a Windows installer from macOS.
@@ -51,11 +51,11 @@ add a code-signing cert (DigiCert / Sectigo, ~$100–300/yr) and set
 
 ## Install on a target machine
 
-1. Copy the produced `PayTrack Tally Connector Setup <version>.exe` to the machine.
+1. Copy the produced `SynWorks Tally Connector Setup <version>.exe` to the machine.
 2. Right-click → **Run as administrator** (needed to register the service).
 3. On first launch, right-click the tray icon → **Settings…**
 4. Enter:
-   - **PayTrack URL** — e.g. `https://paytrack.example.com`
+   - **SynWorks URL** — e.g. `https://synworks.example.com`
    - **Sync Secret** — must match `TALLY_SYNC_SECRET` on the deployment
    - Tally host/port (defaults are `localhost:9000`)
    - Sync interval in minutes (default 15; 0 = manual only)
@@ -63,18 +63,18 @@ add a code-signing cert (DigiCert / Sectigo, ~$100–300/yr) and set
 
 ## Uninstall
 
-Windows Settings → Apps → PayTrack Tally Connector → Uninstall.
+Windows Settings → Apps → SynWorks Tally Connector → Uninstall.
 The NSIS uninstaller removes the Windows Service and the Startup shortcut.
-`%ProgramData%\PayTrack\` is left in place (config + logs); delete
+`%ProgramData%\SynWorks\` is left in place (config + logs); delete
 manually if you want a clean removal.
 
 ## Files on disk (Windows)
 
 | Path | Purpose |
 |------|---------|
-| `%ProgramData%\PayTrack\config.json` | Editable settings |
-| `%ProgramData%\PayTrack\state.json`  | Last-sync summary |
-| `%ProgramData%\PayTrack\connector.log` | Rolling log (tray → Open Log) |
+| `%ProgramData%\SynWorks\config.json` | Editable settings |
+| `%ProgramData%\SynWorks\state.json`  | Last-sync summary |
+| `%ProgramData%\SynWorks\connector.log` | Rolling log (tray → Open Log) |
 
 ## Development
 
@@ -89,18 +89,18 @@ npm run service      # starts HTTP on 127.0.0.1:9876
 npm start            # Electron tray (works on macOS/Linux for dev too)
 ```
 
-Config file lives at `~/.paytrack-connector/config.json` on non-Windows.
+Config file lives at `~/.synworks-connector/config.json` on non-Windows.
 
 ## Architecture
 
 ```
 Tally desktop
 ├── Tally.exe (XML on localhost:9000)
-└── PayTrack Tally Connector
-    ├── PayTrackConnectorService  (Windows Service, LocalSystem)
+└── SynWorks Tally Connector
+    ├── SynWorksConnectorService  (Windows Service, LocalSystem)
     │    ├── sync loop (every intervalMinutes)
     │    └── HTTP 127.0.0.1:9876   ← tray talks to this
-    └── PayTrack Connector.exe    (Electron tray, per-user, Startup)
+    └── SynWorks Connector.exe    (Electron tray, per-user, Startup)
          └── tray menu + Settings window
 ```
 
@@ -112,6 +112,6 @@ staying signed in).
 
 ## Sanity checks after install
 
-- `sc query "PayTrack Tally Connector"` → should show `RUNNING`
+- `sc query "SynWorks Tally Connector"` → should show `RUNNING`
 - `curl http://127.0.0.1:9876/health` → `{"ok":true}`
 - Web dashboard `/import` page → last-sync timestamp updates after first successful run

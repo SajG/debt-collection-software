@@ -54,8 +54,8 @@ describe.runIf(required)(
   () => {
     const stamp = Date.now();
     const password = `Rate_${stamp}!Aa1`;
-    const emailFactory = `rate-factory-${stamp}@paytrack.test`;
-    const emailOwner = `rate-owner-${stamp}@paytrack.test`;
+    const emailFactory = `rate-factory-${stamp}@synworks.test`;
+    const emailOwner = `rate-owner-${stamp}@synworks.test`;
 
     let admin!: SupabaseClient;
     let factory!: SupabaseClient;

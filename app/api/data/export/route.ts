@@ -205,7 +205,7 @@ export async function GET(request: NextRequest) {
       { exportedAt: new Date().toISOString(), parties, invoices, payments, actions, creditNotes, proformas },
       {
         headers: {
-          "Content-Disposition": `attachment; filename="paytrack-export-${stamp}.json"`,
+          "Content-Disposition": `attachment; filename="synworks-export-${stamp}.json"`,
         },
       }
     );

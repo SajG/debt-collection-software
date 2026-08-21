@@ -62,7 +62,7 @@ function solidPng(w, h, r, g, b) {
   ]);
 }
 
-const DARK = [9, 61, 48]; // #093D30 — PayTrack brand dark green
+const DARK = [9, 61, 48]; // #093D30 — SynWorks brand dark green
 
 const here = dirname(fileURLToPath(import.meta.url));
 const assets = join(here, "..", "assets");

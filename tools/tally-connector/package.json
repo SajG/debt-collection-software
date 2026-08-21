@@ -1,8 +1,8 @@
 {
-  "name": "paytrack-tally-connector",
+  "name": "synworks-tally-connector",
   "version": "0.1.0",
   "private": true,
-  "description": "Windows Service + tray app that bridges Tally XML/HTTP (localhost:9000) to the PayTrack cloud.",
+  "description": "Windows Service + tray app that bridges Tally XML/HTTP (localhost:9000) to the SynWorks cloud.",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
@@ -20,8 +20,8 @@
     "electron-builder": "^25.1.0"
   },
   "build": {
-    "appId": "com.paytrack.connector",
-    "productName": "PayTrack Tally Connector",
+    "appId": "com.synworks.connector",
+    "productName": "SynWorks Tally Connector",
     "directories": {
       "output": "dist",
       "buildResources": "assets"
@@ -42,7 +42,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": false,
       "createStartMenuShortcut": true,
-      "shortcutName": "PayTrack Tally Connector",
+      "shortcutName": "SynWorks Tally Connector",
       "include": "installer.nsh"
     }
   }

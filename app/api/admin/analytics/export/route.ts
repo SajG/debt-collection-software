@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
 
   const lines: string[] = [];
   lines.push(
-    `# PayTrack analytics · trailing ${days} days · generated ${new Date().toISOString()}`,
+    `# SynWorks analytics · trailing ${days} days · generated ${new Date().toISOString()}`,
   );
   lines.push("");
 
@@ -114,7 +114,7 @@ export async function GET(request: NextRequest) {
     status: 200,
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="paytrack-analytics-${days}d.csv"`,
+      "Content-Disposition": `attachment; filename="synworks-analytics-${days}d.csv"`,
     },
   });
 }

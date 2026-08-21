@@ -4,10 +4,12 @@ import {
   PAYMENT_DOC_BUCKET,
   uploadLocalFileToBucket,
 } from "./uploads";
+import { newId } from "./ids";
 
-// Reuses the same tiny useQuery pattern as queries.ts. Payment CRUD isn't
-// covered by the hand-authored Database types file — we cast at the edges
-// and keep the surface narrow.
+// Reuses the same tiny useQuery pattern as queries.ts. Payment CRUD now
+// runs through the generated Database types; the local aliases below
+// exist only to narrow joined .select() shapes that supabase-js's
+// generic inference can't express cleanly.
 
 type State<T> = {
   data: T | null;
@@ -142,7 +144,33 @@ export function usePaymentDetail(id: string | null) {
       .maybeSingle();
     if (error) throw error;
     if (!data) return null;
-    const row = data as any;
+    // supabase-js infers joined selects as a discriminated union
+    // that can't be usefully narrowed here — the runtime shape is
+    // authoritative. Keep the local `unknown` cast tight rather
+    // than reaching for `any`.
+    const row = data as unknown as {
+      id: string;
+      partyId: string;
+      party?: { name: string } | null;
+      invoice?: { invoiceNumber: string } | null;
+      invoiceId: string | null;
+      amount: number | string;
+      paymentDate: string;
+      method: PaymentMethod;
+      reference: string | null;
+      notes: string | null;
+      createdAt: string;
+      recordedBy?: { ownerName: string } | null;
+      documents?: Array<{
+        id: string;
+        type: string;
+        storagePath: string;
+        fileName: string | null;
+        notes: string | null;
+        createdAt: string;
+        uploadedBy?: { ownerName: string } | null;
+      }>;
+    };
     const docs: PaymentDocumentRow[] = (row.documents ?? [])
       .map((d: any) => ({
         id: d.id,
@@ -197,9 +225,10 @@ export async function createPayment(input: {
   // and Party.totalOutstanding; that happens via a Postgres trigger. If the
   // trigger isn't installed yet, values will drift and the web action stays
   // as the safe path.
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from("Payment")
     .insert({
+      id: newId("pay"),
       partyId: input.partyId,
       invoiceId: input.invoiceId,
       amount: input.amount,
@@ -209,6 +238,7 @@ export async function createPayment(input: {
       notes: input.notes,
       recordedById: user.id,
       source: "MANUAL",
+      updatedAt: new Date().toISOString(),
     })
     .select("id")
     .single();
@@ -240,7 +270,8 @@ export async function attachPaymentProof(input: {
   });
   if ("error" in uploaded) return uploaded;
 
-  const { error } = await (supabase as any).from("PaymentDocument").insert({
+  const { error } = await supabase.from("PaymentDocument").insert({
+    id: newId("pdoc"),
     paymentId: input.paymentId,
     type: input.type,
     storagePath: uploaded.path,

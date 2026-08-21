@@ -9,7 +9,7 @@
 export type Language = "en" | "hi" | "mr";
 
 const en = {
-  "app.name": "PayTrack Sales",
+  "app.name": "SynWorks",
 
   "auth.phone.title": "Sign in",
   "auth.phone.subtitle": "We will text you a 6-digit code.",
@@ -168,7 +168,7 @@ const en = {
 
   "unsupported.title": "This app is for salespeople",
   "unsupported.body":
-    "Your account is set up as {role}. Please use the PayTrack web console on a computer.",
+    "Your account is set up as {role}. Please use the SynWorks web console on a computer.",
   "unsupported.signOut": "Sign out",
 
   "noProfile.title": "Account not ready",

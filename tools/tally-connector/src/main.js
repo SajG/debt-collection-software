@@ -56,7 +56,7 @@ async function buildMenu() {
   let cfgConfigured = false;
   try {
     const { body } = await svc("GET", "/status");
-    cfgConfigured = Boolean(body.config?.paytrackUrl && body.config?.secret);
+    cfgConfigured = Boolean(body.config?.synworksUrl && body.config?.secret);
     statusLabel = body.running
       ? "Syncing now…"
       : cfgConfigured
@@ -73,7 +73,7 @@ async function buildMenu() {
   }
 
   return Menu.buildFromTemplate([
-    { label: "PayTrack Tally Connector", enabled: false },
+    { label: "SynWorks Tally Connector", enabled: false },
     { type: "separator" },
     { label: statusLabel, enabled: false },
     { label: lastLabel, enabled: false },
@@ -117,19 +117,19 @@ async function refreshTray() {
   try {
     const { body } = await svc("GET", "/status");
     const tip = body.state?.lastError
-      ? `PayTrack — last sync failed`
+      ? `SynWorks — last sync failed`
       : body.running
-        ? `PayTrack — syncing`
-        : `PayTrack — idle`;
+        ? `SynWorks — syncing`
+        : `SynWorks — idle`;
     tray.setToolTip(tip);
   } catch {
-    tray.setToolTip("PayTrack — service unreachable");
+    tray.setToolTip("SynWorks — service unreachable");
   }
 }
 
 function notify(message) {
   if (Notification.isSupported()) {
-    new Notification({ title: "PayTrack Connector", body: message }).show();
+    new Notification({ title: "SynWorks Connector", body: message }).show();
   }
 }
 
@@ -146,7 +146,7 @@ function openSettings() {
     resizable: false,
     minimizable: false,
     maximizable: false,
-    title: "PayTrack Connector — Settings",
+    title: "SynWorks Connector — Settings",
     icon: path.join(__dirname, "..", "assets", "icon.ico"),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),

@@ -1,4 +1,4 @@
-// PayTrack Tally Connector — Windows Service daemon.
+// SynWorks Tally Connector — Windows Service daemon.
 //
 // - Runs the sync engine on a fixed interval (configurable).
 // - Exposes a tiny HTTP API on 127.0.0.1:9876 so the tray app can query
@@ -35,8 +35,8 @@ async function doSync({ full = false } = {}) {
   writeState({ ...readState(), runningSince: started });
   try {
     const cfg = readConfig();
-    if (!cfg.paytrackUrl || !cfg.secret) {
-      throw new Error("Not configured — set PayTrack URL and secret in tray Settings.");
+    if (!cfg.synworksUrl || !cfg.secret) {
+      throw new Error("Not configured — set SynWorks URL and secret in tray Settings.");
     }
     log(`Sync start (full=${full})`);
     // Dynamic import — sync-core is ESM.
@@ -45,7 +45,7 @@ async function doSync({ full = false } = {}) {
       {
         tallyHost: cfg.tallyHost,
         tallyPort: cfg.tallyPort,
-        paytrackUrl: cfg.paytrackUrl,
+        synworksUrl: cfg.synworksUrl,
         secret: cfg.secret,
         full,
         lookback: cfg.lookbackDays,

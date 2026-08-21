@@ -211,9 +211,11 @@ export type InvoiceDue = {
   id: string;
   invoiceNumber: string;
   dueDate: string;
-  totalAmount: string;
-  paidAmount: string;
-  creditedAmount: string;
+  // Decimal columns come back as `number` from supabase-js; consumers
+  // already wrap with Number() defensively so widening is safe.
+  totalAmount: string | number;
+  paidAmount: string | number;
+  creditedAmount: string | number;
   status: string;
 };
 

@@ -175,7 +175,7 @@ export function ImportClient() {
         <div className="rounded-xl border border-border bg-card p-6">
           <h2 className="mb-1 text-sm font-semibold">Map columns</h2>
           <p className="mb-4 text-xs text-muted-foreground">
-            {rows.length} data rows found. Match each PayTrack field to a column
+            {rows.length} data rows found. Match each SynWorks field to a column
             from your file.
           </p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

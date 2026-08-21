@@ -14,7 +14,7 @@ import { ORDER_STATUS_LABELS, DOCUMENT_TYPE_LABELS } from "@/lib/orders/status";
 // orderId exists.
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Order status — PayTrack" };
+export const metadata = { title: "Order status — SynWorks" };
 
 const CUSTOMER_VISIBLE_DOC_TYPES = new Set(["LORRY_RECEIPT", "INVOICE"]);
 

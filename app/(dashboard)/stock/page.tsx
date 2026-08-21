@@ -28,7 +28,7 @@ export default async function StockPage({
           <p className="text-sm text-muted-foreground">
             Stock is read live from Tally&apos;s Sundry Debtors + stock
             item exports. Until the sync is on, factory availability is
-            not tracked in PayTrack.
+            not tracked in SynWorks.
           </p>
         </Card>
       </div>

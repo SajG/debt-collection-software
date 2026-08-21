@@ -65,7 +65,7 @@ export function usePartyCredit(partyId: string | null) {
     async () => {
       if (!partyId) return null;
       const [partyRes, invCountRes] = await Promise.all([
-        (supabase as any)
+        supabase
           .from("Party")
           .select("totalOutstanding, creditLimit, creditDays")
           .eq("id", partyId)

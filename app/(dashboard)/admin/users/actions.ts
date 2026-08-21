@@ -21,7 +21,7 @@ const createSchema = z.object({
     .trim()
     .min(2, "Enter the business name")
     .max(120)
-    .default("PayTrack"),
+    .default("SynWorks"),
   phone: z.string().trim().regex(phoneRegex, "Enter a 10-digit Indian mobile"),
   role: roleEnum,
 });

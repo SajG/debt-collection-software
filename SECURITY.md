@@ -72,7 +72,7 @@ worked example.
 
 ## Sessions
 
-- Mobile keeps a `paytrack:lastActiveAt` timestamp in AsyncStorage. On
+- Mobile keeps a `synworks:lastActiveAt` timestamp in AsyncStorage. On
   cold start, if the device has been idle for more than **30 days**,
   `AuthContext` signs the user out and routes to `/(auth)/phone`.
   Independent of Supabase's own refresh-token TTL.
@@ -100,7 +100,7 @@ All private-bucket downloads go through short-lived signed URLs.
 `SIGNED_URL_EXPIRY_SECONDS = 300` (5 min) in `lib/storage.ts` and in
 `mobile/src/lib/uploads.ts`. **A signed URL is never embedded in a push
 notification payload** — the notify Edge Function only sends deep-link
-URLs of the form `paytrack://orders/<id>`, which the app resolves +
+URLs of the form `synworks://orders/<id>`, which the app resolves +
 re-signs at open time.
 
 ## When someone leaves the company

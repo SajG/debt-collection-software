@@ -34,7 +34,7 @@ export function PhotoPicker({
       if (!perm.granted) {
         Alert.alert(
           "Camera access needed",
-          "Enable camera in Settings so PayTrack can capture the proof."
+          "Enable camera in Settings so SynWorks can capture the proof."
         );
         return;
       }
@@ -57,7 +57,7 @@ export function PhotoPicker({
       if (!perm.granted) {
         Alert.alert(
           "Photo access needed",
-          "Enable photo access in Settings so PayTrack can attach the proof."
+          "Enable photo access in Settings so SynWorks can attach the proof."
         );
         return;
       }

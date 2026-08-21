@@ -11,7 +11,7 @@
 -- SECURITY DEFINER so it can write Party even when the caller lacks
 -- UPDATE privileges on Party (STAFF via RLS today).
 
-CREATE OR REPLACE FUNCTION public.paytrack_recompute_party_outstanding(p_party_id text)
+CREATE OR REPLACE FUNCTION public.synworks_recompute_party_outstanding(p_party_id text)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -49,7 +49,7 @@ $$;
 -- Handles INSERT/UPDATE/DELETE. On UPDATE we recompute for BOTH the old
 -- and new partyId in case a payment was reassigned (unusual but cheap).
 
-CREATE OR REPLACE FUNCTION public.paytrack_payment_after_change()
+CREATE OR REPLACE FUNCTION public.synworks_payment_after_change()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -57,13 +57,13 @@ SET search_path = public
 AS $$
 BEGIN
   IF (TG_OP = 'DELETE') THEN
-    PERFORM public.paytrack_recompute_party_outstanding(OLD."partyId");
+    PERFORM public.synworks_recompute_party_outstanding(OLD."partyId");
     RETURN OLD;
   END IF;
 
-  PERFORM public.paytrack_recompute_party_outstanding(NEW."partyId");
+  PERFORM public.synworks_recompute_party_outstanding(NEW."partyId");
   IF (TG_OP = 'UPDATE' AND NEW."partyId" IS DISTINCT FROM OLD."partyId") THEN
-    PERFORM public.paytrack_recompute_party_outstanding(OLD."partyId");
+    PERFORM public.synworks_recompute_party_outstanding(OLD."partyId");
   END IF;
 
   RETURN NEW;
@@ -73,13 +73,13 @@ $$;
 DROP TRIGGER IF EXISTS payment_recompute_outstanding ON "Payment";
 CREATE TRIGGER payment_recompute_outstanding
 AFTER INSERT OR UPDATE OR DELETE ON "Payment"
-FOR EACH ROW EXECUTE FUNCTION public.paytrack_payment_after_change();
+FOR EACH ROW EXECUTE FUNCTION public.synworks_payment_after_change();
 
 -- ── Invoice trigger ────────────────────────────────────────────────
 -- Recomputes when totals, paid, credited, status, or party change.
 -- WHEN clause skips no-op UPDATE hits (touch-only "updatedAt" writes).
 
-CREATE OR REPLACE FUNCTION public.paytrack_invoice_after_change()
+CREATE OR REPLACE FUNCTION public.synworks_invoice_after_change()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -87,13 +87,13 @@ SET search_path = public
 AS $$
 BEGIN
   IF (TG_OP = 'DELETE') THEN
-    PERFORM public.paytrack_recompute_party_outstanding(OLD."partyId");
+    PERFORM public.synworks_recompute_party_outstanding(OLD."partyId");
     RETURN OLD;
   END IF;
 
-  PERFORM public.paytrack_recompute_party_outstanding(NEW."partyId");
+  PERFORM public.synworks_recompute_party_outstanding(NEW."partyId");
   IF (TG_OP = 'UPDATE' AND NEW."partyId" IS DISTINCT FROM OLD."partyId") THEN
-    PERFORM public.paytrack_recompute_party_outstanding(OLD."partyId");
+    PERFORM public.synworks_recompute_party_outstanding(OLD."partyId");
   END IF;
 
   RETURN NEW;
@@ -103,19 +103,19 @@ $$;
 DROP TRIGGER IF EXISTS invoice_recompute_outstanding ON "Invoice";
 CREATE TRIGGER invoice_recompute_outstanding
 AFTER INSERT OR DELETE ON "Invoice"
-FOR EACH ROW EXECUTE FUNCTION public.paytrack_invoice_after_change();
+FOR EACH ROW EXECUTE FUNCTION public.synworks_invoice_after_change();
 
 DROP TRIGGER IF EXISTS invoice_recompute_outstanding_upd ON "Invoice";
 CREATE TRIGGER invoice_recompute_outstanding_upd
 AFTER UPDATE OF "totalAmount", "paidAmount", "creditedAmount", "status", "partyId"
 ON "Invoice"
-FOR EACH ROW EXECUTE FUNCTION public.paytrack_invoice_after_change();
+FOR EACH ROW EXECUTE FUNCTION public.synworks_invoice_after_change();
 
 -- ── CreditNote trigger ────────────────────────────────────────────
 -- Credit notes touch Invoice.creditedAmount directly (in the web action),
 -- but recomputing on their own mutation is cheap and forgiving.
 
-CREATE OR REPLACE FUNCTION public.paytrack_credit_note_after_change()
+CREATE OR REPLACE FUNCTION public.synworks_credit_note_after_change()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -123,13 +123,13 @@ SET search_path = public
 AS $$
 BEGIN
   IF (TG_OP = 'DELETE') THEN
-    PERFORM public.paytrack_recompute_party_outstanding(OLD."partyId");
+    PERFORM public.synworks_recompute_party_outstanding(OLD."partyId");
     RETURN OLD;
   END IF;
 
-  PERFORM public.paytrack_recompute_party_outstanding(NEW."partyId");
+  PERFORM public.synworks_recompute_party_outstanding(NEW."partyId");
   IF (TG_OP = 'UPDATE' AND NEW."partyId" IS DISTINCT FROM OLD."partyId") THEN
-    PERFORM public.paytrack_recompute_party_outstanding(OLD."partyId");
+    PERFORM public.synworks_recompute_party_outstanding(OLD."partyId");
   END IF;
 
   RETURN NEW;
@@ -139,7 +139,7 @@ $$;
 DROP TRIGGER IF EXISTS credit_note_recompute_outstanding ON "CreditNote";
 CREATE TRIGGER credit_note_recompute_outstanding
 AFTER INSERT OR UPDATE OR DELETE ON "CreditNote"
-FOR EACH ROW EXECUTE FUNCTION public.paytrack_credit_note_after_change();
+FOR EACH ROW EXECUTE FUNCTION public.synworks_credit_note_after_change();
 
 -- ── One-off backfill so every existing party is correct before the
 -- triggers take over as the source of truth.
@@ -148,6 +148,6 @@ DECLARE
   r record;
 BEGIN
   FOR r IN SELECT id FROM "Party" LOOP
-    PERFORM public.paytrack_recompute_party_outstanding(r.id);
+    PERFORM public.synworks_recompute_party_outstanding(r.id);
   END LOOP;
 END $$;

@@ -16,6 +16,7 @@ import { confirm } from "@/components/Confirm";
 import { useFocusEffect } from "expo-router";
 import { useAuth } from "@/auth/AuthContext";
 import { useOrderEventStream, useOwnOrders } from "@/lib/queries";
+import type { QuantityUnit } from "@/lib/database.types";
 import { useQueue } from "@/lib/order-queue";
 import { useDocQueue } from "@/lib/order-doc-queue";
 import { useStatusQueue } from "@/lib/status-queue";
@@ -118,7 +119,7 @@ export default function HomeScreen() {
       productName: o.product?.name ?? "—",
       brand: o.brand ?? o.product?.brand ?? null,
       quantity: String(o.quantity),
-      quantityUnit: o.quantityUnit,
+      quantityUnit: o.quantityUnit as QuantityUnit,
       status: o.currentStatus,
       orderNumber: o.orderNumber,
       // Only surface the "placed by" line when it adds information —

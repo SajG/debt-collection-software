@@ -7,6 +7,7 @@ import { TextField } from "@/components/TextField";
 import { Button } from "@/components/Button";
 import { useAuth } from "@/auth/AuthContext";
 import { supabase } from "@/lib/supabase";
+import { newId } from "@/lib/ids";
 import { theme } from "@/theme";
 
 // ADMIN-only in-field customer creation. Salespeople keep using the
@@ -46,7 +47,13 @@ export default function NewCustomerScreen() {
     setSaving(true);
     // Author is the admin themselves — assignment can be edited on the
     // web customer page. Keeps the mobile form to one screen.
+    // Party has no DB-side DEFAULT for id/updatedAt (see prisma
+    // schema uses @default(cuid()) which is client-resolved). Supply
+    // them here — the previous `as any` cast was masking a runtime
+    // NOT NULL violation.
+    const now = new Date().toISOString();
     const payload = {
+      id: newId("party"),
       name: trimmed,
       phone: phone.trim().replace(/\D/g, "").slice(-10) || null,
       gstNumber: gstNumber.trim() || null,
@@ -57,8 +64,9 @@ export default function NewCustomerScreen() {
         : null,
       assignedToId: profile.id,
       isActive: true,
+      updatedAt: now,
     };
-    const { error } = await (supabase as any).from("Party").insert(payload);
+    const { error } = await supabase.from("Party").insert(payload);
     setSaving(false);
     if (error) {
       Alert.alert("Could not save", error.message);

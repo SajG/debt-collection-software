@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "./supabase";
 import type { Role } from "./database.types";
+import { newId } from "./ids";
 
 // OrderComment fetch + post. RLS enforces read/write scope
 // (STAFF own-orders only, FACTORY + ADMIN all). Append-only.
@@ -90,7 +91,8 @@ export async function postOrderComment(input: {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
-  const { error } = await (supabase as any).from("OrderComment").insert({
+  const { error } = await supabase.from("OrderComment").insert({
+    id: newId("cmt"),
     salesOrderId: input.orderId,
     authorId: user.id,
     body: trimmed,

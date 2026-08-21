@@ -6,7 +6,7 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "PayTrack — AR for MSME Distributors",
+  title: "SynWorks — AR for MSME Distributors",
   description:
     "Payment follow-up and accounts receivable for Indian MSME distributors selling on credit.",
 };

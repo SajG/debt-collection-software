@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { LoginForm } from "./login-form";
 
 export const metadata: Metadata = {
-  title: "Sign in — PayTrack",
+  title: "Sign in — SynWorks",
 };
 
 export default function LoginPage({
@@ -15,7 +15,7 @@ export default function LoginPage({
       <div className="w-full max-w-sm">
         {/* Brand */}
         <div className="mb-8 text-center">
-          <h1 className="text-2xl font-bold tracking-tight">PayTrack</h1>
+          <h1 className="text-2xl font-bold tracking-tight">SynWorks</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Welcome back. Sign in to your account.
           </p>

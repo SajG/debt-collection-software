@@ -4,7 +4,7 @@
 
 export const theme = {
   colors: {
-    // PayTrack brand green
+    // SynWorks brand green
     primary: "#093D30",
     primaryOn: "#FFFFFF",
     background: "#FFFFFF",

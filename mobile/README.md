@@ -1,7 +1,7 @@
-# PayTrack Sales — mobile app
+# SynWorks — mobile app
 
 React Native (Expo, TypeScript) companion app for adhesives-industry
-salespeople. Talks to the same Supabase project as the PayTrack web app;
+salespeople. Talks to the same Supabase project as the SynWorks web app;
 row-level security scopes each user to their own orders.
 
 ## Design principles (enforced across every screen)
@@ -30,12 +30,23 @@ npm start
 ## Supabase side (one-time)
 
 1. **Apply the RLS migration** from the main repo: `npm run db:rls` (in the root project). Without it, mobile users can read anyone's rows.
-2. **Regenerate DB types** whenever the Prisma schema changes:
+2. **Regenerate DB types** after **every** migration that touches
+   `public.*` (tables, columns, RPCs, enums). The mobile app is
+   type-checked against `src/lib/database.types.ts`; if it goes stale
+   you lose the safety net and inserts can crash on device.
    ```bash
-   export SUPABASE_PROJECT_ID=your_project_id
+   export SUPABASE_ACCESS_TOKEN=sbp_your_personal_access_token
    npm run types:generate
    ```
-   Overwrites `src/lib/database.types.ts`. The current file is hand-authored to match `prisma/schema.prisma` and is a safe drop-in target.
+   Then run `npm run typecheck` from `mobile/` and fix any resulting
+   errors *properly* — do not reach for `as any` to make them go
+   away. The GitHub Actions `typecheck` workflow (see
+   `.github/workflows/typecheck.yml`) blocks merges that regress.
+
+   The file has a small hand-maintained tail (legacy enum aliases +
+   two RPC arg widenings — supabase gen types doesn't infer `DEFAULT
+   NULL` on function params). Keep those in place when you regenerate;
+   the block is fenced by a `// Legacy hand-authored aliases` comment.
 
 ## Phone OTP auth (required before rollout)
 

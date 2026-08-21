@@ -6,9 +6,9 @@ const path = require("node:path");
 const { Service } = require("node-windows");
 
 const svc = new Service({
-  name: "PayTrack Tally Connector",
+  name: "SynWorks Tally Connector",
   description:
-    "Bridges Tally (localhost:9000 XML/HTTP) to the PayTrack cloud on a schedule.",
+    "Bridges Tally (localhost:9000 XML/HTTP) to the SynWorks cloud on a schedule.",
   script: path.join(__dirname, "service.js"),
   nodeOptions: [],
   wait: 2,
@@ -25,7 +25,7 @@ svc.on("alreadyinstalled", () => {
   svc.start();
 });
 svc.on("start", () => {
-  console.log("PayTrack Tally Connector started.");
+  console.log("SynWorks Tally Connector started.");
 });
 svc.on("error", (e) => {
   console.error("Install error:", e);

@@ -189,7 +189,7 @@ export function Sidebar({
       <div className="flex h-14 items-center justify-center border-b border-white/10 md:justify-start md:px-5">
         <span className="text-lg font-bold tracking-tight text-white font-display">
           <span className="md:hidden">P</span>
-          <span className="hidden md:inline">PayTrack</span>
+          <span className="hidden md:inline">SynWorks</span>
         </span>
       </div>
 

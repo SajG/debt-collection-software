@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "./supabase";
 import { ORDER_DOC_BUCKET, uploadLocalFileToBucket } from "./uploads";
+import { newId } from "./ids";
 
 // Order documents — mirror of PaymentDocument helpers but scoped to
 // SalesOrder. Types not in Database types file; cast at the edges.
@@ -106,7 +107,8 @@ export async function attachOrderDocument(input: {
   });
   if ("error" in uploaded) return uploaded;
 
-  const { error } = await (supabase as any).from("OrderDocument").insert({
+  const { error } = await supabase.from("OrderDocument").insert({
+    id: newId("odoc"),
     salesOrderId: input.orderId,
     type: input.type,
     storagePath: uploaded.path,
