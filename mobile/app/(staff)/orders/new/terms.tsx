@@ -1,4 +1,4 @@
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, ScrollView, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { Screen } from "@/components/Screen";
 import { WizardHeader } from "@/components/WizardHeader";
@@ -36,7 +36,16 @@ export default function StepTerms() {
 
         <Button
           label={t("wizard.next")}
-          onPress={() => router.push("/(staff)/orders/new/delivery")}
+          onPress={() => {
+            if (!draft.paymentTerm || !draft.transportType) {
+              Alert.alert(
+                "Terms incomplete",
+                "Pick both a payment term and a transport type before continuing.",
+              );
+              return;
+            }
+            router.push("/(staff)/orders/new/delivery");
+          }}
         />
       </ScrollView>
     </Screen>

@@ -94,12 +94,11 @@ export default function FactoryHome() {
             })
           }
           hitSlop={8}
-          style={({ pressed }) => [styles.signOutBtn, pressed && { opacity: 0.7 }]}
+          style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.7 }]}
           accessibilityRole="button"
           accessibilityLabel={t("home.signOut")}
         >
           <Text style={styles.signOutGlyph}>⏻</Text>
-          <Text style={styles.signOutText}>{t("home.signOut")}</Text>
         </Pressable>
       </View>
 
@@ -183,13 +182,12 @@ const styles = StyleSheet.create({
     color: theme.colors.primary,
     fontWeight: "700",
   },
-  signOutBtn: {
-    flexDirection: "row",
+  iconBtn: {
+    width: 36,
+    height: 36,
     alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 10,
-    minHeight: theme.tap,
-    borderRadius: theme.radius,
+    justifyContent: "center",
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: theme.colors.border,
     backgroundColor: theme.colors.background,
@@ -198,11 +196,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: theme.colors.danger,
     fontWeight: "700",
-  },
-  signOutText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: theme.colors.text,
   },
   filters: {
     paddingHorizontal: theme.spacing.lg,

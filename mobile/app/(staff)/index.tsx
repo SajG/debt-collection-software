@@ -175,14 +175,13 @@ export default function HomeScreen() {
             }
             hitSlop={8}
             style={({ pressed }) => [
-              styles.signOutBtn,
+              styles.iconBtn,
               pressed && { opacity: 0.7 },
             ]}
             accessibilityRole="button"
             accessibilityLabel={t("home.signOut")}
           >
             <Text style={styles.signOutGlyph}>⏻</Text>
-            <Text style={styles.signOutText}>{t("home.signOut")}</Text>
           </Pressable>
         </View>
       </View>
@@ -342,7 +341,14 @@ function NavTile({
       accessibilityLabel={label}
     >
       <Text style={styles.tileGlyph}>{glyph}</Text>
-      <Text style={styles.tileLabel}>{label}</Text>
+      <Text
+        style={styles.tileLabel}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.85}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -372,39 +378,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   iconBtn: {
-    width: theme.tap,
-    height: theme.tap,
+    width: 36,
+    height: 36,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: theme.radius,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: theme.colors.border,
     backgroundColor: theme.colors.background,
   },
   iconBtnGlyph: {
-    fontSize: 20,
-    color: theme.colors.text,
-  },
-  signOutBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 10,
-    minHeight: theme.tap,
-    borderRadius: theme.radius,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.background,
+    fontSize: 16,
+    color: theme.colors.textMuted,
   },
   signOutGlyph: {
     fontSize: 16,
     color: theme.colors.danger,
     fontWeight: "700",
-  },
-  signOutText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: theme.colors.text,
   },
   pendingBanner: {
     marginHorizontal: theme.spacing.lg,
@@ -445,11 +435,11 @@ const styles = StyleSheet.create({
     lineHeight: 30,
   },
   tileLabel: {
-    fontSize: 13,
-    fontWeight: "700",
+    fontSize: 12,
+    fontWeight: "600",
     color: theme.colors.text,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
+    letterSpacing: 0.2,
+    textAlign: "center",
   },
   scopeToggle: {
     paddingHorizontal: theme.spacing.lg,

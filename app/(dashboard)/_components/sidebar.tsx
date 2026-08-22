@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Users,
@@ -18,7 +18,6 @@ import {
   Truck,
 } from "lucide-react";
 import type { Role } from "@prisma/client";
-import { createClient } from "@/lib/supabase/client";
 
 type NavItem = {
   href: string;
@@ -154,13 +153,7 @@ export function Sidebar({
   tallyEnabled: boolean;
 }) {
   const pathname = usePathname();
-  const router = useRouter();
 
-  async function handleSignOut() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push("/login");
-  }
 
   const initials = ownerName
     .split(" ")
@@ -234,13 +227,15 @@ export function Sidebar({
             </p>
             <p className="truncate text-xs text-white/50">{businessName}</p>
           </div>
-          <button
-            onClick={handleSignOut}
-            className="shrink-0 text-white/35 hover:text-white/75 transition-colors"
-            title="Sign out"
-          >
-            <LogOut size={14} />
-          </button>
+          <form action="/auth/signout" method="post" className="shrink-0">
+            <button
+              type="submit"
+              className="text-white/35 hover:text-white/75 transition-colors"
+              title="Sign out"
+            >
+              <LogOut size={14} />
+            </button>
+          </form>
         </div>
       </div>
     </aside>

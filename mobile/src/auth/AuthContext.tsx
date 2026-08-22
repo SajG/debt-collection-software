@@ -148,13 +148,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [loadProfile]);
 
   const signOut = useCallback(async () => {
-    await supabase.auth.signOut();
-    // The root gate at "/" reads session state and routes to
-    // /(auth)/phone when there's no session. Without this replace
-    // the user stays sitting on /(staff) or /(factory) with a
-    // signed-out client — nothing tells expo-router to leave.
+    // Null local state FIRST so any re-render (including the gate we're
+    // about to navigate to) sees "signed out" immediately — otherwise
+    // the async onAuthStateChange lags behind router.replace and the
+    // gate bounces the user right back to (staff)/(factory).
+    setSession(null);
+    setProfile(null);
+    await AsyncStorage.removeItem(IDLE_STORAGE_KEY);
     try {
-      router.replace("/");
+      await supabase.auth.signOut();
+    } catch {
+      // Even if the network call fails we still want to leave the screen.
+    }
+    // Navigate straight to the phone screen instead of bouncing through
+    // "/" — the (staff)/(factory) groups never re-evaluate the root gate
+    // once mounted, so relying on it produced the "sign out does nothing"
+    // symptom.
+    try {
+      router.replace("/(auth)/phone");
     } catch {
       /* router not ready during tests */
     }

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Pressable,
   StyleSheet,
@@ -20,13 +21,33 @@ import { theme } from "@/theme";
 
 export default function StepCustomer() {
   const { draft, patch, discard } = useWizard();
-  const [search, setSearch] = useState("");
+  // Seed from whichever field the draft already has (resume flow).
+  const [search, setSearch] = useState<string>(
+    draft.partyName ?? draft.newCustomerName ?? "",
+  );
   const { data, loading, error } = useParties(search);
+
+  function onSearchChange(v: string) {
+    setSearch(v);
+    // Keep the draft in sync as the user types so the Next button
+    // (and Review screen) always see the latest typed name — even if
+    // the user never taps a party row or the "+ Add as new" tile.
+    // Any previously picked party is invalidated the moment the text
+    // no longer matches its name.
+    const trimmed = v.trim();
+    if (!trimmed) {
+      patch({ partyId: null, partyName: null, newCustomerName: null });
+      return;
+    }
+    if (draft.partyId && draft.partyName === v) return; // still valid
+    patch({ partyId: null, partyName: trimmed, newCustomerName: trimmed });
+  }
 
   function pickAndNext(id: string, name: string) {
     // Party change invalidates the whole downstream draft (product,
     // pricing, etc are customer-relative in practice).
     patch({ partyId: id, partyName: name, newCustomerName: null });
+    setSearch(name);
     router.push("/(staff)/orders/new/dispatch");
   }
 
@@ -35,6 +56,26 @@ export default function StepCustomer() {
     if (!name) return;
     patch({ partyId: null, partyName: name, newCustomerName: name });
     router.push("/(staff)/orders/new/dispatch");
+  }
+
+  function goNext() {
+    const trimmed = search.trim();
+    if (draft.partyId && draft.partyName) {
+      router.push("/(staff)/orders/new/dispatch");
+      return;
+    }
+    if (trimmed) {
+      // Fall through to "add as new customer" — this is what most users
+      // expect when they type a name and hit Next without tapping a row.
+      patch({ partyId: null, partyName: trimmed, newCustomerName: trimmed });
+      router.push("/(staff)/orders/new/dispatch");
+      return;
+    }
+    // Nothing to go on — surface a gentle nudge instead of silently moving.
+    Alert.alert(
+      "Customer required",
+      "Type a customer name or pick one from the list.",
+    );
   }
 
   const trimmed = search.trim();
@@ -66,7 +107,7 @@ export default function StepCustomer() {
         <TextField
           label={t("wizard.customer.search")}
           value={search}
-          onChangeText={setSearch}
+          onChangeText={onSearchChange}
           autoCapitalize="words"
           autoCorrect={false}
         />
@@ -126,8 +167,7 @@ export default function StepCustomer() {
                 <Text style={styles.newRowLabel}>+ Add as new customer</Text>
                 <Text style={styles.newRowName}>{trimmed}</Text>
                 <Text style={styles.newRowHint}>
-                  Not in Tally yet. Admin will match it to the ledger after the
-                  next Tally sync.
+                  New customer — admin can enrich the ledger details later.
                 </Text>
               </Pressable>
             ) : null
@@ -136,10 +176,7 @@ export default function StepCustomer() {
       )}
 
       <View style={styles.footer}>
-        <Button
-          label={t("wizard.next")}
-          onPress={() => router.push("/(staff)/orders/new/dispatch")}
-        />
+        <Button label={t("wizard.next")} onPress={goNext} />
       </View>
 
       <View style={styles.startOverWrap}>
