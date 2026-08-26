@@ -272,9 +272,9 @@ export function ItemSheet({
               </View>
             )}
             <TextField
-              label="Custom product / grade mix / private label"
-              placeholder='e.g. "PA-60s + PA-32s (mix)" or a private-label name'
-              hint="Use this for grade mixes (PA-60s + PA-32s), one-off blends, or a private-label product name. Overrides the catalogue pick."
+              label="Product / grade / private label"
+              placeholder="Product name, grade, or private-label name"
+              hint="Type any product or grade not in the catalogue, or the customer's private-label name. Overrides the catalogue pick."
               value={item.customProductName ?? ""}
               onChangeText={(v) => {
                 setItem((prev) => ({
