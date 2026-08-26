@@ -4,12 +4,17 @@ import {
   Alert,
   Image,
   Linking,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import DateTimePicker, {
+  DateTimePickerAndroid,
+  type DateTimePickerEvent,
+} from "@react-native-community/datetimepicker";
 import { useLocalSearchParams } from "expo-router";
 import { Screen } from "@/components/Screen";
 import { Button } from "@/components/Button";
@@ -21,9 +26,17 @@ import { ActivityFeed } from "@/components/ActivityFeed";
 import { confirm } from "@/components/Confirm";
 import { useAuth } from "@/auth/AuthContext";
 import { useConnectivity } from "@/lib/connectivity";
-import { useOrderDetail, useOrderEventStream } from "@/lib/queries";
+import {
+  setExpectedProductionDate,
+  setLineProductionStatus,
+  useOrderDetail,
+  useOrderEventStream,
+  type LineProductionStatus,
+  type OrderDetailItem,
+} from "@/lib/queries";
 import {
   attachOrderDocument,
+  groupDocsByPage,
   useOrderDocuments,
   ORDER_DOC_LABELS,
   type OrderDocRow,
@@ -32,27 +45,27 @@ import {
 import { enqueueDocument, useDocQueue } from "@/lib/order-doc-queue";
 import { submitStatusAdvance, useStatusQueue } from "@/lib/status-queue";
 import { ORDER_DOC_BUCKET, getSignedUrl } from "@/lib/uploads";
+import { newId } from "@/lib/ids";
 import { supabase } from "@/lib/supabase";
 import { formatDate } from "@/lib/format";
+import { t } from "@/lib/i18n";
+import { successHaptic, warningHaptic, errorHaptic } from "@/lib/haptics";
+import { humaniseError } from "@/lib/errors";
 import type { OrderStatus } from "@/lib/database.types";
 import { theme } from "@/theme";
 
-// Factory upload set — mirrors STAFF_UPLOADABLE_TYPES but the factory
-// side. ORDER_PROOF is intentionally not offered here: it's a
-// salesperson artefact (customer PO, WhatsApp confirmation). RLS on
-// OrderDocument allows FACTORY to insert any type; this list is the
-// UX contract, not a security boundary.
 const FACTORY_UPLOADABLE_TYPES: OrderDocType[] = [
   "INVOICE",
   "LORRY_RECEIPT",
   "OTHER",
 ];
 
-// Straight-line factory progression. Cancel is a separate destructive
-// path so it doesn't get tapped by mistake.
+// Straight-line factory progression used only for the "not yet using
+// per-line" fallback and the destructive "Cancel order" affordance.
+// Ticking lines READY on a multi-SKU order rolls the header via
+// trigger `_recompute_order_status_from_lines` — no client action
+// needed for the ORDER_PLACED → IN_PRODUCTION → READY_TO_DISPATCH arc.
 const NEXT_STEP: Partial<Record<OrderStatus, OrderStatus>> = {
-  ORDER_PLACED: "IN_PRODUCTION",
-  IN_PRODUCTION: "READY_TO_DISPATCH",
   READY_TO_DISPATCH: "LR_GENERATED",
   LR_GENERATED: "DISPATCHED",
 };
@@ -95,16 +108,6 @@ export default function FactoryOrderDetail() {
       if (!id || !user || !data) return;
       setSubmitting(true);
       try {
-        // Single, atomic path — advance_order_status RPC (migration
-        // 20260821170000) does the UPDATE + INSERT in one txn AND
-        // re-validates the transition server-side. The old two-write
-        // path left status advanced with no audit row on a dropped
-        // connection between statements.
-        //
-        // Offline / network-shape errors are queued so a factory-floor
-        // Wi-Fi blip does not lose the tap. App-shape errors (bad
-        // transition, awaiting rate approval, unauthorized) surface
-        // immediately without queuing.
         const res = await submitStatusAdvance({
           orderId: id,
           orderNumber: data.orderNumber,
@@ -113,16 +116,20 @@ export default function FactoryOrderDetail() {
           online,
         });
         if ("error" in res) {
-          Alert.alert("Update failed", res.error);
+          errorHaptic();
+          const hum = humaniseError(res.error, { action: "advance-status" });
+          Alert.alert("Update failed", hum.message);
           return;
         }
         if ("queued" in res) {
+          warningHaptic();
           Alert.alert(
-            "Saved for retry",
-            "No network right now — this status change will be applied automatically when the phone is back online.",
+            "Saved on your phone",
+            "Will apply automatically when you're back online.",
           );
           return;
         }
+        successHaptic();
         await refetch();
       } finally {
         setSubmitting(false);
@@ -130,6 +137,16 @@ export default function FactoryOrderDetail() {
     },
     [id, user, data, online, refetch],
   );
+
+  const callSalesperson = useCallback(() => {
+    const phone = data?.salesperson?.phone;
+    if (!phone) return;
+    // tel: with no formatting so RN dialer honours the digits verbatim.
+    const uri = `tel:${phone.replace(/\s+/g, "")}`;
+    void Linking.openURL(uri).catch(() =>
+      Alert.alert("Could not open dialer", phone),
+    );
+  }, [data?.salesperson?.phone]);
 
   if (loading && !data) {
     return (
@@ -156,39 +173,52 @@ export default function FactoryOrderDetail() {
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>{data.orderNumber}</Text>
             <Text style={styles.subtitle}>{data.party?.name ?? "—"}</Text>
-            {data.salesperson?.ownerName ? (
-              <Text style={styles.by}>
-                Placed by {data.salesperson.ownerName}
-              </Text>
-            ) : null}
+            <SalespersonLine
+              name={data.salesperson?.ownerName ?? null}
+              phone={data.salesperson?.phone ?? null}
+              onCall={callSalesperson}
+            />
           </View>
           <StatusBadge status={data.currentStatus} size="lg" />
         </View>
 
+        {data.currentStatus === "PENDING_APPROVAL" ? (
+          <View style={styles.blockedBanner}>
+            <Text style={styles.blockedTitle}>Awaiting admin approval</Text>
+            <Text style={styles.blockedBody}>
+              This order isn't on the shop floor yet. An admin needs to
+              approve it before production can start.
+            </Text>
+          </View>
+        ) : null}
+        {data.currentStatus === "ON_HOLD" ? (
+          <View style={styles.blockedBanner}>
+            <Text style={styles.blockedTitle}>On hold</Text>
+            {data.holdReasonCategory ? (
+              <Text style={styles.blockedBody}>
+                {data.holdReasonCategory.replace(/_/g, " ")}
+                {data.holdReason ? ` — ${data.holdReason}` : ""}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+
         <View style={styles.cards}>
-          <InfoCard label="Product">
-            <Text style={styles.value}>{data.product?.name ?? "—"}</Text>
-            {data.brand ? <Text style={styles.sub}>{data.brand}</Text> : null}
-          </InfoCard>
-          <InfoCard label="Quantity">
-            <Text style={styles.value}>
-              {data.quantity} {data.quantityUnit}
-            </Text>
-            <Text style={styles.sub}>
-              {data.packingType ?? "—"}
-              {data.sizeKg ? ` · ${data.sizeKg} kg` : ""}
-            </Text>
-          </InfoCard>
-          <InfoCard label="Dispatch to">
+          <InfoCard label={t("detail.dispatchTo")}>
             <Text style={styles.value}>{data.dispatchLocation ?? "—"}</Text>
           </InfoCard>
-          <InfoCard label="Expected delivery">
+          <InfoCard label={t("detail.expectedDelivery")}>
             <Text style={styles.value}>
               {formatDate(data.expectedDeliveryDate)}
             </Text>
           </InfoCard>
+          <ExpectedProductionCard
+            orderId={id ?? ""}
+            initial={data.expectedProductionDate}
+            onChanged={refetch}
+          />
           {data.tokenType ? (
-            <InfoCard label="Token / Gift">
+            <InfoCard label={t("detail.tokenGift")}>
               <Text style={styles.value}>{data.tokenType}</Text>
             </InfoCard>
           ) : null}
@@ -210,6 +240,17 @@ export default function FactoryOrderDetail() {
           </View>
         )}
 
+        <LineItemsSection
+          items={data.items}
+          disabled={
+            data.currentStatus === "PENDING_APPROVAL" ||
+            data.currentStatus === "ON_HOLD" ||
+            data.currentStatus === "REJECTED" ||
+            data.currentStatus === "CANCELLED"
+          }
+          onChanged={refetch}
+        />
+
         <View style={styles.actions}>
           {next && data.currentStatus !== "CANCELLED" ? (
             <Button
@@ -221,18 +262,11 @@ export default function FactoryOrderDetail() {
                   title: STEP_LABEL[next],
                   body: `Move ${data.orderNumber} to ${next.replace(/_/g, " ")}?`,
                   confirmLabel: "Confirm",
-                  onConfirm: () =>
-                    void advance(next, `Factory → ${next}`),
+                  onConfirm: () => void advance(next, `Factory → ${next}`),
                 })
               }
             />
-          ) : (
-            <Text style={styles.doneLabel}>
-              {data.currentStatus === "DISPATCHED"
-                ? "Dispatched. Nothing more for factory to do."
-                : "No further factory action available."}
-            </Text>
-          )}
+          ) : null}
           {data.currentStatus !== "DISPATCHED" &&
             data.currentStatus !== "CANCELLED" &&
             data.currentStatus !== "REJECTED" &&
@@ -267,23 +301,273 @@ export default function FactoryOrderDetail() {
   );
 }
 
+function SalespersonLine({
+  name,
+  phone,
+  onCall,
+}: {
+  name: string | null;
+  phone: string | null;
+  onCall: () => void;
+}) {
+  return (
+    <View style={styles.byRow}>
+      <Text style={styles.by}>Placed by {name ?? "Unknown user"}</Text>
+      {phone ? (
+        <Pressable
+          onPress={onCall}
+          hitSlop={12}
+          style={({ pressed }) => [
+            styles.callPill,
+            pressed && { opacity: 0.75 },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel={`Call ${name ?? "salesperson"}`}
+        >
+          <Text style={styles.callPillText}>☎ Call</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+// ── Line items with per-line production status ──────────────────────
+
+function LineItemsSection({
+  items,
+  disabled,
+  onChanged,
+}: {
+  items: OrderDetailItem[];
+  disabled: boolean;
+  onChanged: () => Promise<void> | void;
+}) {
+  return (
+    <View>
+      <Text style={styles.sectionHeading}>
+        {t("detail.lineItems", { count: items.length })}
+      </Text>
+      <View style={{ gap: theme.spacing.sm }}>
+        {items.map((it) => (
+          <LineItemRow
+            key={it.id}
+            item={it}
+            disabled={disabled}
+            onChanged={onChanged}
+          />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function LineItemRow({
+  item,
+  disabled,
+  onChanged,
+}: {
+  item: OrderDetailItem;
+  disabled: boolean;
+  onChanged: () => Promise<void> | void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  const nextStatus: LineProductionStatus | null =
+    item.productionStatus === "PENDING"
+      ? "IN_PRODUCTION"
+      : item.productionStatus === "IN_PRODUCTION"
+        ? "READY"
+        : null;
+
+  async function advanceLine() {
+    if (!nextStatus || disabled) return;
+    setBusy(true);
+    try {
+      const res = await setLineProductionStatus(item.id, nextStatus);
+      if ("error" in res) {
+        Alert.alert("Could not update", res.error);
+        return;
+      }
+      await onChanged();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const label =
+    nextStatus === "IN_PRODUCTION"
+      ? "Start"
+      : nextStatus === "READY"
+        ? "Mark ready"
+        : "Done";
+
+  return (
+    <View style={styles.lineRow}>
+      <View style={styles.lineHeader}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.lineNumber}>
+            LINE {item.lineNumber}
+            {item.needsRateApproval ? "  ·  RATE PENDING" : ""}
+          </Text>
+          <Text style={styles.lineName}>
+            {item.product?.name ?? "—"}
+          </Text>
+          <Text style={styles.lineMeta}>
+            {item.brand || item.product?.brand || "—"} ·{" "}
+            {String(item.quantity)} {item.quantityUnit}
+            {item.packingType ? ` · ${item.packingType}` : ""}
+            {item.sizeKg ? ` · ${item.sizeKg} kg` : ""}
+          </Text>
+        </View>
+        <LineStatusPill status={item.productionStatus} />
+      </View>
+      <Pressable
+        onPress={advanceLine}
+        disabled={disabled || busy || nextStatus === null}
+        style={({ pressed }) => [
+          styles.lineBtn,
+          nextStatus === null && styles.lineBtnDisabled,
+          pressed && { opacity: 0.85 },
+        ]}
+        accessibilityRole="button"
+        accessibilityLabel={`Line ${item.lineNumber}: ${label}`}
+      >
+        <Text
+          style={[
+            styles.lineBtnText,
+            nextStatus === null && styles.lineBtnTextDisabled,
+          ]}
+        >
+          {nextStatus === null ? "✓ Ready" : label}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function LineStatusPill({ status }: { status: LineProductionStatus }) {
+  const style =
+    status === "READY"
+      ? styles.pillReady
+      : status === "IN_PRODUCTION"
+        ? styles.pillInProd
+        : styles.pillPending;
+  const label =
+    status === "READY"
+      ? "READY"
+      : status === "IN_PRODUCTION"
+        ? "IN PROD"
+        : "PENDING";
+  return (
+    <View style={[styles.pill, style]}>
+      <Text style={styles.pillText}>{label}</Text>
+    </View>
+  );
+}
+
+// ── Expected production date ───────────────────────────────────────
+
+function ExpectedProductionCard({
+  orderId,
+  initial,
+  onChanged,
+}: {
+  orderId: string;
+  initial: string | null;
+  onChanged: () => Promise<void> | void;
+}) {
+  const [showPicker, setShowPicker] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [value, setValue] = useState<string | null>(initial);
+
+  useEffect(() => {
+    setValue(initial);
+  }, [initial]);
+
+  async function commit(iso: string | null) {
+    setSaving(true);
+    try {
+      const res = await setExpectedProductionDate(orderId, iso);
+      if ("error" in res) {
+        Alert.alert("Could not save", res.error);
+        return;
+      }
+      setValue(iso);
+      await onChanged();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function onDateChange(_e: DateTimePickerEvent, d?: Date) {
+    setShowPicker(false);
+    if (!d) return;
+    void commit(d.toISOString().slice(0, 10));
+  }
+
+  function open() {
+    const initialDate = value ? new Date(value) : new Date();
+    if (Platform.OS === "android") {
+      DateTimePickerAndroid.open({
+        value: initialDate,
+        mode: "date",
+        onChange: onDateChange,
+      });
+      return;
+    }
+    setShowPicker(true);
+  }
+
+  return (
+    <View style={styles.card}>
+      <Text style={styles.cardLabel}>{t("detail.expectedProduction")}</Text>
+      <View style={styles.prodDateRow}>
+        <Text style={styles.value}>{value ? formatDate(value) : "Not set"}</Text>
+        <Pressable
+          onPress={open}
+          disabled={saving}
+          hitSlop={8}
+          style={({ pressed }) => [
+            styles.prodDateBtn,
+            pressed && { opacity: 0.7 },
+          ]}
+        >
+          <Text style={styles.prodDateBtnText}>
+            {saving ? "Saving…" : value ? "Change" : "Set"}
+          </Text>
+        </Pressable>
+      </View>
+      {showPicker && Platform.OS === "ios" ? (
+        <DateTimePicker
+          value={value ? new Date(value) : new Date()}
+          mode="date"
+          display="inline"
+          onChange={onDateChange}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+// ── Documents (type-first + multi-page) ────────────────────────────
+
 function DocumentsSection({ orderId }: { orderId: string | null }) {
   const { data: docs, refetch } = useOrderDocuments(orderId);
   const { online } = useConnectivity();
   const queued = useDocQueue();
-  const [photo, setPhoto] = useState<PickedPhoto | null>(null);
-  // LORRY_RECEIPT is the doc factory most often photographs — default
-  // to it so the "one-tap on a paper LR" flow is fewest taps.
-  const [type, setType] = useState<OrderDocType>("LORRY_RECEIPT");
+
+  // Type-first: choose the document type BEFORE the camera opens. All
+  // pages captured under this session share one pageGroupId so a
+  // multi-page LR lands as a single logical document.
+  const [type, setType] = useState<OrderDocType | null>(null);
+  const [pageGroupId, setPageGroupId] = useState<string | null>(null);
+  const [pages, setPages] = useState<PickedPhoto[]>([]);
+  const [pending, setPending] = useState<PickedPhoto | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadNote, setUploadNote] = useState<string | null>(null);
 
-  // Live-update this section when either the salesperson OR another
-  // factory device pushes a document to the same order.
   useEffect(() => {
     if (!orderId) return;
-    // Unique per mount (see ActivityFeed comment).
     const name = `factory-order-docs:${orderId}:${Math.random().toString(36).slice(2, 10)}`;
     const channel = supabase.channel(name);
     channel.on(
@@ -307,94 +591,181 @@ function DocumentsSection({ orderId }: { orderId: string | null }) {
     [queued, orderId],
   );
 
+  function startCapture(t: OrderDocType) {
+    setType(t);
+    setPageGroupId(newId("pg"));
+    setPages([]);
+    setPending(null);
+    setUploadNote(null);
+  }
+
+  function addPending() {
+    if (!pending) return;
+    setPages((p) => [...p, pending]);
+    setPending(null);
+  }
+
+  function cancelSession() {
+    setType(null);
+    setPageGroupId(null);
+    setPages([]);
+    setPending(null);
+    setUploadNote(null);
+  }
+
   const submit = useCallback(async () => {
-    if (!orderId || !photo) return;
-    setUploadError(null);
+    if (!orderId || !type) return;
+    const totalPages = pages.length + (pending ? 1 : 0);
+    if (totalPages === 0) return;
     setUploadNote(null);
     setUploading(true);
+    const gid = pageGroupId ?? newId("pg");
+    const all: PickedPhoto[] = pending ? [...pages, pending] : pages;
     try {
-      if (!online) {
-        await enqueueDocument({
+      let uploaded = 0;
+      let queuedCount = 0;
+      for (let i = 0; i < all.length; i++) {
+        const p = all[i];
+        const pageIndex = i + 1;
+        if (!online) {
+          await enqueueDocument({
+            orderId,
+            type,
+            sourceUri: p.uri,
+            fileName: p.fileName,
+            mimeType: p.mimeType,
+            pageGroupId: gid,
+            pageIndex,
+          });
+          queuedCount++;
+          continue;
+        }
+        const res = await attachOrderDocument({
           orderId,
           type,
-          sourceUri: photo.uri,
-          fileName: photo.fileName,
-          mimeType: photo.mimeType,
+          localUri: p.uri,
+          fileName: p.fileName,
+          mimeType: p.mimeType,
+          pageGroupId: gid,
+          pageIndex,
         });
-        setPhoto(null);
-        setUploadNote(
-          "No signal — saved locally. Will upload automatically when back online.",
-        );
-        return;
+        if ("error" in res) {
+          await enqueueDocument({
+            orderId,
+            type,
+            sourceUri: p.uri,
+            fileName: p.fileName,
+            mimeType: p.mimeType,
+            pageGroupId: gid,
+            pageIndex,
+          });
+          queuedCount++;
+        } else {
+          uploaded++;
+        }
       }
-      const res = await attachOrderDocument({
-        orderId,
-        type,
-        localUri: photo.uri,
-        fileName: photo.fileName,
-        mimeType: photo.mimeType,
-      });
-      if ("error" in res) {
-        // Network / RLS error path: fall back to the offline queue so
-        // the photo isn't lost even if the immediate insert fails.
-        await enqueueDocument({
-          orderId,
-          type,
-          sourceUri: photo.uri,
-          fileName: photo.fileName,
-          mimeType: photo.mimeType,
-        });
-        setPhoto(null);
-        setUploadNote(`Saved for retry — ${res.error}`);
-        return;
-      }
-      setPhoto(null);
-      setUploadNote("Uploaded.");
+      setPages([]);
+      setPending(null);
+      setPageGroupId(null);
+      setType(null);
+      if (queuedCount === 0) successHaptic();
+      else warningHaptic();
+      setUploadNote(
+        queuedCount === 0
+          ? `${uploaded} page${uploaded === 1 ? "" : "s"} uploaded.`
+          : `${uploaded} uploaded · ${queuedCount} saved on your phone — will sync when you're back online.`,
+      );
       await refetch();
     } finally {
       setUploading(false);
     }
-  }, [orderId, photo, type, online, refetch]);
+  }, [orderId, type, pages, pending, online, refetch, pageGroupId]);
 
   return (
     <View>
       <Text style={sectionStyles.heading}>Documents</Text>
       <Text style={sectionStyles.hint}>
-        Photograph the LR or invoice and attach it here. Camera is the
-        default; gallery is for previously-saved scans.
+        Choose a document type first, then photograph every page. Multi-page
+        docs (a 3-page LR) upload as one document.
       </Text>
 
       <View style={sectionStyles.card}>
-        <PhotoPicker photo={photo} onChange={setPhoto} />
-        <View style={{ height: theme.spacing.md }} />
-        <Text style={sectionStyles.fieldLabel}>Type</Text>
-        <PickList<OrderDocType>
-          options={FACTORY_UPLOADABLE_TYPES.map((v) => ({
-            label: ORDER_DOC_LABELS[v],
-            value: v,
-          }))}
-          value={type}
-          onChange={setType}
-        />
-        {uploadError ? (
-          <Text style={sectionStyles.error}>{uploadError}</Text>
-        ) : null}
-        {uploadNote ? (
-          <Text style={sectionStyles.note}>{uploadNote}</Text>
-        ) : null}
-        <View style={{ height: theme.spacing.md }} />
-        <Button
-          label={
-            uploading
-              ? "Uploading…"
-              : online
-                ? "Upload document"
-                : "Save for upload (offline)"
-          }
-          onPress={submit}
-          loading={uploading}
-          disabled={!photo || uploading || !orderId}
-        />
+        {type === null ? (
+          <>
+            <Text style={sectionStyles.fieldLabel}>What are you uploading?</Text>
+            <PickList<OrderDocType>
+              options={FACTORY_UPLOADABLE_TYPES.map((v) => ({
+                label: ORDER_DOC_LABELS[v],
+                value: v,
+              }))}
+              value={null}
+              onChange={startCapture}
+            />
+          </>
+        ) : (
+          <>
+            <View style={sectionStyles.chipRow}>
+              <View style={sectionStyles.typeChip}>
+                <Text style={sectionStyles.typeChipText}>
+                  {ORDER_DOC_LABELS[type]}
+                </Text>
+              </View>
+              <Pressable
+                onPress={cancelSession}
+                hitSlop={8}
+                style={sectionStyles.linkBtn}
+              >
+                <Text style={sectionStyles.linkBtnText}>Change type</Text>
+              </Pressable>
+            </View>
+
+            {pages.length > 0 ? (
+              <View style={sectionStyles.pagesRow}>
+                {pages.map((p, i) => (
+                  <View key={i} style={sectionStyles.pageThumbWrap}>
+                    <Image
+                      source={{ uri: p.uri }}
+                      style={sectionStyles.pageThumb}
+                    />
+                    <Text style={sectionStyles.pageThumbLabel}>
+                      Page {i + 1}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+
+            <PhotoPicker photo={pending} onChange={setPending} />
+
+            <View style={{ flexDirection: "row", gap: 8, marginTop: theme.spacing.sm }}>
+              <Button
+                label={
+                  pending
+                    ? `Add page ${pages.length + 1}`
+                    : `Add page ${pages.length + 1} (take photo above)`
+                }
+                variant="secondary"
+                disabled={!pending}
+                onPress={addPending}
+              />
+              <Button
+                label={
+                  uploading
+                    ? "Uploading…"
+                    : `Upload ${pages.length + (pending ? 1 : 0)} page${pages.length + (pending ? 1 : 0) === 1 ? "" : "s"}`
+                }
+                loading={uploading}
+                disabled={
+                  uploading || (pages.length === 0 && !pending) || !orderId
+                }
+                onPress={submit}
+              />
+            </View>
+            {uploadNote ? (
+              <Text style={sectionStyles.note}>{uploadNote}</Text>
+            ) : null}
+          </>
+        )}
       </View>
 
       {queuedForThisOrder.length > 0 && (
@@ -406,10 +777,13 @@ function DocumentsSection({ orderId }: { orderId: string | null }) {
             <View key={q.localId} style={sectionStyles.queuedRow}>
               <Text style={sectionStyles.queuedType}>
                 {ORDER_DOC_LABELS[q.type]}
+                {q.pageIndex ? ` — page ${q.pageIndex}` : ""}
               </Text>
               <Text style={sectionStyles.queuedMeta}>
                 Queued {formatDate(new Date(q.queuedAt))}
-                {q.attempts > 0 ? ` · ${q.attempts} attempt${q.attempts === 1 ? "" : "s"}` : ""}
+                {q.attempts > 0
+                  ? ` · ${q.attempts} attempt${q.attempts === 1 ? "" : "s"}`
+                  : ""}
               </Text>
               {q.lastError ? (
                 <Text style={sectionStyles.queuedError}>{q.lastError}</Text>
@@ -426,8 +800,8 @@ function DocumentsSection({ orderId }: { orderId: string | null }) {
         </View>
       ) : (
         <View style={{ gap: theme.spacing.sm }}>
-          {(docs ?? []).map((doc) => (
-            <OrderDocRowView key={doc.id} doc={doc} />
+          {groupDocsByPage(docs ?? []).map((group) => (
+            <DocumentGroupView key={group.key} group={group} />
           ))}
         </View>
       )}
@@ -435,25 +809,43 @@ function DocumentsSection({ orderId }: { orderId: string | null }) {
   );
 }
 
-function OrderDocRowView({ doc }: { doc: OrderDocRow }) {
-  const [signedUrl, setSignedUrl] = useState<string | null>(null);
+function DocumentGroupView({
+  group,
+}: {
+  group: { key: string; type: OrderDocType; pages: OrderDocRow[]; createdAt: string };
+}) {
+  const [urls, setUrls] = useState<Record<string, string | null>>({});
 
   useEffect(() => {
     let alive = true;
-    void getSignedUrl(ORDER_DOC_BUCKET, doc.storagePath).then((url) => {
-      if (alive) setSignedUrl(url);
-    });
+    (async () => {
+      const entries = await Promise.all(
+        group.pages.map(async (p) => [
+          p.id,
+          await getSignedUrl(ORDER_DOC_BUCKET, p.storagePath),
+        ]),
+      );
+      if (alive) {
+        const next: Record<string, string | null> = {};
+        for (const [id, url] of entries) next[id as string] = url as string | null;
+        setUrls(next);
+      }
+    })();
     return () => {
       alive = false;
     };
-  }, [doc.storagePath]);
+  }, [group.pages]);
 
-  const isImage = /\.(jpe?g|png|webp|heic)$/i.test(doc.storagePath);
+  const first = group.pages[0];
+  const firstUrl = urls[first.id];
+  const isImage = /\.(jpe?g|png|webp|heic)$/i.test(first.storagePath);
+  const pageCount = group.pages.length;
 
-  async function open() {
-    if (!signedUrl) return;
+  async function open(pageId: string) {
+    const url = urls[pageId];
+    if (!url) return;
     try {
-      await Linking.openURL(signedUrl);
+      await Linking.openURL(url);
     } catch {
       Alert.alert("Could not open", "Try again later.");
     }
@@ -461,30 +853,41 @@ function OrderDocRowView({ doc }: { doc: OrderDocRow }) {
 
   return (
     <View style={sectionStyles.docRow}>
-      {isImage && signedUrl ? (
+      {isImage && firstUrl ? (
         <Image
-          source={{ uri: signedUrl }}
+          source={{ uri: firstUrl }}
           style={sectionStyles.docThumb}
           resizeMode="cover"
         />
       ) : (
         <View style={sectionStyles.docThumbPlaceholder}>
-          <Text style={sectionStyles.docThumbPlaceholderText}>PDF</Text>
+          <Text style={sectionStyles.docThumbPlaceholderText}>
+            {pageCount > 1 ? `${pageCount}p` : "PDF"}
+          </Text>
         </View>
       )}
       <View style={{ flex: 1 }}>
         <Text style={sectionStyles.docType}>
-          {ORDER_DOC_LABELS[doc.type]}
+          {ORDER_DOC_LABELS[group.type]}
+          {pageCount > 1 ? ` — ${pageCount} pages` : ""}
         </Text>
         <Text style={sectionStyles.docMeta}>
-          {formatDate(new Date(doc.createdAt))}
-          {doc.uploadedByName ? ` · ${doc.uploadedByName}` : ""}
+          {formatDate(new Date(group.createdAt))}
         </Text>
-        <Pressable onPress={open} hitSlop={8}>
-          <Text style={sectionStyles.docOpen}>
-            {signedUrl ? "Open →" : "Loading…"}
-          </Text>
-        </Pressable>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 6 }}>
+          {group.pages.map((p, i) => (
+            <Pressable
+              key={p.id}
+              onPress={() => open(p.id)}
+              hitSlop={8}
+              style={sectionStyles.pageLinkBtn}
+            >
+              <Text style={sectionStyles.pageLinkText}>
+                {pageCount > 1 ? `Page ${p.pageIndex ?? i + 1} →` : "Open →"}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
       </View>
     </View>
   );
@@ -516,10 +919,42 @@ const sectionStyles = StyleSheet.create({
     color: theme.colors.text,
     marginBottom: theme.spacing.sm,
   },
-  error: {
-    marginTop: theme.spacing.sm,
-    color: theme.colors.danger,
-    fontSize: theme.type.body,
+  chipRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: theme.spacing.md,
+  },
+  typeChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: theme.colors.primary,
+  },
+  typeChipText: { color: "#fff", fontWeight: "700" },
+  linkBtn: { padding: 6 },
+  linkBtnText: {
+    color: theme.colors.primary,
+    fontWeight: "700",
+    fontSize: theme.type.bodySmall,
+  },
+  pagesRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: theme.spacing.sm,
+  },
+  pageThumbWrap: { alignItems: "center" },
+  pageThumb: {
+    width: 70,
+    height: 70,
+    borderRadius: 6,
+    backgroundColor: theme.colors.surface,
+  },
+  pageThumbLabel: {
+    fontSize: 11,
+    color: theme.colors.textMuted,
+    marginTop: 2,
   },
   note: {
     marginTop: theme.spacing.sm,
@@ -593,8 +1028,8 @@ const sectionStyles = StyleSheet.create({
     fontSize: theme.type.bodySmall - 2,
     color: theme.colors.textMuted,
   },
-  docOpen: {
-    marginTop: theme.spacing.sm,
+  pageLinkBtn: { paddingVertical: 4, paddingHorizontal: 6 },
+  pageLinkText: {
     color: theme.colors.primary,
     fontSize: theme.type.bodySmall,
     fontWeight: "600",
@@ -606,10 +1041,7 @@ const sectionStyles = StyleSheet.create({
     borderRadius: theme.radius,
     alignItems: "center",
   },
-  emptyText: {
-    color: theme.colors.textMuted,
-    fontSize: theme.type.body,
-  },
+  emptyText: { color: theme.colors.textMuted, fontSize: theme.type.body },
 });
 
 function InfoCard({
@@ -640,11 +1072,7 @@ const styles = StyleSheet.create({
     gap: theme.spacing.lg,
     paddingBottom: theme.spacing.xl * 2,
   },
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
-  },
+  headerRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
   title: {
     fontSize: theme.type.title,
     fontWeight: "700",
@@ -656,10 +1084,29 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     marginTop: 2,
   },
+  byRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 6,
+  },
   by: {
-    fontSize: theme.type.bodySmall,
+    fontSize: theme.type.body,
     color: theme.colors.textMuted,
-    marginTop: 2,
+    fontWeight: "600",
+  },
+  callPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: theme.colors.primary,
+    minHeight: theme.tap,
+    justifyContent: "center",
+  },
+  callPillText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: theme.type.body,
   },
   cards: { gap: theme.spacing.md },
   card: {
@@ -682,10 +1129,16 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: theme.colors.text,
   },
-  sub: {
+  prodDateRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  prodDateBtn: { padding: 6 },
+  prodDateBtnText: {
+    color: theme.colors.primary,
+    fontWeight: "700",
     fontSize: theme.type.bodySmall,
-    color: theme.colors.textMuted,
-    marginTop: 2,
   },
   actions: { gap: theme.spacing.sm },
   pendingBanner: {
@@ -701,10 +1154,82 @@ const styles = StyleSheet.create({
     color: "#78350F",
     fontWeight: "600",
   },
-  doneLabel: {
-    textAlign: "center",
+  blockedBanner: {
+    padding: theme.spacing.md,
+    borderRadius: theme.radius,
+    borderWidth: 1,
+    borderColor: theme.colors.danger,
+    backgroundColor: theme.colors.dangerBg,
+    gap: 4,
+  },
+  blockedTitle: {
+    fontSize: theme.type.body,
+    fontWeight: "700",
+    color: theme.colors.danger,
+  },
+  blockedBody: {
+    fontSize: theme.type.bodySmall,
+    color: theme.colors.text,
+  },
+  sectionHeading: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: theme.colors.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: theme.spacing.sm,
+  },
+  lineRow: {
+    padding: theme.spacing.md,
+    borderRadius: theme.radius,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.background,
+    gap: 10,
+  },
+  lineHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  lineNumber: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    color: theme.colors.textMuted,
+  },
+  lineName: {
+    fontSize: theme.type.body,
+    fontWeight: "700",
+    color: theme.colors.text,
+    marginTop: 2,
+  },
+  lineMeta: {
     fontSize: theme.type.bodySmall,
     color: theme.colors.textMuted,
-    paddingVertical: theme.spacing.md,
+    marginTop: 2,
   },
+  pill: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  pillPending: { backgroundColor: theme.colors.border },
+  pillInProd: { backgroundColor: "#FFF3B0" },
+  pillReady: { backgroundColor: "#B7ECC7" },
+  pillText: { fontSize: 11, fontWeight: "800", letterSpacing: 0.5 },
+  lineBtn: {
+    minHeight: theme.tap,
+    borderRadius: theme.radius,
+    backgroundColor: theme.colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  lineBtnDisabled: { backgroundColor: theme.colors.surface },
+  lineBtnText: {
+    color: "#fff",
+    fontSize: theme.type.button,
+    fontWeight: "700",
+  },
+  lineBtnTextDisabled: { color: theme.colors.textMuted },
 });

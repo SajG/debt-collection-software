@@ -26,6 +26,8 @@ export type QueuedDoc = {
   localPath: string;
   fileName: string | null;
   mimeType: string | null;
+  pageGroupId: string | null;
+  pageIndex: number | null;
   queuedAt: string;
   attempts: number;
   lastError: string | null;
@@ -72,6 +74,8 @@ export async function enqueueDocument(input: {
   sourceUri: string;
   fileName: string | null;
   mimeType: string | null;
+  pageGroupId?: string | null;
+  pageIndex?: number | null;
 }): Promise<QueuedDoc> {
   await ensureDir();
   const id = localUuid();
@@ -85,6 +89,8 @@ export async function enqueueDocument(input: {
     localPath: dest,
     fileName: input.fileName,
     mimeType: input.mimeType,
+    pageGroupId: input.pageGroupId ?? null,
+    pageIndex: input.pageIndex ?? null,
     queuedAt: new Date().toISOString(),
     attempts: 0,
     lastError: null,
@@ -164,6 +170,8 @@ export async function drainDocsOnce(): Promise<{
         localUri: entry.localPath,
         fileName: entry.fileName,
         mimeType: entry.mimeType,
+        pageGroupId: entry.pageGroupId,
+        pageIndex: entry.pageIndex,
       });
       if ("error" in res) throw new Error(res.error);
       await removeQueued(entry.localId);

@@ -65,6 +65,10 @@ export default async function SalesOrderDetailPage({
       party: { select: { name: true } },
       product: { select: { name: true, brand: true } },
       salesperson: { select: { ownerName: true } },
+      items: {
+        orderBy: { lineNumber: "asc" },
+        include: { product: { select: { name: true, brand: true } } },
+      },
       statusEvents: {
         orderBy: { createdAt: "desc" },
         include: { updatedBy: { select: { ownerName: true } } },
@@ -147,21 +151,13 @@ export default async function SalesOrderDetailPage({
           </Card>
         )}
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card>
           <p className="text-xs uppercase tracking-wide text-muted-foreground">
-            Product
+            Line items
           </p>
           <p className="mt-1 font-semibold text-foreground">
-            {order.brand || order.product.brand || "—"} · {order.product.name}
-          </p>
-        </Card>
-        <Card>
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">
-            Quantity
-          </p>
-          <p className="mt-1 font-semibold text-foreground">
-            {toNumber(order.quantity)} {order.quantityUnit}
+            {order.items.length} {order.items.length === 1 ? "SKU" : "SKUs"}
           </p>
         </Card>
         <Card>
@@ -184,18 +180,72 @@ export default async function SalesOrderDetailPage({
         </Card>
       </div>
 
+      <Card title="Line items" className="mb-6">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-xs uppercase text-muted-foreground">
+              <tr className="border-b border-border">
+                <th className="py-2 text-left">#</th>
+                <th className="py-2 text-left">Product</th>
+                <th className="py-2 text-right">Quantity</th>
+                <th className="py-2 text-left">Packing / Size</th>
+                <th className="py-2 text-right">Rate</th>
+                <th className="py-2 text-right">Line value</th>
+                <th className="py-2 text-left">Rate approval</th>
+              </tr>
+            </thead>
+            <tbody>
+              {order.items.map((li) => (
+                <tr key={li.id} className="border-b border-border/50">
+                  <td className="py-2 text-foreground">{li.lineNumber}</td>
+                  <td className="py-2">
+                    <span className="text-foreground">
+                      {li.brand || li.product.brand}
+                    </span>
+                    <p className="text-xs text-muted-foreground">
+                      {li.product.name}
+                    </p>
+                  </td>
+                  <td className="py-2 text-right">
+                    {toNumber(li.quantity)} {li.quantityUnit}
+                  </td>
+                  <td className="py-2">
+                    {[li.packingType, li.sizeKg ? `${li.sizeKg} kg` : null]
+                      .filter(Boolean)
+                      .join(" · ") || "—"}
+                  </td>
+                  <td className="py-2 text-right">{li.productRate}</td>
+                  <td className="py-2 text-right">
+                    {formatINR(li.lineValue)}
+                  </td>
+                  <td className="py-2 text-xs">
+                    {li.needsRateApproval ? (
+                      <Badge tone="amber">Pending</Badge>
+                    ) : li.rateApprovedAt ? (
+                      <Badge tone="success">Approved</Badge>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              <tr>
+                <td colSpan={5} className="py-2 text-right font-medium">
+                  Total
+                </td>
+                <td className="py-2 text-right font-semibold">
+                  {formatINR(order.orderValue)}
+                </td>
+                <td />
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
       <Card title="Order details" className="mb-6">
         <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Detail label="Dispatch location" value={order.dispatchLocation} />
-          <Detail label="Packing" value={order.packingType} />
-          <Detail
-            label="Size"
-            value={order.sizeKg ? `${order.sizeKg} kg` : null}
-          />
-          <Detail
-            label="Rate"
-            value={order.productRate}
-          />
           <Detail label="Payment terms" value={order.paymentTerm} />
           <Detail label="Transport" value={order.transportType} />
           <Detail label="Token / Gift" value={order.tokenType} />

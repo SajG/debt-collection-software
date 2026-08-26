@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "./supabase";
 import type { Database, OrderStatus } from "./database.types";
+import { getProfileDirectory, type ProfileDirectoryEntry } from "./profile-directory";
 
 // Plain-hooks data layer. Every hook returns { data, loading, error, refetch }
 // so the screens can stay small. When we outgrow this, drop-in TanStack
@@ -61,7 +62,18 @@ export type OrderListRow = Pick<
 > & {
   party: { id: string; name: string } | null;
   product: { name: string; brand: string | null } | null;
-  salesperson: { id: string; ownerName: string } | null;
+  // ownerName + phone are nullable — STAFF callers can't read the
+  // directory RPC. Renderers show "Unknown user" and hide the
+  // tap-to-call action when phone is null.
+  salesperson: {
+    id: string;
+    ownerName: string | null;
+    phone: string | null;
+  } | null;
+  needsRateApproval: boolean;
+  holdReasonCategory: string | null;
+  holdReason: string | null;
+  itemCount: number;
 };
 
 export function useOwnOrders(
@@ -76,11 +88,17 @@ export function useOwnOrders(
     let q = supabase
       .from("SalesOrder")
       .select(
+        // NOTE: salesperson is hydrated client-side from
+        // get_profile_directory() below. Do NOT re-add a
+        // salesperson:Profile!fkey embed here — Profile has RLS that
+        // limits SELECT to (id = auth.uid()), so the embed silently
+        // returns null for every row you didn't personally place.
         `id, orderNumber, currentStatus, quantity, quantityUnit,
-         expectedDeliveryDate, createdAt, brand,
+         expectedDeliveryDate, createdAt, brand, salespersonId,
+         needsRateApproval, holdReasonCategory, holdReason,
          party:Party!SalesOrder_partyId_fkey(id, name),
          product:Product!SalesOrder_productId_fkey(name, brand),
-         salesperson:Profile!SalesOrder_salespersonId_fkey(id, ownerName)`,
+         items:SalesOrderItem!SalesOrderItem_salesOrderId_fkey(id)`,
       )
       .order("createdAt", { ascending: false })
       .limit(200);
@@ -107,23 +125,68 @@ export function useOwnOrders(
 
     const { data, error } = await q;
     if (error) throw error;
-    return (data ?? []) as unknown as OrderListRow[];
+    const rows = (data ?? []) as unknown as (Omit<
+      OrderListRow,
+      "salesperson" | "itemCount"
+    > & {
+      salespersonId: string | null;
+      items: { id: string }[] | null;
+    })[];
+    const dir = await getProfileDirectory();
+    return rows.map((r) => {
+      const hit: ProfileDirectoryEntry | undefined = r.salespersonId
+        ? dir.get(r.salespersonId)
+        : undefined;
+      return {
+        ...r,
+        salesperson: r.salespersonId
+          ? {
+              id: r.salespersonId,
+              ownerName: hit?.ownerName ?? null,
+              phone: hit?.phone ?? null,
+            }
+          : null,
+        itemCount: r.items?.length ?? 0,
+      } as OrderListRow;
+    });
   });
 }
 
 // ── Order detail + timeline ────────────────────────────────────────
 
+export type LineProductionStatus = "PENDING" | "IN_PRODUCTION" | "READY";
+
+export type OrderDetailItem = {
+  id: string;
+  lineNumber: number;
+  brand: string;
+  quantity: number | string;
+  quantityUnit: string;
+  packingType: string | null;
+  sizeKg: string | null;
+  productRate: string;
+  lineValue: number | string;
+  needsRateApproval: boolean;
+  productionStatus: LineProductionStatus;
+  product: { name: string; brand: string | null } | null;
+};
+
 export type OrderDetail =
   Database["public"]["Tables"]["SalesOrder"]["Row"] & {
     party: { id: string; name: string } | null;
     product: { name: string; brand: string | null } | null;
-    salesperson: { ownerName: string } | null;
+    salesperson: {
+      ownerName: string | null;
+      phone: string | null;
+    } | null;
+    items: OrderDetailItem[];
     events: {
       id: string;
       status: OrderStatus;
       notes: string | null;
       createdAt: string;
-      updatedBy: { ownerName: string } | null;
+      updatedById: string | null;
+      updatedBy: { ownerName: string | null } | null;
     }[];
   };
 
@@ -133,30 +196,109 @@ export function useOrderDetail(id: string | null) {
     const { data, error } = await supabase
       .from("SalesOrder")
       .select(
+        // Profile embeds intentionally removed — RLS on Profile is
+        // (id = auth.uid()) so joins silently null out. Names are
+        // hydrated below from get_profile_directory().
         `*,
          party:Party!SalesOrder_partyId_fkey(id, name),
          product:Product!SalesOrder_productId_fkey(name, brand),
-         salesperson:Profile!SalesOrder_salespersonId_fkey(ownerName),
+         items:SalesOrderItem!SalesOrderItem_salesOrderId_fkey(
+           id, lineNumber, brand, quantity, quantityUnit,
+           packingType, sizeKg, productRate, lineValue,
+           needsRateApproval, productionStatus,
+           product:Product!SalesOrderItem_productId_fkey(name, brand)
+         ),
          events:OrderStatusEvent!OrderStatusEvent_salesOrderId_fkey(
-           id, status, notes, createdAt,
-           updatedBy:Profile!OrderStatusEvent_updatedById_fkey(ownerName)
+           id, status, notes, createdAt, updatedById
          )`,
       )
       .eq("id", id)
       .maybeSingle();
     if (error) throw error;
     if (!data) return null;
-    // Order events oldest → newest for the timeline. The Supabase query
-    // builder erases the joined shape (opaque select string), so we cast
-    // via OrderDetail on the way out.
-    const detail = data as unknown as OrderDetail;
-    return {
-      ...detail,
-      events: [...(detail.events ?? [])].sort((a, b) =>
-        a.createdAt.localeCompare(b.createdAt),
-      ),
+    const raw = data as unknown as Omit<
+      OrderDetail,
+      "salesperson" | "events" | "items"
+    > & {
+      salespersonId: string | null;
+      items: OrderDetailItem[] | null;
+      events: {
+        id: string;
+        status: OrderStatus;
+        notes: string | null;
+        createdAt: string;
+        updatedById: string | null;
+      }[];
     };
+    const dir = await getProfileDirectory();
+    const hydrateName = (uid: string | null): string | null => {
+      if (!uid) return null;
+      return dir.get(uid)?.ownerName ?? null;
+    };
+    const events = [...(raw.events ?? [])]
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .map((e) => ({
+        ...e,
+        updatedBy: e.updatedById
+          ? { ownerName: hydrateName(e.updatedById) }
+          : null,
+      }));
+    const items = [...(raw.items ?? [])].sort(
+      (a, b) => a.lineNumber - b.lineNumber,
+    );
+    const spHit = raw.salespersonId
+      ? dir.get(raw.salespersonId)
+      : undefined;
+    return {
+      ...raw,
+      items,
+      salesperson: raw.salespersonId
+        ? {
+            ownerName: spHit?.ownerName ?? null,
+            phone: spHit?.phone ?? null,
+          }
+        : null,
+      events,
+    } as OrderDetail;
   });
+}
+
+// Set the production stage on one line. The DB trigger
+// _recompute_order_status_from_lines rolls the header's currentStatus
+// from the aggregate. RLS `sales_order_item_update_factory` gates
+// this to FACTORY + ADMIN.
+export async function setLineProductionStatus(
+  itemId: string,
+  status: LineProductionStatus,
+): Promise<{ ok: true } | { error: string }> {
+  // SalesOrderItem was added by migration 20260824180000 and isn't in
+  // the regenerated types yet. Cast through unknown so the eq/update
+  // pair typechecks; the shape is correct at runtime.
+  const { error } = await (supabase.from as unknown as (
+    rel: string,
+  ) => {
+    update: (v: Record<string, unknown>) => {
+      eq: (col: string, val: string) => Promise<{ error: { message: string } | null }>;
+    };
+  })("SalesOrderItem")
+    .update({ productionStatus: status })
+    .eq("id", itemId);
+  if (error) return { error: error.message };
+  return { ok: true };
+}
+
+// Set expectedProductionDate on the order. Factory RLS allows this
+// column to be updated by FACTORY role.
+export async function setExpectedProductionDate(
+  orderId: string,
+  isoDate: string | null,
+): Promise<{ ok: true } | { error: string }> {
+  const { error } = await supabase
+    .from("SalesOrder")
+    .update({ expectedProductionDate: isoDate })
+    .eq("id", orderId);
+  if (error) return { error: error.message };
+  return { ok: true };
 }
 
 // ── Parties (customer picker + dues search) ────────────────────────
@@ -190,13 +332,17 @@ export type ProductRow = {
   name: string;
   brand: string | null;
   sortOrder: number;
+  /** Comes back as number | string | null from PostgREST for a decimal
+   *  column; consumers coerce with Number(). Included so the review
+   *  screen can show a below-floor warning BEFORE submit. */
+  floorRate: number | string | null;
 };
 
 export function useProducts() {
   return useQuery<ProductRow[]>("products", async () => {
     const { data, error } = await supabase
       .from("Product")
-      .select("id, name, brand, sortOrder")
+      .select("id, name, brand, sortOrder, floorRate")
       .eq("isActive", true)
       .order("brand", { ascending: true })
       .order("sortOrder", { ascending: true });

@@ -10,7 +10,8 @@
     "db:push": "prisma db push",
     "test": "vitest run",
     "db:seed": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/seed.ts",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "verify:team": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/verify-team.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",

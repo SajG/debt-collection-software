@@ -47,6 +47,12 @@ export default function PhoneScreen() {
       // Supabase Auth's own allowlist / phone-provider config.
       const GENERIC =
         "This number is not registered. Contact your administrator.";
+      // Dev-only diagnostic. Appended to GENERIC when __DEV__ so a
+      // developer can tell which of the three failure modes fired.
+      // Release builds never take this branch — the wire behaviour is
+      // identical: same string, no reason leaked.
+      const withReason = (reason: string) =>
+        __DEV__ ? `${GENERIC}\n[dev] ${reason}` : GENERIC;
 
       const { data: rl } = await supabase.rpc(
         "check_phone_otp_rate_limit",
@@ -54,23 +60,25 @@ export default function PhoneScreen() {
       );
       const limited = Array.isArray(rl) && rl[0]?.limited;
       if (limited) {
-        setError(GENERIC);
+        setError(withReason("rate_limited"));
         return;
       }
 
       let allowed = false;
+      let rpcErrMsg: string | null = null;
       try {
         const { data, error } = await supabase.rpc("is_provisioned_phone", {
           p_phone: e164,
         });
         if (error) throw error;
         allowed = data === true;
-      } catch {
-        // Fall through to the generic error rather than leaking
-        // "the network is down" — attacker learns nothing either way.
+      } catch (e) {
+        rpcErrMsg = e instanceof Error ? e.message : String(e);
       }
       if (!allowed) {
-        setError(GENERIC);
+        setError(
+          withReason(rpcErrMsg ? `rpc_error: ${rpcErrMsg}` : "unprovisioned"),
+        );
         return;
       }
 

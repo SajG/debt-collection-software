@@ -27,7 +27,8 @@ type Event = {
   status: OrderStatus;
   notes: string | null;
   createdAt: string;
-  updatedBy: { ownerName: string } | null;
+  updatedById?: string | null;
+  updatedBy: { ownerName: string | null } | null;
 };
 
 type MergedItem =
@@ -172,7 +173,9 @@ function StatusRow({ ev }: { ev: Event }) {
       </View>
       <Text style={styles.meta}>
         {formatWhen(ev.createdAt)}
-        {ev.updatedBy ? ` · ${ev.updatedBy.ownerName}` : ""}
+        {ev.updatedById || ev.updatedBy
+          ? ` · ${ev.updatedBy?.ownerName ?? "Unknown user"}`
+          : ""}
       </Text>
       {ev.notes ? <Text style={styles.body}>{ev.notes}</Text> : null}
     </View>

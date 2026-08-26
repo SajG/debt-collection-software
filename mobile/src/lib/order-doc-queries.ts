@@ -25,7 +25,41 @@ export type OrderDocRow = {
   storagePath: string;
   createdAt: string;
   uploadedByName: string | null;
+  pageGroupId: string | null;
+  pageIndex: number | null;
 };
+
+/** Group rows by pageGroupId — a 3-page LR shows as one document. */
+export function groupDocsByPage(
+  rows: OrderDocRow[],
+): { key: string; type: OrderDocType; pages: OrderDocRow[]; createdAt: string }[] {
+  const byGroup = new Map<
+    string,
+    { key: string; type: OrderDocType; pages: OrderDocRow[]; createdAt: string }
+  >();
+  for (const r of rows) {
+    const key = r.pageGroupId ?? `single:${r.id}`;
+    let g = byGroup.get(key);
+    if (!g) {
+      g = {
+        key,
+        type: r.type,
+        pages: [],
+        createdAt: r.createdAt,
+      };
+      byGroup.set(key, g);
+    }
+    g.pages.push(r);
+    // Group's timestamp is the earliest page.
+    if (r.createdAt < g.createdAt) g.createdAt = r.createdAt;
+  }
+  const groups = Array.from(byGroup.values());
+  for (const g of groups) {
+    g.pages.sort((a, b) => (a.pageIndex ?? 0) - (b.pageIndex ?? 0));
+  }
+  groups.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return groups;
+}
 
 type State<T> = {
   data: T | null;
@@ -70,7 +104,7 @@ export function useOrderDocuments(orderId: string | null) {
     const { data, error } = await supabase
       .from("OrderDocument")
       .select(
-        `id, type, storagePath, createdAt,
+        `id, type, storagePath, createdAt, pageGroupId, pageIndex,
          uploadedBy:Profile!OrderDocument_uploadedById_fkey(ownerName)`
       )
       .eq("salesOrderId", orderId)
@@ -82,6 +116,8 @@ export function useOrderDocuments(orderId: string | null) {
       storagePath: d.storagePath,
       createdAt: d.createdAt,
       uploadedByName: d.uploadedBy?.ownerName ?? null,
+      pageGroupId: d.pageGroupId ?? null,
+      pageIndex: d.pageIndex ?? null,
     }));
   });
 }
@@ -92,6 +128,13 @@ export async function attachOrderDocument(input: {
   localUri: string;
   fileName?: string | null;
   mimeType?: string | null;
+  /** For multi-page documents (e.g. a 3-page LR): all pages share one
+   *  pageGroupId, pageIndex is 1-based. Renderers collapse a group
+   *  into a single card. For a single-page capture the caller may
+   *  still set pageGroupId + pageIndex=1 so a later "add another
+   *  page" flow can extend the group. */
+  pageGroupId?: string | null;
+  pageIndex?: number | null;
 }): Promise<{ ok: true } | { error: string }> {
   const {
     data: { user },
@@ -113,7 +156,9 @@ export async function attachOrderDocument(input: {
     type: input.type,
     storagePath: uploaded.path,
     uploadedById: user.id,
-  });
+    pageGroupId: input.pageGroupId ?? null,
+    pageIndex: input.pageIndex ?? null,
+  } as never);
   if (error) return { error: error.message };
   return { ok: true };
 }

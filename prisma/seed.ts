@@ -1,6 +1,7 @@
-import { PrismaClient, OrderStatus, type Role } from "@prisma/client";
+import { PrismaClient, OrderStatus } from "@prisma/client";
 import { randomUUID } from "crypto";
 import { createClient } from "@supabase/supabase-js";
+import { TEAM, PHONE_10, toE164, type TeamRow } from "./team";
 
 const db = new PrismaClient();
 
@@ -16,51 +17,9 @@ const db = new PrismaClient();
 // signs them straight back out.
 // ─────────────────────────────────────────────────────────────────
 
-const PHONE_10 = /^[6-9]\d{9}$/;
-
-type TeamRow = {
-  ownerName: string;
-  role: Role;
-  /** 10-digit local number or "PENDING" for rows we intentionally skip. */
-  phone: string;
-  note?: string;
-};
-
-const TEAM: TeamRow[] = [
-  // Admins — also route into the staff group on mobile so they can
-  // place orders alongside the salespeople.
-  { ownerName: "Vaibhav Ghatpande", role: "ADMIN",   phone: "9371635315" },
-  { ownerName: "Sajal Ghatpande",   role: "ADMIN",   phone: "7774055316" },
-
-  // Factory / dispatch team.
-  { ownerName: "Chaitanya Deshpande", role: "FACTORY", phone: "8626010898" },
-  { ownerName: "Mahesh Jadhav",       role: "FACTORY", phone: "9604558658" },
-  {
-    ownerName: "Seema Patil",
-    role: "FACTORY",
-    phone: "9921336535",
-    note: "accountant; needs order rates for invoicing",
-  },
-  { ownerName: "Sachin Haveli",       role: "FACTORY", phone: "9923139100" },
-
-  // Salespeople.
-  { ownerName: "Sanjay Thorat",   role: "STAFF", phone: "9552670106" },
-  { ownerName: "Vikas Chaudhari", role: "STAFF", phone: "7020791094" },
-  { ownerName: "Sunil Karle",     role: "STAFF", phone: "7709545662" },
-  { ownerName: "Irshad Jamadar",  role: "STAFF", phone: "9158464446" },
-  { ownerName: "Om Sharma",       role: "STAFF", phone: "9822569216" },
-  { ownerName: "Monesh Pattar",   role: "STAFF", phone: "9901112508" },
-  { ownerName: "Sunil Gaikwad",   role: "STAFF", phone: "9975370106" },
-  { ownerName: "Nitin Kosandar",  role: "STAFF", phone: "7028166235" },
-];
-
 const BUSINESS_NAME = "Synergy Bonding Solutions Pvt Ltd";
 
 type SeedOutcome = "created" | "skipped-exists" | "skipped-invalid" | "failed";
-
-function toE164(local: string): string {
-  return `+91${local}`;
-}
 
 function makeSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -348,8 +307,10 @@ async function seedSampleOrders(
 
   const polygum = products.find((p) => p.brand === "Polygum");
   const generic = products.find((p) => p.name === "PA-10");
-  if (!polygum || !generic) {
-    throw new Error("Expected Polygum and PA-10 products in catalogue");
+  const ombond = products.find((p) => p.brand === "Ombond");
+  const psa55 = products.find((p) => p.name === "PSA 55");
+  if (!polygum || !generic || !ombond || !psa55) {
+    throw new Error("Expected Polygum, Ombond, PA-10, PSA 55 in catalogue");
   }
 
   const fy = currentFyLabel();
@@ -372,6 +333,21 @@ async function seedSampleOrders(
       notes: "Seed sample — existing ledger customer",
       currentStatus: OrderStatus.ORDER_PLACED,
       creditCheckPassed: true,
+      items: {
+        create: [
+          {
+            lineNumber: 1,
+            productId: polygum.id,
+            brand: polygum.brand,
+            quantity: 50,
+            quantityUnit: "PCS",
+            packingType: "Carton",
+            sizeKg: "5",
+            productRate: "185",
+            lineValue: 9250,
+          },
+        ],
+      },
       statusEvents: {
         create: {
           status: OrderStatus.ORDER_PLACED,
@@ -400,6 +376,21 @@ async function seedSampleOrders(
       notes: "Seed sample — free-text new customer",
       currentStatus: OrderStatus.IN_PRODUCTION,
       creditCheckPassed: true,
+      items: {
+        create: [
+          {
+            lineNumber: 1,
+            productId: generic.id,
+            brand: "Ombond",
+            quantity: 200,
+            quantityUnit: "KG",
+            packingType: "Bag",
+            sizeKg: "25",
+            productRate: "42.50",
+            lineValue: 8500,
+          },
+        ],
+      },
       statusEvents: {
         create: [
           {
@@ -417,7 +408,79 @@ async function seedSampleOrders(
     },
   });
 
-  console.log(`Seeded sample orders: ${order1.orderNumber}, ${order2.orderNumber}`);
+  // Multi-line sample so every downstream reader exercises the new
+  // items table (the header scalars mirror line 1; orderValue = SUM).
+  const order3 = await db.salesOrder.create({
+    data: {
+      orderNumber: `SB/${fy}/0003`,
+      partyId,
+      salespersonId,
+      // Header scalars mirror line 1 — the trigger will resync on
+      // item insert but the parent insert needs non-null values.
+      productId: polygum.id,
+      brand: polygum.brand,
+      quantity: 30,
+      quantityUnit: "PCS",
+      packingType: "Carton",
+      sizeKg: "5",
+      productRate: "185",
+      orderValue: 30 * 185 + 100 * 42.5 + 20 * 620,
+      paymentTerm: "30 days",
+      transportType: "By Road",
+      expectedDeliveryDate: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000),
+      notes: "Seed sample — multi-SKU order (3 lines, single order number)",
+      currentStatus: OrderStatus.ORDER_PLACED,
+      creditCheckPassed: true,
+      items: {
+        create: [
+          {
+            lineNumber: 1,
+            productId: polygum.id,
+            brand: polygum.brand,
+            quantity: 30,
+            quantityUnit: "PCS",
+            packingType: "Carton",
+            sizeKg: "5",
+            productRate: "185",
+            lineValue: 30 * 185,
+          },
+          {
+            lineNumber: 2,
+            productId: generic.id,
+            brand: "Ombond",
+            quantity: 100,
+            quantityUnit: "KG",
+            packingType: "Bag",
+            sizeKg: "25",
+            productRate: "42.50",
+            lineValue: 100 * 42.5,
+          },
+          {
+            lineNumber: 3,
+            productId: psa55.id,
+            brand: "",
+            quantity: 20,
+            quantityUnit: "KG",
+            packingType: "Drum",
+            sizeKg: "50",
+            productRate: "620",
+            lineValue: 20 * 620,
+          },
+        ],
+      },
+      statusEvents: {
+        create: {
+          status: OrderStatus.ORDER_PLACED,
+          notes: "Order placed (seed, multi-line)",
+          updatedById: salespersonId,
+        },
+      },
+    },
+  });
+
+  console.log(
+    `Seeded sample orders: ${order1.orderNumber}, ${order2.orderNumber}, ${order3.orderNumber} (3 lines)`,
+  );
 }
 
 async function main() {
@@ -433,8 +496,23 @@ async function main() {
     const teamResults = await seedTeam();
     printTeamSummary(teamResults);
   } else {
-    console.log(
-      "\nSkipping team seed — set NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY to enable.",
+    const bar = "!".repeat(72);
+    console.warn(
+      [
+        "",
+        bar,
+        "!!  TEAM SEED SKIPPED — no users were created.",
+        "!!  Mobile login will fail for EVERYONE.",
+        "!!",
+        "!!  Missing env:",
+        `!!    NEXT_PUBLIC_SUPABASE_URL     ${process.env.NEXT_PUBLIC_SUPABASE_URL ? "set" : "MISSING"}`,
+        `!!    SUPABASE_SERVICE_ROLE_KEY   ${process.env.SUPABASE_SERVICE_ROLE_KEY ? "set" : "MISSING"}`,
+        "!!",
+        "!!  Set both, then re-run:  npm run db:seed",
+        "!!  Verify after seeding:   npm run verify:team",
+        bar,
+        "",
+      ].join("\n"),
     );
   }
 

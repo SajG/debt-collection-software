@@ -1,117 +1,180 @@
-import { useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useMemo, useState } from "react";
+import { Alert, ScrollView, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { Screen } from "@/components/Screen";
 import { WizardHeader } from "@/components/WizardHeader";
 import { Button } from "@/components/Button";
 import { confirm } from "@/components/Confirm";
-import { useWizard, isDraftComplete } from "@/lib/order-draft";
+import {
+  draftTotal,
+  isDraftComplete,
+  useWizard,
+  type OrderDraftItem,
+} from "@/lib/order-draft";
 import { useConnectivity } from "@/lib/connectivity";
-import { enqueue } from "@/lib/order-queue";
+import {
+  enqueue,
+  type OrderRpcHeader,
+  type OrderRpcItem,
+  type OrderRpcPayload,
+} from "@/lib/order-queue";
 import { supabase } from "@/lib/supabase";
-import { formatDate, formatINR } from "@/lib/format";
 import { usePartyCredit } from "@/lib/stock-queries";
-import { t } from "@/lib/i18n";
+import { useProducts } from "@/lib/queries";
+import { recordLastUsed } from "@/lib/last-used";
+import { formatDate, formatINR } from "@/lib/format";
+import { humaniseError, isRetryableRpcError } from "@/lib/errors";
+import { successHaptic, warningHaptic, errorHaptic } from "@/lib/haptics";
 import { theme } from "@/theme";
+
+// Screen 3: review + place. Every gate that the server enforces
+// (credit-limit, per-line floor rate) is checked client-side and
+// surfaced HERE, so a below-floor rate or over-limit total is a
+// warning the salesperson sees BEFORE they tap "Place order" — not a
+// post-submit error.
 
 function parseRate(raw: string): number {
   const m = raw.replace(/[₹,\s]/g, "").match(/-?[\d.]+/);
   return m ? Number(m[0]) : 0;
 }
 
-type RouteName =
-  | "/(staff)/orders/new/customer"
-  | "/(staff)/orders/new/dispatch"
-  | "/(staff)/orders/new/brand"
-  | "/(staff)/orders/new/product"
-  | "/(staff)/orders/new/quantity"
-  | "/(staff)/orders/new/packing"
-  | "/(staff)/orders/new/rate"
-  | "/(staff)/orders/new/terms"
-  | "/(staff)/orders/new/delivery"
-  | "/(staff)/orders/new/token"
-  | "/(staff)/orders/new/notes";
-
-const CHANGE_ROUTES: Record<string, RouteName> = {
-  customer: "/(staff)/orders/new/customer",
-  dispatch: "/(staff)/orders/new/dispatch",
-  brand: "/(staff)/orders/new/brand",
-  product: "/(staff)/orders/new/product",
-  quantity: "/(staff)/orders/new/quantity",
-  packing: "/(staff)/orders/new/packing",
-  rate: "/(staff)/orders/new/rate",
-  terms: "/(staff)/orders/new/terms",
-  delivery: "/(staff)/orders/new/delivery",
-  token: "/(staff)/orders/new/token",
-  notes: "/(staff)/orders/new/notes",
-};
-
-export default function StepReview() {
+export default function ScreenReview() {
   const { draft, discard } = useWizard();
   const { online } = useConnectivity();
   const [submitting, setSubmitting] = useState(false);
   const { data: credit } = usePartyCredit(draft.partyId ?? null);
+  // Product floor rates for the below-floor warning. We already load
+  // Products for the item sheet — this reuses the same cached fetch.
+  const { data: products } = useProducts();
+  const productMap = useMemo(() => {
+    const m = new Map<string, { floorRate: number | null }>();
+    for (const p of products ?? []) {
+      m.set(p.id, {
+        floorRate:
+          (p as { floorRate?: number | string | null }).floorRate == null
+            ? null
+            : Number((p as { floorRate: number | string }).floorRate),
+      });
+    }
+    return m;
+  }, [products]);
 
-  const complete = isDraftComplete(draft);
-
-  const orderValue =
-    (Number(draft.quantity) || 0) * parseRate(draft.productRate);
-  const projected = (credit?.totalOutstanding ?? 0) + orderValue;
+  const total = draftTotal(draft);
+  const projected = (credit?.totalOutstanding ?? 0) + total;
   const overLimit =
     credit?.creditLimit != null && projected > credit.creditLimit;
 
+  const belowFloorLines = useMemo(() => {
+    const hits: { line: number; product: string; floor: number; rate: number }[] =
+      [];
+    draft.items.forEach((it, i) => {
+      if (!it.productId) return;
+      const floor = productMap.get(it.productId)?.floorRate;
+      const rate = parseRate(it.productRate);
+      if (floor != null && rate > 0 && rate < floor) {
+        hits.push({
+          line: i + 1,
+          product: it.productName ?? "",
+          floor,
+          rate,
+        });
+      }
+    });
+    return hits;
+  }, [draft.items, productMap]);
+
+  const complete = isDraftComplete(draft);
+
   async function submit() {
     if (!complete) {
-      Alert.alert(t("wizard.review.title"), t("wizard.review.missing"));
+      Alert.alert("Order", "Some fields are still empty.");
       return;
     }
     setSubmitting(true);
 
-    const rpcPayload = {
-      p_party_id: draft.partyId,
-      p_new_customer_name: draft.newCustomerName,
-      p_dispatch_location: draft.dispatchLocation.trim() || null,
-      p_product_id: draft.productId,
-      p_new_product_name: draft.productId
+    const header: OrderRpcHeader = {
+      partyId: draft.partyId,
+      newCustomerName: draft.newCustomerName,
+      dispatchLocation: draft.dispatchLocation.trim() || null,
+      paymentTerm: draft.paymentTerm!,
+      transportType: draft.transportType!,
+      expectedDeliveryDate: draft.expectedDeliveryDate,
+      tokenType: draft.tokenType,
+      notes: draft.notes.trim() ? draft.notes.trim() : null,
+      creditOverrideNote: null,
+    };
+    const items: OrderRpcItem[] = draft.items.map((it) => ({
+      productId: it.productId,
+      newProductName: it.productId
         ? null
-        : (draft.customProductName?.trim() || null),
-      p_brand: draft.brand,
-      p_quantity: Number(draft.quantity),
-      p_quantity_unit: draft.quantityUnit,
-      p_packing_type: draft.packingType!,
-      p_size_kg: draft.sizeKg!,
-      p_product_rate: draft.productRate.trim(),
-      p_payment_term: draft.paymentTerm!,
-      p_transport_type: draft.transportType!,
-      p_expected_delivery_date: draft.expectedDeliveryDate,
-      p_token_type: draft.tokenType,
-      p_notes: draft.notes.trim() ? draft.notes.trim() : null,
-    } as const;
+        : it.customProductName?.trim() || null,
+      brand: it.brand ?? "",
+      quantity: Number(it.quantity),
+      quantityUnit: it.quantityUnit,
+      packingType: it.packingType!,
+      sizeKg: it.sizeKg!,
+      productRate: it.productRate.trim(),
+    }));
+    const payload: OrderRpcPayload = { header, items };
 
+    const firstItem = draft.items[0];
     const display = {
-      partyName: draft.partyName ?? "",
-      productName: draft.productName ?? "",
-      brand: draft.brand,
-      quantity: Number(draft.quantity),
-      quantityUnit: draft.quantityUnit,
+      partyName: draft.partyName ?? draft.newCustomerName ?? "",
+      productName:
+        firstItem?.productName ?? firstItem?.customProductName ?? "",
+      brand: firstItem?.brand ?? null,
+      itemCount: draft.items.length,
+      totalQuantity: draft.items.reduce(
+        (s, it) => s + (Number(it.quantity) || 0),
+        0,
+      ),
+      quantityUnit: firstItem?.quantityUnit ?? "KG",
       currentStatus: "ORDER_PLACED" as const,
     };
 
+    // Record last-used for prefill on the next order to this customer.
+    await recordLastUsed(draft.partyId, {
+      dispatchLocation: draft.dispatchLocation.trim(),
+      paymentTerm: draft.paymentTerm ?? undefined,
+      transportType: draft.transportType ?? undefined,
+      tokenType: draft.tokenType ?? undefined,
+    });
+
     if (!online) {
-      await enqueue(rpcPayload, display);
+      await enqueue(payload, display);
+      warningHaptic();
       await finishOffline();
       return;
     }
 
     try {
-      const { error } = await supabase.rpc("create_sales_order", rpcPayload);
+      const { error } = await (supabase.rpc as unknown as (
+        fn: string,
+        args: Record<string, unknown>,
+      ) => Promise<{ error: { message: string } | null }>)(
+        "create_sales_order_v2",
+        { p_header: header, p_items: items },
+      );
       if (error) throw new Error(error.message);
+      successHaptic();
       await finishOnline();
     } catch (e) {
-      // Any RPC failure treated as network-ish: queue and let drainer retry.
-      // (A hard schema error will surface in the queued row's lastError.)
-      await enqueue(rpcPayload, display);
-      await finishOffline();
+      // Only truly retryable failures (network drop, timeout) go into
+      // the offline queue. Everything else — missing RPC, permission
+      // denied, credit exceeded, validation — is shown to the
+      // salesperson NOW so they know it wasn't accepted. Silent
+      // queuing on an app-shape error is how you get a chip that says
+      // "waiting to sync" while the DB is missing the function
+      // entirely.
+      if (isRetryableRpcError(e)) {
+        await enqueue(payload, display);
+        warningHaptic();
+        await finishOffline();
+      } else {
+        errorHaptic();
+        const hum = humaniseError(e, { action: "place-order" });
+        Alert.alert("Order not placed", hum.message);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -119,132 +182,104 @@ export default function StepReview() {
 
   async function finishOnline() {
     await discard();
-    Alert.alert(t("wizard.review.title"), t("wizard.review.submittedOnline"));
+    Alert.alert("Order placed", "The factory will see it immediately.");
     router.replace("/(staff)");
   }
-
-  async function finishOffline() {
+  async function finishOffline(reason?: string) {
     await discard();
-    Alert.alert(t("wizard.review.title"), t("wizard.review.submittedOffline"));
+    Alert.alert(
+      "Saved on your phone",
+      reason ??
+        "The order will be sent automatically when you're back online.",
+    );
     router.replace("/(staff)");
   }
 
   return (
     <Screen padded={false}>
       <View style={styles.header}>
-        <WizardHeader step={12} title={t("wizard.review.title")} />
+        <WizardHeader step={3} title="Review & place" />
       </View>
 
       <ScrollView contentContainerStyle={styles.body}>
-        {credit && credit.hasNoInvoices ? (
-          // Honest empty state — without any invoices on file the
-          // "credit passes" tick is meaningless. Say so explicitly
-          // rather than showing a reassuring number.
-          <View style={[styles.creditCard, styles.creditCardUnavailable]}>
-            <Text style={styles.creditTitle}>Credit data unavailable</Text>
-            <Text style={styles.creditHint}>
-              No invoices are on record for this customer yet. Until
-              Tally is enabled (or an admin records invoices manually),
-              SynWorks cannot compute a real credit position.
+        {/* Warnings BEFORE the submit — never a post-submit surprise. */}
+        {overLimit && (
+          <View style={[styles.warn, styles.warnDanger]}>
+            <Text style={styles.warnTitle}>Over credit limit</Text>
+            <Text style={styles.warnBody}>
+              Outstanding {formatINR(credit?.totalOutstanding ?? 0)} + this
+              order {formatINR(total)} = {formatINR(projected)}, which is over
+              the {formatINR(credit?.creditLimit ?? 0)} limit. An admin may
+              need to approve.
             </Text>
           </View>
-        ) : credit && (
-          <View
-            style={[
-              styles.creditCard,
-              overLimit && styles.creditCardDanger,
-            ]}
-          >
-            <Text style={styles.creditTitle}>Credit position</Text>
-            <View style={styles.creditRow}>
-              <Text style={styles.creditLabel}>Outstanding</Text>
-              <Text style={styles.creditValue}>
-                {formatINR(credit.totalOutstanding)}
+        )}
+        {belowFloorLines.length > 0 && (
+          <View style={[styles.warn, styles.warnAmber]}>
+            <Text style={styles.warnTitle}>
+              {belowFloorLines.length === 1
+                ? "1 line below floor rate"
+                : `${belowFloorLines.length} lines below floor rate`}
+            </Text>
+            {belowFloorLines.map((h) => (
+              <Text key={h.line} style={styles.warnBody}>
+                Line {h.line} · {h.product}: {formatINR(h.rate)} &lt; floor{" "}
+                {formatINR(h.floor)}. Admin approval required before the
+                factory sees the order.
               </Text>
-            </View>
-            <View style={styles.creditRow}>
-              <Text style={styles.creditLabel}>This order</Text>
-              <Text style={styles.creditValue}>{formatINR(orderValue)}</Text>
-            </View>
-            <View style={styles.creditRow}>
-              <Text style={styles.creditLabel}>Projected total</Text>
-              <Text
-                style={[
-                  styles.creditValue,
-                  { fontWeight: "800" as const },
-                ]}
-              >
-                {formatINR(projected)}
-              </Text>
-            </View>
-            {credit.creditLimit != null && (
-              <View style={styles.creditRow}>
-                <Text style={styles.creditLabel}>Credit limit</Text>
-                <Text style={styles.creditValue}>
-                  {formatINR(credit.creditLimit)}
-                </Text>
-              </View>
-            )}
-            {overLimit && (
-              <Text style={styles.creditWarn}>
-                Credit limit will be exceeded — admin may need to override.
-                Consider collecting outstanding first.
-              </Text>
-            )}
-            {credit.creditDays != null && (
-              <Text style={styles.creditHint}>
-                Agreed credit period: {credit.creditDays} days.
-              </Text>
-            )}
+            ))}
           </View>
         )}
-        <Row label={t("wizard.review.customer")} value={draft.partyName} to={CHANGE_ROUTES.customer} />
-        <Row label="Dispatch location" value={draft.dispatchLocation || null} to={CHANGE_ROUTES.dispatch} />
-        <Row label={t("wizard.review.brand")} value={draft.brand} to={CHANGE_ROUTES.brand} />
-        <Row label={t("wizard.review.product")} value={draft.productName} to={CHANGE_ROUTES.product} />
-        <Row
-          label={t("wizard.review.quantity")}
-          value={
-            draft.quantity ? `${draft.quantity} ${draft.quantityUnit}` : null
-          }
-          to={CHANGE_ROUTES.quantity}
+
+        <SummaryRow
+          label="Customer"
+          value={draft.partyName ?? draft.newCustomerName ?? "—"}
         />
-        <Row label={t("wizard.review.packing")} value={draft.packingType} to={CHANGE_ROUTES.packing} />
-        <Row
-          label={t("wizard.review.size")}
-          value={draft.sizeKg ? `${draft.sizeKg} kg` : null}
-          to={CHANGE_ROUTES.packing}
-        />
-        <Row label={t("wizard.review.rate")} value={draft.productRate || null} to={CHANGE_ROUTES.rate} />
-        <Row
-          label={t("wizard.review.payment")}
-          value={draft.paymentTerm?.replace(/_/g, " ") ?? null}
-          to={CHANGE_ROUTES.terms}
-        />
-        <Row
-          label={t("wizard.review.transport")}
-          value={draft.transportType?.replace(/_/g, " ") ?? null}
-          to={CHANGE_ROUTES.terms}
-        />
-        <Row
-          label={t("wizard.review.delivery")}
+        <SummaryRow label="Dispatch to" value={draft.dispatchLocation} />
+        <SummaryRow
+          label="Delivery"
           value={formatDate(draft.expectedDeliveryDate)}
-          to={CHANGE_ROUTES.delivery}
         />
-        <Row label="Token / Gift" value={draft.tokenType} to={CHANGE_ROUTES.token} />
-        <Row label={t("wizard.review.notes")} value={draft.notes || "—"} to={CHANGE_ROUTES.notes} />
+        <SummaryRow
+          label="Payment"
+          value={draft.paymentTerm?.replace(/_/g, " ") ?? "—"}
+        />
+        <SummaryRow
+          label="Transport"
+          value={draft.transportType?.replace(/_/g, " ") ?? "—"}
+        />
+        <SummaryRow label="Token" value={draft.tokenType ?? "—"} />
+        {draft.notes.trim() ? (
+          <SummaryRow label="Notes" value={draft.notes} />
+        ) : null}
+
+        <Text style={styles.itemsHeader}>
+          Items · {draft.items.length}{" "}
+          {draft.items.length === 1 ? "line" : "lines"}
+        </Text>
+        {draft.items.map((it, i) => (
+          <ItemRow key={it.localId} item={it} idx={i + 1} />
+        ))}
+
+        <View style={styles.grandTotalRow}>
+          <Text style={styles.grandTotalLabel}>Order total</Text>
+          <Text style={styles.grandTotalValue}>{formatINR(total)}</Text>
+        </View>
 
         <View style={{ height: theme.spacing.md }} />
 
         <Button
-          label={submitting ? t("wizard.review.submitting") : t("wizard.review.submit")}
+          label={submitting ? "Placing…" : "Place order"}
           loading={submitting}
           disabled={!complete || submitting}
           onPress={() =>
             confirm({
-              title: t("confirm.submit.title"),
-              body: t("confirm.submit.body"),
-              confirmLabel: t("confirm.submit.ok"),
+              title: "Place order?",
+              body:
+                overLimit || belowFloorLines.length > 0
+                  ? "The order will go to admin approval before the factory sees it."
+                  : "The factory will see it immediately.",
+              confirmLabel: "Place order",
               onConfirm: submit,
             })
           }
@@ -254,29 +289,31 @@ export default function StepReview() {
   );
 }
 
-function Row({
-  label,
-  value,
-  to,
-}: {
-  label: string;
-  value: string | null | undefined;
-  to: RouteName;
-}) {
+function SummaryRow({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.row}>
+      <Text style={styles.rowLabel}>{label}</Text>
+      <Text style={styles.rowValue}>{value}</Text>
+    </View>
+  );
+}
+
+function ItemRow({ item, idx }: { item: OrderDraftItem; idx: number }) {
+  const total = (Number(item.quantity) || 0) * parseRate(item.productRate);
+  return (
+    <View style={styles.itemRow}>
+      <Text style={styles.itemIdx}>{idx}</Text>
       <View style={{ flex: 1 }}>
-        <Text style={styles.rowLabel}>{label}</Text>
-        <Text style={styles.rowValue}>{value ?? "—"}</Text>
+        <Text style={styles.itemName}>
+          {item.productName ?? item.customProductName ?? "—"}
+        </Text>
+        <Text style={styles.itemMeta}>
+          {item.brand ?? "—"} · {item.quantity} {item.quantityUnit}
+          {item.packingType ? ` · ${item.packingType}` : ""}
+          {item.sizeKg ? ` · ${item.sizeKg} kg` : ""} · @{item.productRate}
+        </Text>
       </View>
-      <Pressable
-        onPress={() => router.push(to)}
-        hitSlop={12}
-        style={({ pressed }) => [styles.changeBtn, pressed && { opacity: 0.7 }]}
-        accessibilityRole="button"
-      >
-        <Text style={styles.changeText}>{t("wizard.review.change")}</Text>
-      </Pressable>
+      <Text style={styles.itemValue}>{formatINR(total)}</Text>
     </View>
   );
 }
@@ -284,10 +321,30 @@ function Row({
 const styles = StyleSheet.create({
   header: { padding: theme.spacing.lg, paddingBottom: 0 },
   body: { padding: theme.spacing.lg, gap: 10 },
+  warn: {
+    padding: theme.spacing.md,
+    borderRadius: theme.radius,
+    borderWidth: 1,
+    gap: 4,
+  },
+  warnDanger: {
+    borderColor: theme.colors.danger,
+    backgroundColor: theme.colors.dangerBg,
+  },
+  warnAmber: {
+    borderColor: "#c98a00",
+    backgroundColor: "#fff5d6",
+  },
+  warnTitle: {
+    fontSize: theme.type.body,
+    fontWeight: "700",
+    color: theme.colors.text,
+  },
+  warnBody: {
+    fontSize: theme.type.bodySmall,
+    color: theme.colors.text,
+  },
   row: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
     padding: theme.spacing.md,
     borderRadius: theme.radius,
     borderWidth: 1,
@@ -295,10 +352,10 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.background,
   },
   rowLabel: {
-    fontSize: 13,
-    fontWeight: "700",
+    fontSize: 12,
     color: theme.colors.textMuted,
     textTransform: "uppercase",
+    fontWeight: "700",
     letterSpacing: 0.5,
   },
   rowValue: {
@@ -307,64 +364,66 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginTop: 2,
   },
-  changeBtn: {
-    minHeight: theme.tap,
-    justifyContent: "center",
-    paddingHorizontal: 8,
-  },
-  changeText: {
-    fontSize: theme.type.bodySmall,
-    color: theme.colors.primary,
+  itemsHeader: {
+    marginTop: theme.spacing.md,
+    fontSize: 12,
+    color: theme.colors.textMuted,
+    textTransform: "uppercase",
     fontWeight: "700",
+    letterSpacing: 0.5,
   },
-  creditCard: {
+  itemRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
     padding: theme.spacing.md,
     borderRadius: theme.radius,
-    backgroundColor: theme.colors.surface,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    gap: 6,
-    marginBottom: theme.spacing.sm,
-  },
-  creditCardDanger: {
-    borderColor: theme.colors.danger,
-    backgroundColor: theme.colors.dangerBg,
-  },
-  creditCardUnavailable: {
-    borderColor: theme.colors.border,
     backgroundColor: theme.colors.surface,
-    borderStyle: "dashed",
   },
-  creditTitle: {
+  itemIdx: {
+    fontSize: theme.type.body,
+    fontWeight: "700",
+    color: theme.colors.textMuted,
+    fontVariant: ["tabular-nums"],
+    width: 24,
+    textAlign: "center",
+  },
+  itemName: {
     fontSize: theme.type.body,
     fontWeight: "700",
     color: theme.colors.text,
-    marginBottom: 4,
   },
-  creditRow: {
+  itemMeta: {
+    marginTop: 2,
+    fontSize: theme.type.bodySmall,
+    color: theme.colors.textMuted,
+  },
+  itemValue: {
+    fontSize: theme.type.body,
+    fontWeight: "700",
+    color: theme.colors.text,
+    fontVariant: ["tabular-nums"],
+  },
+  grandTotalRow: {
+    marginTop: theme.spacing.md,
+    padding: theme.spacing.md,
+    borderRadius: theme.radius,
+    backgroundColor: theme.colors.surface,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "baseline",
   },
-  creditLabel: {
-    fontSize: theme.type.bodySmall,
-    color: theme.colors.textMuted,
-  },
-  creditValue: {
+  grandTotalLabel: {
     fontSize: theme.type.body,
-    color: theme.colors.text,
-    fontWeight: "600",
-    fontVariant: ["tabular-nums"],
-  },
-  creditWarn: {
-    marginTop: 6,
-    fontSize: theme.type.bodySmall,
-    color: theme.colors.danger,
-    fontWeight: "600",
-  },
-  creditHint: {
-    marginTop: 2,
-    fontSize: theme.type.bodySmall - 2,
     color: theme.colors.textMuted,
+    fontWeight: "600",
+  },
+  grandTotalValue: {
+    fontSize: theme.type.title,
+    color: theme.colors.text,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
   },
 });

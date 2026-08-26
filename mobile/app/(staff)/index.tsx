@@ -12,6 +12,7 @@ import { Screen } from "@/components/Screen";
 import { Segmented } from "@/components/Segmented";
 import { OrderCard } from "@/components/OrderCard";
 import { FAB } from "@/components/FAB";
+import { QueueSummary } from "@/components/QueueSummary";
 import { confirm } from "@/components/Confirm";
 import { useFocusEffect } from "expo-router";
 import { useAuth } from "@/auth/AuthContext";
@@ -20,7 +21,8 @@ import type { QuantityUnit } from "@/lib/database.types";
 import { useQueue } from "@/lib/order-queue";
 import { useDocQueue } from "@/lib/order-doc-queue";
 import { useStatusQueue } from "@/lib/status-queue";
-import { useDraftPreview } from "@/lib/order-draft";
+import { useDraftPreview, writeRepeatSeed } from "@/lib/order-draft";
+import { supabase } from "@/lib/supabase";
 import { t } from "@/lib/i18n";
 import { theme } from "@/theme";
 
@@ -89,6 +91,84 @@ export default function HomeScreen() {
     }, [draftPreview.refresh]),
   );
 
+  // Repeat-order: fetch the full order + items server-side (the home
+  // list only carries a slim projection) and clone into a fresh draft.
+  // For a distributor reordering the same basket monthly this turns
+  // the 12-step flow into two taps: Repeat → Place order.
+  const repeatOrder = useCallback(async (orderId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("SalesOrder")
+        .select(
+          `partyId, newCustomerName, dispatchLocation, paymentTerm,
+           transportType, tokenType,
+           party:Party!SalesOrder_partyId_fkey(name),
+           items:SalesOrderItem!SalesOrderItem_salesOrderId_fkey(
+             lineNumber, productId, brand, quantity, quantityUnit,
+             packingType, sizeKg, productRate,
+             product:Product!SalesOrderItem_productId_fkey(name)
+           )`,
+        )
+        .eq("id", orderId)
+        .maybeSingle();
+      if (error || !data) throw error ?? new Error("Order not found");
+      type Row = {
+        partyId: string | null;
+        newCustomerName: string | null;
+        dispatchLocation: string | null;
+        paymentTerm: import("@/lib/database.types").PaymentTerm | null;
+        transportType: import("@/lib/database.types").TransportType | null;
+        tokenType: string | null;
+        party: { name: string } | null;
+        items: {
+          lineNumber: number;
+          productId: string;
+          brand: string;
+          quantity: number | string;
+          quantityUnit: string;
+          packingType: string | null;
+          sizeKg: string | null;
+          productRate: string;
+          product: { name: string } | null;
+        }[];
+      };
+      const row = data as unknown as Row;
+      const sorted = [...(row.items ?? [])].sort(
+        (a, b) => a.lineNumber - b.lineNumber,
+      );
+      await writeRepeatSeed({
+        header: {
+          partyId: row.partyId,
+          partyName: row.party?.name ?? null,
+          newCustomerName: row.newCustomerName,
+          dispatchLocation: row.dispatchLocation ?? "",
+          paymentTerm: row.paymentTerm ?? null,
+          transportType: row.transportType ?? null,
+          tokenType: row.tokenType ?? null,
+        },
+        items: sorted.map((it) => ({
+          brand: it.brand,
+          productId: it.productId,
+          productName: it.product?.name ?? null,
+          customProductName: null,
+          quantity: String(it.quantity),
+          quantityUnit: (it.quantityUnit as QuantityUnit) ?? "KG",
+          packingType: it.packingType,
+          sizeKg: it.sizeKg,
+          productRate: it.productRate,
+        })),
+      });
+      router.push("/(staff)/orders/new");
+    } catch (e) {
+      confirm({
+        title: "Couldn't clone order",
+        body: e instanceof Error ? e.message : "Please try again.",
+        confirmLabel: "OK",
+        onConfirm: () => undefined,
+      });
+    }
+  }, []);
+
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -108,8 +188,8 @@ export default function HomeScreen() {
       partyName: it.display.partyName,
       productName: it.display.productName,
       brand: it.display.brand,
-      quantity: it.payload.p_quantity,
-      quantityUnit: it.payload.p_quantity_unit,
+      quantity: it.display.totalQuantity,
+      quantityUnit: it.display.quantityUnit,
     }));
     const server: Row[] = (data ?? []).map((o) => ({
       kind: "server",
@@ -126,7 +206,7 @@ export default function HomeScreen() {
       // the admin's own orders and STAFF-scoped views don't need it.
       salespersonName:
         effectiveScope === "all" && o.salesperson?.id !== user?.id
-          ? (o.salesperson?.ownerName ?? null)
+          ? (o.salesperson?.ownerName ?? "Unknown user")
           : null,
     }));
     return [...q, ...server];
@@ -186,14 +266,11 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      {pendingUnsent > 0 && (
+      {pendingUnsent > 0 ? (
         <View style={styles.pendingBanner}>
-          <Text style={styles.pendingText}>
-            {pendingUnsent} unsent — will send automatically when
-            connectivity returns.
-          </Text>
+          <QueueSummary />
         </View>
-      )}
+      ) : null}
 
       <View style={styles.tilesRow}>
         <NavTile
@@ -249,7 +326,9 @@ export default function HomeScreen() {
                 {draftPreview.summary ?? "Draft in progress"}
               </Text>
               <Text style={styles.resumeMeta}>
-                Step {draftPreview.lastStep} of 12
+                {draftPreview.itemCount === 0
+                  ? "Customer & delivery"
+                  : `${draftPreview.itemCount} ${draftPreview.itemCount === 1 ? "item" : "items"}`}
               </Text>
             </View>
             <Text style={styles.resumeChevron}>›</Text>
@@ -298,6 +377,14 @@ export default function HomeScreen() {
               orderNumber={item.orderNumber}
               salespersonName={item.salespersonName}
               onPress={() => router.push({ pathname: "/(staff)/orders/[id]", params: { id: item.id } })}
+              onRepeat={() => {
+                confirm({
+                  title: "Repeat this order?",
+                  body: "Opens a new order with the same customer and items pre-filled.",
+                  confirmLabel: "Repeat",
+                  onConfirm: () => void repeatOrder(item.id),
+                });
+              }}
             />
           )
         }

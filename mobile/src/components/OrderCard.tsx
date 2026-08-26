@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { StatusBadge } from "./StatusBadge";
 import { theme } from "@/theme";
 import type { OrderStatus, QuantityUnit } from "@/lib/database.types";
@@ -16,8 +16,24 @@ export type OrderCardProps = {
   /** Shown on the "All orders" admin view so an admin looking at the
    *  full list can tell whose order it is. Hidden on personal views. */
   salespersonName?: string | null;
+  /** When set, a "☎ Call" pill appears next to the name and taps
+   *  directly into the dialer. Factory's most common next action
+   *  after reading an order is phoning the salesperson to query it —
+   *  make that one tap. */
+  salespersonPhone?: string | null;
   onPress?: () => void;
+  /** Inline "↻ Repeat" pill in the footer. Renders only when supplied
+   *  — home screen wires it up to clone the order into a fresh draft;
+   *  the order-detail screen doesn't. */
+  onRepeat?: () => void;
 };
+
+function dial(phone: string) {
+  const uri = `tel:${phone.replace(/\s+/g, "")}`;
+  void Linking.openURL(uri).catch(() =>
+    Alert.alert("Could not open dialer", phone),
+  );
+}
 
 export function OrderCard(props: OrderCardProps) {
   const disabled = !props.onPress || props.pending;
@@ -48,18 +64,50 @@ export function OrderCard(props: OrderCardProps) {
       </Text>
 
       {props.salespersonName ? (
-        <Text style={styles.salesperson} numberOfLines={1}>
-          {t("home.placedBy", { name: props.salespersonName })}
-        </Text>
+        <View style={styles.salespersonRow}>
+          <Text style={styles.salesperson} numberOfLines={1}>
+            {t("home.placedBy", { name: props.salespersonName })}
+          </Text>
+          {props.salespersonPhone ? (
+            <Pressable
+              onPress={() => dial(props.salespersonPhone!)}
+              hitSlop={10}
+              style={({ pressed }) => [
+                styles.callPill,
+                pressed && { opacity: 0.75 },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={`Call ${props.salespersonName}`}
+            >
+              <Text style={styles.callPillText}>☎ Call</Text>
+            </Pressable>
+          ) : null}
+        </View>
       ) : null}
 
       <View style={styles.footer}>
         <Text style={styles.quantity}>
           {props.quantity} {props.quantityUnit}
         </Text>
-        <Text style={styles.orderNo}>
-          {props.pending ? t("home.pending") : (props.orderNumber ?? "")}
-        </Text>
+        <View style={styles.footerRight}>
+          <Text style={styles.orderNo}>
+            {props.pending ? t("home.pending") : (props.orderNumber ?? "")}
+          </Text>
+          {props.onRepeat ? (
+            <Pressable
+              onPress={props.onRepeat}
+              hitSlop={10}
+              style={({ pressed }) => [
+                styles.repeatPill,
+                pressed && { opacity: 0.7 },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Repeat this order"
+            >
+              <Text style={styles.repeatPillText}>↻ Repeat</Text>
+            </Pressable>
+          ) : null}
+        </View>
       </View>
     </Pressable>
   );
@@ -120,4 +168,34 @@ const styles = StyleSheet.create({
     color: theme.colors.textMuted,
     fontVariant: ["tabular-nums"],
   },
+  footerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  repeatPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+  },
+  repeatPillText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: theme.colors.primary,
+  },
+  salespersonRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: -4,
+  },
+  callPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: theme.colors.primary,
+  },
+  callPillText: { color: "#fff", fontSize: 12, fontWeight: "700" },
 });

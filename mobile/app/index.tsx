@@ -31,6 +31,11 @@ export default function IndexGate() {
     case "FACTORY":
       return <Redirect href="/(factory)" />;
     case "ADMIN":
+      // ADMIN lands in the admin command centre. From there they can
+      // switch into /(staff) to place their own orders — both admins
+      // in the roster do — via the "Salesperson view" link in the
+      // (admin)/_layout header.
+      return <Redirect href="/(admin)" />;
     case "STAFF":
       return <Redirect href="/(staff)" />;
     default:

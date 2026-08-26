@@ -23,6 +23,7 @@ import { useAuth } from "@/auth/AuthContext";
 import { useOrderDetail, useOrderEventStream } from "@/lib/queries";
 import {
   attachOrderDocument,
+  groupDocsByPage,
   useOrderDocuments,
   ORDER_DOC_LABELS,
   STAFF_UPLOADABLE_TYPES,
@@ -30,6 +31,10 @@ import {
   type OrderDocType,
 } from "@/lib/order-doc-queries";
 import { ORDER_DOC_BUCKET, getSignedUrl } from "@/lib/uploads";
+import { DocumentViewer, type ViewerPage } from "@/components/DocumentViewer";
+import { submitStatusAdvance } from "@/lib/status-queue";
+import { useConnectivity } from "@/lib/connectivity";
+import { newId } from "@/lib/ids";
 import { supabase } from "@/lib/supabase";
 import { formatDate } from "@/lib/format";
 import { t } from "@/lib/i18n";
@@ -210,7 +215,15 @@ export default function OrderDetailScreen() {
         ) : null}
 
         <Text style={styles.timelineHeader}>{t("detail.timeline")}</Text>
-        <Timeline events={data.events} currentStatus={data.currentStatus} />
+        <Timeline
+          events={data.events}
+          currentStatus={data.currentStatus}
+          expectedDeliveryDate={data.expectedDeliveryDate}
+        />
+
+        {data.currentStatus === "DISPATCHED" && id ? (
+          <ConfirmDeliveredCard orderId={id} orderNumber={data.orderNumber} onDone={refetch} />
+        ) : null}
 
         {id ? <ActivityFeed orderId={id} events={data.events} /> : null}
 
@@ -221,12 +234,117 @@ export default function OrderDetailScreen() {
   );
 }
 
+function ConfirmDeliveredCard({
+  orderId,
+  orderNumber,
+  onDone,
+}: {
+  orderId: string;
+  orderNumber: string;
+  onDone: () => Promise<void> | void;
+}) {
+  const { online } = useConnectivity();
+  const [photo, setPhoto] = useState<PickedPhoto | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    setBusy(true);
+    try {
+      // Attach the optional proof photo first so it's on file even if
+      // the status transition ends up queued (rare). Failures on the
+      // photo are non-blocking — the transition is the important bit.
+      if (photo) {
+        await attachOrderDocument({
+          orderId,
+          type: "OTHER",
+          localUri: photo.uri,
+          fileName: photo.fileName ?? "delivery-proof.jpg",
+          mimeType: photo.mimeType,
+          pageGroupId: newId("dv"),
+          pageIndex: 1,
+        }).catch(() => undefined);
+      }
+      const res = await submitStatusAdvance({
+        orderId,
+        orderNumber,
+        target: "DELIVERED",
+        note: photo ? "Delivered — proof attached" : "Delivered",
+        online,
+      });
+      if ("error" in res) {
+        Alert.alert("Could not confirm", res.error);
+        return;
+      }
+      if ("queued" in res) {
+        Alert.alert(
+          "Saved for retry",
+          "No network right now — delivery will be confirmed automatically when the phone is back online.",
+        );
+        return;
+      }
+      setPhoto(null);
+      await onDone();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <View style={styles.deliveredCard}>
+      <Text style={styles.deliveredTitle}>Confirm delivered</Text>
+      <Text style={styles.deliveredBody}>
+        Closes the order and stamps the delivery time. Optional: attach a
+        photo of the signed LR / customer confirmation.
+      </Text>
+      <View style={{ height: theme.spacing.sm }} />
+      <PhotoPicker photo={photo} onChange={setPhoto} />
+      <View style={{ height: theme.spacing.md }} />
+      <Button
+        label={busy ? "Confirming…" : "Confirm delivered"}
+        loading={busy}
+        disabled={busy}
+        onPress={() =>
+          confirm({
+            title: "Confirm delivered?",
+            body: photo
+              ? "Stamps the delivery time and attaches the photo."
+              : "Stamps the delivery time. You can attach a photo above first, or confirm without.",
+            confirmLabel: "Confirm",
+            onConfirm: submit,
+          })
+        }
+      />
+    </View>
+  );
+}
+
 function DocumentsSection({ orderId }: { orderId: string | null }) {
   const { data: docs, refetch } = useOrderDocuments(orderId);
   const [photo, setPhoto] = useState<PickedPhoto | null>(null);
   const [type, setType] = useState<OrderDocType>("ORDER_PROOF");
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [viewerAt, setViewerAt] = useState<number | null>(null);
+
+  // Flat page list feeding the viewer — swipe crosses group boundaries
+  // so a salesperson can flip through everything on an order without
+  // dismissing between docs. Ordering matches the on-screen group list.
+  const viewerPages: ViewerPage[] = (docs ?? [])
+    .slice()
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .map((d) => ({
+      id: d.id,
+      storagePath: d.storagePath,
+      label:
+        ORDER_DOC_LABELS[d.type] +
+        (d.pageIndex ? ` — page ${d.pageIndex}` : ""),
+    }));
+
+  const groups = groupDocsByPage(docs ?? []);
+  function openAt(pageId: string) {
+    const i = viewerPages.findIndex((p) => p.id === pageId);
+    if (i >= 0) setViewerAt(i);
+  }
 
   // Realtime refresh so a factory upload of INVOICE / LR appears here live
   // while the salesperson has the screen open.
@@ -310,65 +428,83 @@ function DocumentsSection({ orderId }: { orderId: string | null }) {
         </View>
       ) : (
         <View style={{ gap: theme.spacing.sm }}>
-          {(docs ?? []).map((doc) => (
-            <OrderDocRowView key={doc.id} doc={doc} />
+          {groups.map((g) => (
+            <DocGroupRow
+              key={g.key}
+              group={g}
+              onOpen={(pageId) => openAt(pageId)}
+            />
           ))}
         </View>
       )}
+
+      <DocumentViewer
+        visible={viewerAt !== null}
+        pages={viewerPages}
+        startIndex={viewerAt ?? 0}
+        onClose={() => setViewerAt(null)}
+      />
     </View>
   );
 }
 
-function OrderDocRowView({ doc }: { doc: OrderDocRow }) {
-  const [signedUrl, setSignedUrl] = useState<string | null>(null);
-
+function DocGroupRow({
+  group,
+  onOpen,
+}: {
+  group: {
+    key: string;
+    type: OrderDocType;
+    pages: OrderDocRow[];
+    createdAt: string;
+  };
+  onOpen: (pageId: string) => void;
+}) {
+  const [thumbUrl, setThumbUrl] = useState<string | null>(null);
+  const first = group.pages[0];
   useEffect(() => {
     let alive = true;
-    void getSignedUrl(ORDER_DOC_BUCKET, doc.storagePath).then((url) => {
-      if (alive) setSignedUrl(url);
+    void getSignedUrl(ORDER_DOC_BUCKET, first.storagePath).then((url) => {
+      if (alive) setThumbUrl(url);
     });
     return () => {
       alive = false;
     };
-  }, [doc.storagePath]);
-
-  const isImage = /\.(jpe?g|png|webp|heic)$/i.test(doc.storagePath);
-
-  async function open() {
-    if (!signedUrl) return;
-    try {
-      await Linking.openURL(signedUrl);
-    } catch {
-      Alert.alert("Could not open", "Try again later.");
-    }
-  }
+  }, [first.storagePath]);
+  const isImage = /\.(jpe?g|png|webp|heic)$/i.test(first.storagePath);
+  const pageCount = group.pages.length;
 
   return (
-    <View style={styles.docRow}>
-      {isImage && signedUrl ? (
+    <Pressable
+      onPress={() => onOpen(first.id)}
+      style={({ pressed }) => [styles.docRow, pressed && { opacity: 0.85 }]}
+      accessibilityRole="button"
+      accessibilityLabel={`Open ${ORDER_DOC_LABELS[group.type]}${pageCount > 1 ? `, ${pageCount} pages` : ""}`}
+    >
+      {isImage && thumbUrl ? (
         <Image
-          source={{ uri: signedUrl }}
+          source={{ uri: thumbUrl }}
           style={styles.docThumb}
           resizeMode="cover"
         />
       ) : (
         <View style={styles.docThumbPlaceholder}>
-          <Text style={styles.docThumbPlaceholderText}>PDF</Text>
+          <Text style={styles.docThumbPlaceholderText}>
+            {pageCount > 1 ? `${pageCount}p` : "PDF"}
+          </Text>
         </View>
       )}
       <View style={{ flex: 1 }}>
-        <Text style={styles.docType}>{ORDER_DOC_LABELS[doc.type]}</Text>
-        <Text style={styles.docMeta}>
-          {formatDate(new Date(doc.createdAt))}
-          {doc.uploadedByName ? ` · ${doc.uploadedByName}` : ""}
+        <Text style={styles.docType}>
+          {ORDER_DOC_LABELS[group.type]}
+          {pageCount > 1 ? ` — ${pageCount} pages` : ""}
         </Text>
-        <Pressable onPress={open} hitSlop={8}>
-          <Text style={styles.docOpen}>
-            {signedUrl ? "Open →" : "Loading…"}
-          </Text>
-        </Pressable>
+        <Text style={styles.docMeta}>
+          {formatDate(new Date(group.createdAt))}
+        </Text>
+        <Text style={styles.docOpen}>Open · pinch to zoom · Share</Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -396,6 +532,24 @@ function InfoCard({ label, children }: { label: string; children: React.ReactNod
 }
 
 const styles = StyleSheet.create({
+  deliveredCard: {
+    padding: theme.spacing.md,
+    borderRadius: theme.radius,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+    backgroundColor: theme.colors.surface,
+    gap: 4,
+    marginTop: theme.spacing.md,
+  },
+  deliveredTitle: {
+    fontSize: theme.type.body,
+    fontWeight: "800",
+    color: theme.colors.text,
+  },
+  deliveredBody: {
+    fontSize: theme.type.bodySmall,
+    color: theme.colors.textMuted,
+  },
   rejectionBanner: {
     padding: theme.spacing.md,
     borderRadius: theme.radius,

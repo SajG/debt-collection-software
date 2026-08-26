@@ -178,6 +178,62 @@ const en = {
 
   "loading": "Loading…",
   "retry": "Try again",
+
+  // ── Factory + admin surfaces (moved off hardcoded strings) ────────
+  "factory.title": "Factory · {name}",
+  "factory.subtitle": "All salesperson orders. Tap a line to advance production.",
+  "factory.tab.queue": "Queue",
+  "factory.tab.inProd": "In prod",
+  "factory.tab.ready": "Ready",
+  "factory.tab.dispatched": "Dispatched",
+  "factory.tab.blocked": "Blocked",
+  "factory.group.byStage": "By stage",
+  "factory.group.bySalesperson": "By salesperson",
+  "factory.search": "Search",
+  "factory.search.placeholder": "Order number, customer, salesperson",
+  "factory.empty.queue": "No new orders waiting.",
+  "factory.empty.inProd": "Nothing on the shop floor right now.",
+  "factory.empty.ready": "No orders packed and waiting to dispatch.",
+  "factory.empty.dispatched": "No dispatched orders in the last 200 rows.",
+  "factory.empty.blocked": "Nothing blocked. All open orders can be worked on.",
+  "factory.empty.search": "No matches. Try a different search term.",
+
+  "detail.dispatchTo": "Dispatch to",
+  "detail.expectedDelivery": "Expected delivery",
+  "detail.expectedProduction": "Expected production date",
+  "detail.tokenGift": "Token / Gift",
+  "detail.callSalesperson": "Call {name}",
+  "detail.lineItems": "Line items · {count}",
+
+  "admin.title": "Admin · {name}",
+  "admin.subtitle": "Live command centre. Tap any tile to open the filtered list.",
+  "admin.switchToStaff": "Salesperson view →",
+  "admin.tile.today": "Placed today",
+  "admin.tile.week": "Placed this week",
+  "admin.tile.pending": "Awaiting MY approval",
+  "admin.tile.rate": "Rate approvals pending",
+  "admin.tile.overdue": "Overdue vs expected",
+  "admin.tile.hold": "On hold",
+  "admin.tile.dispatched": "Dispatched this month",
+
+  // ── Queue-summary chip ────────────────────────────────────────────
+  "queue.chip": "{count} waiting to sync",
+  "queue.title": "Waiting to sync",
+  "queue.retry": "Retry now",
+  "queue.retrying": "Syncing…",
+  "queue.online.hint": "Retrying automatically. Tap Retry now to push straight away.",
+  "queue.offline.hint": "You're offline. Items will send automatically when you're back online.",
+  "queue.orders": "Orders · {count}",
+  "queue.status": "Status changes · {count}",
+  "queue.documents": "Documents · {count}",
+
+  // ── Errors (mirror lib/errors.ts categories) ──────────────────────
+  "error.network": "No signal. Try again in a moment.",
+  "error.queued": "Saved on your phone — will sync when you're back online.",
+  "error.auth": "You've been signed out. Sign in again to continue.",
+  "error.permission": "You don't have permission for that. Ask an admin.",
+  "error.rate": "Too many attempts. Wait a minute and try again.",
+  "error.unknown": "Something went wrong. Try again.",
 } as const;
 
 type Key = keyof typeof en;

@@ -38,6 +38,10 @@ export default async function ProductionOrderPage({
       party: { select: { name: true } },
       product: { select: { name: true, brand: true } },
       salesperson: { select: { ownerName: true } },
+      items: {
+        orderBy: { lineNumber: "asc" },
+        include: { product: { select: { name: true, brand: true } } },
+      },
       statusEvents: {
         orderBy: { createdAt: "desc" },
         include: { updatedBy: { select: { ownerName: true } } },
@@ -87,30 +91,14 @@ export default async function ProductionOrderPage({
         }
       />
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2">
         <Card>
           <p className="text-xs uppercase tracking-wide text-muted-foreground">
-            Product
+            Line items
           </p>
           <p className="mt-1 text-lg font-semibold text-foreground">
-            {order.product.brand}
+            {order.items.length} {order.items.length === 1 ? "SKU" : "SKUs"}
           </p>
-          <p className="text-base text-muted-foreground">{order.product.name}</p>
-        </Card>
-        <Card>
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">
-            Quantity
-          </p>
-          <p className="mt-1 text-lg font-semibold text-foreground">
-            {toNumber(order.quantity)} {order.quantityUnit}
-          </p>
-          {(order.packingType || order.sizeKg) && (
-            <p className="text-base text-muted-foreground">
-              {[order.packingType, order.sizeKg ? `${order.sizeKg} kg` : null]
-                .filter(Boolean)
-                .join(" · ")}
-            </p>
-          )}
         </Card>
         <Card>
           <p className="text-xs uppercase tracking-wide text-muted-foreground">
@@ -126,10 +114,47 @@ export default async function ProductionOrderPage({
         </Card>
       </div>
 
+      <Card title="Line items" className="mb-6">
+        <div className="overflow-x-auto">
+          <table className="w-full text-base">
+            <thead className="text-xs uppercase text-muted-foreground">
+              <tr className="border-b border-border">
+                <th className="py-2 text-left">#</th>
+                <th className="py-2 text-left">Product</th>
+                <th className="py-2 text-right">Quantity</th>
+                <th className="py-2 text-left">Packing / Size</th>
+              </tr>
+            </thead>
+            <tbody>
+              {order.items.map((li) => (
+                <tr key={li.id} className="border-b border-border/50">
+                  <td className="py-2">{li.lineNumber}</td>
+                  <td className="py-2">
+                    <span className="font-semibold text-foreground">
+                      {li.brand || li.product.brand}
+                    </span>
+                    <p className="text-sm text-muted-foreground">
+                      {li.product.name}
+                    </p>
+                  </td>
+                  <td className="py-2 text-right font-semibold">
+                    {toNumber(li.quantity)} {li.quantityUnit}
+                  </td>
+                  <td className="py-2 text-sm text-muted-foreground">
+                    {[li.packingType, li.sizeKg ? `${li.sizeKg} kg` : null]
+                      .filter(Boolean)
+                      .join(" · ") || "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
       <Card title="Order details" className="mb-6">
         <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <ProdDetail label="Dispatch location" value={order.dispatchLocation} />
-          <ProdDetail label="Rate" value={order.productRate} />
           <ProdDetail label="Payment terms" value={order.paymentTerm} />
           <ProdDetail label="Transport" value={order.transportType} />
           <ProdDetail label="Token / Gift" value={order.tokenType} />

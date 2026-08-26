@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Alert, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { theme } from "@/theme";
+import { compressImage } from "@/lib/image-compress";
 
 export type PickedPhoto = {
   uri: string;
@@ -15,8 +16,9 @@ export type PickedPhoto = {
  * standing at a customer's counter: rear camera first (they'll snap the
  * bank / UPI screen), gallery second (they already screenshotted it).
  *
- * Permission prompts fire on-demand — this keeps first-launch clean and
- * lets salespeople deny once without breaking the rest of the app.
+ * Every asset chosen — camera or gallery — is passed through
+ * compressImage() before being handed back. Field phones on 3G at a
+ * factory can't afford to upload 12 MP raw JPEGs.
  */
 export function PhotoPicker({
   photo,
@@ -34,17 +36,18 @@ export function PhotoPicker({
       if (!perm.granted) {
         Alert.alert(
           "Camera access needed",
-          "Enable camera in Settings so SynWorks can capture the proof."
+          "Enable camera in Settings so SynWorks can capture the proof.",
         );
         return;
       }
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ["images"],
-        quality: 0.7,
+        quality: 0.85, // pre-compression quality; compressImage tightens further
         exif: false,
       });
       if (result.canceled || result.assets.length === 0) return;
-      onChange(assetToPhoto(result.assets[0]));
+      const compressed = await compressImage(assetToPhoto(result.assets[0]));
+      onChange(compressed);
     } finally {
       setBusy(false);
     }
@@ -57,17 +60,18 @@ export function PhotoPicker({
       if (!perm.granted) {
         Alert.alert(
           "Photo access needed",
-          "Enable photo access in Settings so SynWorks can attach the proof."
+          "Enable photo access in Settings so SynWorks can attach the proof.",
         );
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
-        quality: 0.7,
+        quality: 0.85,
         exif: false,
       });
       if (result.canceled || result.assets.length === 0) return;
-      onChange(assetToPhoto(result.assets[0]));
+      const compressed = await compressImage(assetToPhoto(result.assets[0]));
+      onChange(compressed);
     } finally {
       setBusy(false);
     }
@@ -141,10 +145,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     backgroundColor: theme.colors.surface,
   },
-  preview: {
-    width: "100%",
-    height: 220,
-  },
+  preview: { width: "100%", height: 220 },
   removeBtn: {
     position: "absolute",
     top: theme.spacing.sm,
@@ -159,10 +160,7 @@ const styles = StyleSheet.create({
     fontSize: theme.type.bodySmall,
     fontWeight: "600",
   },
-  actionRow: {
-    flexDirection: "row",
-    gap: theme.spacing.sm,
-  },
+  actionRow: { flexDirection: "row", gap: theme.spacing.sm },
   actionBtn: {
     flex: 1,
     minHeight: theme.tap,
@@ -171,9 +169,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: theme.spacing.md,
   },
-  actionPrimary: {
-    backgroundColor: theme.colors.primary,
-  },
+  actionPrimary: { backgroundColor: theme.colors.primary },
   actionPrimaryText: {
     color: theme.colors.primaryOn,
     fontSize: theme.type.button,

@@ -165,6 +165,17 @@ enum OrderStatus {
   CANCELLED
 }
 
+// Per-line production stage on a multi-SKU order. The order's
+// SalesOrder.currentStatus is derived (by trigger) as the minimum
+// across lines: all READY → READY_TO_DISPATCH, any IN_PRODUCTION →
+// IN_PRODUCTION, else stays ORDER_PLACED (or whatever the order is
+// in before production starts).
+enum LineProductionStatus {
+  PENDING
+  IN_PRODUCTION
+  READY
+}
+
 enum OrderApprovalMode {
   NONE
   EXCEPTIONS_ONLY
@@ -198,28 +209,28 @@ enum PaymentDocumentType {
 // ─────────────────────────────────────────────────────────────────
 
 model Profile {
-  id             String   @id @db.Uuid // mirrors auth.users.id
-  businessName   String
-  ownerName      String
-  phone          String?
-  role           Role     @default(STAFF)
+  id                  String    @id @db.Uuid // mirrors auth.users.id
+  businessName        String
+  ownerName           String
+  phone               String?
+  role                Role      @default(STAFF)
   // Managed by /admin/users. Deactivation is reversible; RLS lock-out
   // is done at the DB via current_user_role() returning NULL when
   // isActive = false.
-  isActive        Boolean   @default(true)
-  deactivatedAt   DateTime? @db.Timestamptz
-  deactivatedById String?   @db.Uuid
-  createdById     String?   @db.Uuid
+  isActive            Boolean   @default(true)
+  deactivatedAt       DateTime? @db.Timestamptz
+  deactivatedById     String?   @db.Uuid
+  createdById         String?   @db.Uuid
   // Maps this salesperson to their Tally Cost Centre / Sales Executive name
-  costCentreName String?
+  costCentreName      String?
   // Notification prefs — default all ON; toggled from mobile settings.
-  notifyStatusChanges Boolean @default(true)
-  notifyDocuments     Boolean @default(true)
-  notifyStaleOrders   Boolean @default(true)
-  notifyCreditIssues  Boolean @default(true)
-  notifyComments      Boolean @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  notifyStatusChanges Boolean   @default(true)
+  notifyDocuments     Boolean   @default(true)
+  notifyStaleOrders   Boolean   @default(true)
+  notifyCreditIssues  Boolean   @default(true)
+  notifyComments      Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   businessSettings BusinessSettings?
   pushTokens       PushToken[]
@@ -238,6 +249,7 @@ model Profile {
   paymentDocuments     PaymentDocument[]  @relation("PaymentDocumentUploader")
   createdDispatchLots  DispatchLot[]      @relation("DispatchLotCreator")
   orderComments        OrderComment[]     @relation("OrderCommentAuthor")
+  approvedOrderItems   SalesOrderItem[]   @relation("SalesOrderItemRateApprover")
   auditLogsAsActor     UserAuditLog[]     @relation("UserAuditActor")
   auditLogsAsTarget    UserAuditLog[]     @relation("UserAuditTarget")
 
@@ -371,10 +383,10 @@ model Party {
   creditDays  Int? // agreed payment terms in days
 
   // Cached AR balance — update via app whenever invoices or payments change
-  totalOutstanding Decimal @default(0) @db.Decimal(12, 2)
+  totalOutstanding Decimal   @default(0) @db.Decimal(12, 2)
   // Snapshot from the last Tally ledger sync — the reconciliation
   // report compares this against totalOutstanding to catch sync bugs.
-  tallyOutstanding Decimal? @db.Decimal(14, 2)
+  tallyOutstanding Decimal?  @db.Decimal(14, 2)
   tallyBalanceAsOf DateTime? @db.Timestamptz
 
   // Tally Cost Centre / Sales Executive name — used for auto-assignment
@@ -486,9 +498,9 @@ model Payment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  party      Party    @relation(fields: [partyId], references: [id], onDelete: Restrict)
-  invoice    Invoice? @relation(fields: [invoiceId], references: [id])
-  recordedBy Profile  @relation("PaymentRecorder", fields: [recordedById], references: [id])
+  party      Party             @relation(fields: [partyId], references: [id], onDelete: Restrict)
+  invoice    Invoice?          @relation(fields: [invoiceId], references: [id])
+  recordedBy Profile           @relation("PaymentRecorder", fields: [recordedById], references: [id])
   documents  PaymentDocument[]
 
   @@index([partyId])
@@ -761,7 +773,8 @@ model Product {
   floorRate Decimal? @db.Decimal(14, 2)
   createdAt DateTime @default(now())
 
-  salesOrders SalesOrder[]
+  salesOrders     SalesOrder[]
+  salesOrderItems SalesOrderItem[]
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -776,37 +789,46 @@ model SalesOrder {
   partyId         String? // existing customer, chosen from the salesperson's own ledger dropdown
   newCustomerName String? // free text, only used when the customer isn't in Tally yet
 
-  salespersonId        String      @db.Uuid
-  productId            String
-  brand                String
-  quantity             Decimal     @db.Decimal(10, 3)
-  quantityUnit         String // "PCS" | "KG" | "NOS"
-  packingType          String?
-  sizeKg               String?
-  productRate          String // kept as text — rates are written informally
-  orderValue           Decimal     @db.Decimal(12, 2) // computed at creation: quantity × rate, best-effort parse
-  paymentTerm          String?
-  transportType        String?
-  expectedDeliveryDate DateTime?
+  salespersonId          String              @db.Uuid
+  // ─────────────────────────────────────────────────────────────────
+  // DEPRECATED single-SKU scalars. Kept for backwards compatibility
+  // with the Tally connector, the current mobile build, and every web
+  // page still reading `order.product.name` / `order.quantity`. Line
+  // data now lives in SalesOrderItem; a trigger keeps these mirrored
+  // to line 1 (with `orderValue` = SUM of all lineValue). Do NOT drop
+  // in this migration — see docs/MULTI-SKU-MIGRATION.md for the
+  // reader migration checklist.
+  // ─────────────────────────────────────────────────────────────────
+  productId              String // deprecated: mirrors items[0].productId
+  brand                  String // deprecated: mirrors items[0].brand
+  quantity               Decimal             @db.Decimal(10, 3) // deprecated: mirrors items[0].quantity
+  quantityUnit           String // deprecated: mirrors items[0].quantityUnit
+  packingType            String? // deprecated: mirrors items[0].packingType
+  sizeKg                 String? // deprecated: mirrors items[0].sizeKg
+  productRate            String // deprecated: mirrors items[0].productRate
+  orderValue             Decimal             @db.Decimal(12, 2) // deprecated: SUM(items.lineValue)
+  paymentTerm            String?
+  transportType          String?
+  expectedDeliveryDate   DateTime?
   // Free text — the address the goods should be dispatched to (may differ
   // from the ledger address, e.g. sub-dealer godown).
-  dispatchLocation String?
+  dispatchLocation       String?
   // "With Synergy Barcode Token" | "With Customer Token" | "Without Token" |
   // "Gift inside" | free text via "Other".
-  tokenType String?
+  tokenType              String?
   // Filled by factory after order is placed.
   expectedProductionDate DateTime?
-  notes                String?
-  currentStatus        OrderStatus @default(ORDER_PLACED)
+  notes                  String?
+  currentStatus          OrderStatus         @default(ORDER_PLACED)
   // Stamped when a salesperson (or the customer via a signed link)
   // confirms receipt. Lets us compute order-to-delivery time without
   // scanning the event log.
-  deliveredAt          DateTime?   @db.Timestamptz
+  deliveredAt            DateTime?           @db.Timestamptz
   // Set by putOrderOnHold; releaseOrderHold restores currentStatus to this.
-  statusBeforeHold     OrderStatus?
-  holdReasonCategory   HoldReasonCategory?
-  holdReason           String?
-  linkedInvoiceId      String?
+  statusBeforeHold       OrderStatus?
+  holdReasonCategory     HoldReasonCategory?
+  holdReason             String?
+  linkedInvoiceId        String?
 
   // Credit-limit check outcome at time of placement — kept for audit even if the
   // customer's limit changes later
@@ -817,19 +839,19 @@ model SalesOrder {
   // F6 — rate approval. When needsRateApproval is true the factory
   // hides the order from its queue until an admin approves via
   // approveOrderRateAction (production/actions.ts).
-  needsRateApproval  Boolean   @default(false)
-  rateApprovedById   String?   @db.Uuid
-  rateApprovedAt     DateTime? @db.Timestamptz
-  rateApprovalNote   String?
+  needsRateApproval Boolean   @default(false)
+  rateApprovedById  String?   @db.Uuid
+  rateApprovedAt    DateTime? @db.Timestamptz
+  rateApprovalNote  String?
 
   // P1 — general order-approval workflow. Filled by
   // approveOrderAction / rejectOrderAction; rejectionReason is
   // required by the action, so REJECTED rows always have context.
-  approvedById       String?   @db.Uuid
-  approvedAt         DateTime? @db.Timestamptz
-  rejectedById       String?   @db.Uuid
-  rejectedAt         DateTime? @db.Timestamptz
-  rejectionReason    String?
+  approvedById    String?   @db.Uuid
+  approvedAt      DateTime? @db.Timestamptz
+  rejectedById    String?   @db.Uuid
+  rejectedAt      DateTime? @db.Timestamptz
+  rejectionReason String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -837,6 +859,7 @@ model SalesOrder {
   party        Party?             @relation(fields: [partyId], references: [id])
   salesperson  Profile            @relation("OrderSalesperson", fields: [salespersonId], references: [id])
   product      Product            @relation(fields: [productId], references: [id])
+  items        SalesOrderItem[]
   statusEvents OrderStatusEvent[]
   documents    OrderDocument[]
   dispatchLots DispatchLot[]
@@ -846,6 +869,48 @@ model SalesOrder {
   @@index([partyId])
   @@index([currentStatus])
   @@index([expectedDeliveryDate])
+}
+
+// One SKU on a multi-line sales order. Rate approval and floor-rate
+// checks are per-line; the header's needsRateApproval is derived by
+// trigger as OR-of-lines so RLS policies that read
+// SalesOrder."needsRateApproval" keep working unchanged.
+model SalesOrderItem {
+  id           String  @id @default(cuid())
+  salesOrderId String
+  productId    String
+  brand        String
+  quantity     Decimal @db.Decimal(10, 3)
+  quantityUnit String
+  packingType  String?
+  sizeKg       String?
+  productRate  String
+  lineValue    Decimal @db.Decimal(12, 2)
+  lineNumber   Int
+
+  // Per-line F6. When any line has needsRateApproval=true a trigger
+  // sets SalesOrder.needsRateApproval=true so the factory RLS keeps
+  // hiding the whole order until an admin clears the line.
+  needsRateApproval Boolean   @default(false)
+  rateApprovedById  String?   @db.Uuid
+  rateApprovedAt    DateTime? @db.Timestamptz
+  rateApprovalNote  String?
+
+  // Per-line production tracking. A 4-SKU order is rarely produced
+  // simultaneously — the factory ticks lines READY one at a time and
+  // SalesOrder.currentStatus is recomputed from the aggregate by
+  // trigger `_recompute_order_status_from_lines`.
+  productionStatus LineProductionStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  salesOrder   SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  product      Product    @relation(fields: [productId], references: [id])
+  rateApprover Profile?   @relation("SalesOrderItemRateApprover", fields: [rateApprovedById], references: [id])
+
+  @@unique([salesOrderId, lineNumber])
+  @@index([salesOrderId])
 }
 
 model OrderStatusEvent {
@@ -903,10 +968,17 @@ model OrderDocument {
   uploadedById String       @db.Uuid
   createdAt    DateTime     @default(now())
 
+  // Multi-page support. Rows with the same (salesOrderId, pageGroupId)
+  // form ONE logical document (e.g. a 3-page LR). pageIndex is 1-based.
+  // Nullable for legacy rows; the client sets both for new uploads.
+  pageGroupId String?
+  pageIndex   Int?
+
   salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
   uploadedBy Profile    @relation("DocumentUploader", fields: [uploadedById], references: [id])
 
   @@index([salesOrderId])
+  @@index([pageGroupId])
 }
 
 // ─────────────────────────────────────────────────────────────────

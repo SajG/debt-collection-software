@@ -12,6 +12,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { invalidateProfileDirectory } from "@/lib/profile-directory";
 import type { Database, Role } from "@/lib/database.types";
 
 // Idle sign-out. Field phones get lost; a device sitting idle for
@@ -154,6 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // gate bounces the user right back to (staff)/(factory).
     setSession(null);
     setProfile(null);
+    invalidateProfileDirectory();
     await AsyncStorage.removeItem(IDLE_STORAGE_KEY);
     try {
       await supabase.auth.signOut();

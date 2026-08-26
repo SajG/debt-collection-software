@@ -1,0 +1,429 @@
+import { useEffect, useMemo, useState } from "react";
+import {
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { Button } from "@/components/Button";
+import { TextField } from "@/components/TextField";
+import { Segmented } from "@/components/Segmented";
+import { NumberPad } from "@/components/NumberPad";
+import { useProducts } from "@/lib/queries";
+import {
+  BRAND_LIST,
+  COMMON_PACKINGS,
+  COMMON_SIZES_KG,
+  QUANTITY_UNITS,
+} from "@/lib/constants";
+import { formatINR } from "@/lib/format";
+import type { QuantityUnit } from "@/lib/database.types";
+import type { OrderDraftItem } from "@/lib/order-draft";
+import { theme } from "@/theme";
+
+// Bottom-sheet item editor. One sheet handles Add and Edit — the caller
+// passes an initial item and gets a completed item back on Save. On
+// Add, brand/packing/size/unit are pre-filled from wizard "stickies"
+// so the second SKU on an order is one tap away from the first.
+//
+// Deliberately NOT a screen push: the whole point of the rewrite is
+// that adding an item does not lose the cart context. Keep this modal
+// dense enough to complete in <15 s.
+
+type Draft = Omit<OrderDraftItem, "localId">;
+
+export function ItemSheet({
+  visible,
+  initial,
+  mode,
+  onCancel,
+  onSave,
+  onDelete,
+}: {
+  visible: boolean;
+  initial: Draft;
+  mode: "add" | "edit";
+  onCancel: () => void;
+  onSave: (item: Draft) => void;
+  onDelete?: () => void;
+}) {
+  const [item, setItem] = useState<Draft>(initial);
+  const products = useProducts();
+
+  // Reset local state whenever the sheet re-opens with new initial data.
+  useEffect(() => {
+    if (visible) setItem(initial);
+  }, [visible, initial]);
+
+  const setField = <K extends keyof Draft>(k: K, v: Draft[K]) =>
+    setItem((prev) => ({ ...prev, [k]: v }));
+
+  const brandProducts = useMemo(() => {
+    if (!products.data) return [];
+    if (!item.brand) return products.data;
+    // Generic materials (brand === "") should show for every brand — a
+    // salesperson picking Polygum still needs to see PA-10 etc.
+    return products.data.filter(
+      (p) => !p.brand || p.brand === item.brand,
+    );
+  }, [products.data, item.brand]);
+
+  const lineTotal = useMemo(() => {
+    const q = Number(item.quantity) || 0;
+    const r = Number(item.productRate.replace(/[₹,\s]/g, "")) || 0;
+    return Math.round(q * r * 100) / 100;
+  }, [item.quantity, item.productRate]);
+
+  const isComplete = Boolean(
+    item.brand &&
+      (item.productId || (item.customProductName && item.customProductName.trim())) &&
+      Number(item.quantity) > 0 &&
+      item.packingType &&
+      item.sizeKg &&
+      item.productRate.trim(),
+  );
+
+  function selectProduct(id: string, name: string, brand: string | null) {
+    setItem((prev) => ({
+      ...prev,
+      productId: id,
+      productName: name,
+      customProductName: null,
+      // If the product has a brand hint and the user hasn't picked one,
+      // adopt it. Doesn't override an explicit brand choice.
+      brand: prev.brand ?? brand ?? null,
+    }));
+  }
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      onRequestClose={onCancel}
+    >
+      <View style={styles.backdrop}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={styles.sheet}
+        >
+          <View style={styles.handle} />
+          <View style={styles.headerRow}>
+            <Text style={styles.title}>
+              {mode === "edit" ? "Edit item" : "Add item"}
+            </Text>
+            <Pressable
+              onPress={onCancel}
+              hitSlop={12}
+              accessibilityRole="button"
+              accessibilityLabel="Close"
+            >
+              <Text style={styles.closeGlyph}>×</Text>
+            </Pressable>
+          </View>
+
+          <ScrollView
+            contentContainerStyle={styles.body}
+            keyboardShouldPersistTaps="handled"
+          >
+            <SectionLabel text="Brand" />
+            <ChipRow
+              values={BRAND_LIST}
+              selected={item.brand}
+              onSelect={(v) => setField("brand", v)}
+            />
+
+            <SectionLabel text="Product" />
+            {products.loading && !products.data ? (
+              <Text style={styles.hint}>Loading products…</Text>
+            ) : (
+              <View style={styles.productList}>
+                {brandProducts.slice(0, 40).map((p) => {
+                  const active = p.id === item.productId;
+                  return (
+                    <Pressable
+                      key={p.id}
+                      onPress={() => selectProduct(p.id, p.name, p.brand)}
+                      style={({ pressed }) => [
+                        styles.productChip,
+                        active && styles.productChipActive,
+                        pressed && { opacity: 0.75 },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.productChipLabel,
+                          active && styles.productChipLabelActive,
+                        ]}
+                      >
+                        {p.name}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
+            <TextField
+              label="Or new product name"
+              placeholder="Not in catalogue"
+              value={item.customProductName ?? ""}
+              onChangeText={(v) => {
+                setItem((prev) => ({
+                  ...prev,
+                  customProductName: v,
+                  productId: v.trim() ? null : prev.productId,
+                  productName: v.trim() ? null : prev.productName,
+                }));
+              }}
+            />
+
+            <SectionLabel text="Quantity" />
+            <View style={styles.qtyRow}>
+              <Text style={styles.qtyValue}>{item.quantity || "0"}</Text>
+              <Segmented<QuantityUnit>
+                options={QUANTITY_UNITS.map((u) => ({ label: u, value: u }))}
+                value={item.quantityUnit}
+                onChange={(v) => setField("quantityUnit", v)}
+              />
+            </View>
+            <NumberPad
+              value={item.quantity}
+              onChange={(v) => setField("quantity", v)}
+            />
+
+            <SectionLabel text="Packing" />
+            <ChipRow
+              values={COMMON_PACKINGS.slice(0, 8)}
+              selected={item.packingType}
+              onSelect={(v) => setField("packingType", v)}
+            />
+
+            <SectionLabel text="Size (kg)" />
+            <ChipRow
+              values={COMMON_SIZES_KG}
+              selected={item.sizeKg}
+              onSelect={(v) => setField("sizeKg", v)}
+            />
+
+            <SectionLabel text="Rate" />
+            <TextField
+              label="Rate per unit"
+              placeholder="e.g. 185"
+              keyboardType="numeric"
+              value={item.productRate}
+              onChangeText={(v) => setField("productRate", v)}
+            />
+
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>Line total</Text>
+              <Text style={styles.totalValue}>{formatINR(lineTotal)}</Text>
+            </View>
+          </ScrollView>
+
+          <View style={styles.footer}>
+            {mode === "edit" && onDelete ? (
+              <Button
+                label="Delete"
+                variant="danger"
+                fullWidth={false}
+                onPress={onDelete}
+              />
+            ) : (
+              <View />
+            )}
+            <Button
+              label={mode === "edit" ? "Save" : "Add"}
+              disabled={!isComplete}
+              onPress={() => onSave(item)}
+            />
+          </View>
+        </KeyboardAvoidingView>
+      </View>
+    </Modal>
+  );
+}
+
+function SectionLabel({ text }: { text: string }) {
+  return <Text style={styles.sectionLabel}>{text}</Text>;
+}
+
+function ChipRow({
+  values,
+  selected,
+  onSelect,
+}: {
+  values: readonly string[];
+  selected: string | null;
+  onSelect: (v: string) => void;
+}) {
+  return (
+    <View style={styles.chipRow}>
+      {values.map((v) => {
+        const active = v === selected;
+        return (
+          <Pressable
+            key={v}
+            onPress={() => onSelect(v)}
+            style={({ pressed }) => [
+              styles.chip,
+              active && styles.chipActive,
+              pressed && { opacity: 0.8 },
+            ]}
+          >
+            <Text
+              style={[styles.chipLabel, active && styles.chipLabelActive]}
+              numberOfLines={1}
+            >
+              {v}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0,0,0,0.4)",
+  },
+  sheet: {
+    maxHeight: "92%",
+    backgroundColor: theme.colors.background,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 8,
+  },
+  handle: {
+    alignSelf: "center",
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: theme.colors.border,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  headerRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: theme.spacing.lg,
+    paddingBottom: theme.spacing.sm,
+  },
+  title: {
+    fontSize: theme.type.title,
+    fontWeight: "700",
+    color: theme.colors.text,
+  },
+  closeGlyph: {
+    fontSize: 32,
+    lineHeight: 32,
+    color: theme.colors.textMuted,
+    paddingHorizontal: 8,
+  },
+  body: {
+    paddingHorizontal: theme.spacing.lg,
+    paddingBottom: theme.spacing.lg,
+    gap: 10,
+  },
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+    color: theme.colors.textMuted,
+    marginTop: 10,
+  },
+  hint: { fontSize: theme.type.bodySmall, color: theme.colors.textMuted },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    minHeight: theme.tap,
+    justifyContent: "center",
+  },
+  chipActive: {
+    backgroundColor: theme.colors.primary,
+    borderColor: theme.colors.primary,
+  },
+  chipLabel: {
+    fontSize: theme.type.bodySmall,
+    color: theme.colors.text,
+    fontWeight: "600",
+  },
+  chipLabelActive: { color: "#fff" },
+  productList: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  productChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    minHeight: theme.tap,
+    justifyContent: "center",
+  },
+  productChipActive: {
+    borderColor: theme.colors.primary,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 2,
+  },
+  productChipLabel: {
+    fontSize: theme.type.bodySmall,
+    color: theme.colors.text,
+  },
+  productChipLabelActive: {
+    color: theme.colors.primary,
+    fontWeight: "700",
+  },
+  qtyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  qtyValue: {
+    fontSize: 40,
+    fontWeight: "700",
+    color: theme.colors.text,
+    fontVariant: ["tabular-nums"],
+  },
+  totalRow: {
+    marginTop: 14,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: theme.spacing.md,
+    borderRadius: theme.radius,
+    backgroundColor: theme.colors.surface,
+  },
+  totalLabel: {
+    fontSize: theme.type.body,
+    color: theme.colors.textMuted,
+    fontWeight: "600",
+  },
+  totalValue: {
+    fontSize: theme.type.title,
+    color: theme.colors.text,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
+  },
+  footer: {
+    flexDirection: "row",
+    gap: 12,
+    padding: theme.spacing.lg,
+    paddingTop: theme.spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+  },
+});

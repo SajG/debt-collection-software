@@ -60,6 +60,16 @@ export default async function OrdersPage({
         party: { select: { name: true } },
         product: { select: { name: true, brand: true } },
         salesperson: { select: { ownerName: true } },
+        items: {
+          orderBy: { lineNumber: "asc" },
+          select: {
+            lineNumber: true,
+            brand: true,
+            quantity: true,
+            quantityUnit: true,
+            product: { select: { name: true, brand: true } },
+          },
+        },
       },
       orderBy: [{ createdAt: "desc" }],
       take: 200,
@@ -182,13 +192,32 @@ export default async function OrdersPage({
                     )}
                   </Td>
                   <Td>
-                    <span className="text-foreground">{o.product.brand}</span>
-                    <p className="text-xs text-muted-foreground">
-                      {o.product.name}
-                    </p>
+                    {(() => {
+                      const first = o.items[0];
+                      const extra = o.items.length - 1;
+                      const brand = first?.brand || first?.product?.brand || o.product.brand;
+                      const name = first?.product?.name ?? o.product.name;
+                      return (
+                        <>
+                          <span className="text-foreground">{brand}</span>
+                          <p className="text-xs text-muted-foreground">
+                            {name}
+                            {extra > 0 ? ` · +${extra} more` : ""}
+                          </p>
+                        </>
+                      );
+                    })()}
                   </Td>
                   <Td align="right">
-                    {toNumber(o.quantity)} {o.quantityUnit}
+                    {o.items.length > 1 ? (
+                      <span title={`${o.items.length} line items`}>
+                        {o.items.length} lines
+                      </span>
+                    ) : (
+                      <>
+                        {toNumber(o.quantity)} {o.quantityUnit}
+                      </>
+                    )}
                   </Td>
                   <Td align="right">{formatINR(o.orderValue)}</Td>
                   <Td>

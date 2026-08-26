@@ -41,6 +41,16 @@ export default async function ProductionQueuePage() {
     include: {
       party: { select: { name: true } },
       product: { select: { name: true, brand: true } },
+      items: {
+        orderBy: { lineNumber: "asc" },
+        select: {
+          lineNumber: true,
+          brand: true,
+          quantity: true,
+          quantityUnit: true,
+          product: { select: { name: true, brand: true } },
+        },
+      },
     },
     orderBy: [
       { expectedDeliveryDate: { sort: "asc", nulls: "last" } },
@@ -64,6 +74,7 @@ export default async function ProductionQueuePage() {
           {orders.map((order) => {
             const urgency = deliveryUrgency(order.expectedDeliveryDate);
             const qty = `${toNumber(order.quantity)} ${order.quantityUnit}`;
+            const lineCount = order.items.length;
             const deliveryCls =
               urgency === "overdue"
                 ? "text-red-700 font-bold"
@@ -84,6 +95,7 @@ export default async function ProductionQueuePage() {
                       </p>
                       <p className="mt-1 text-base text-muted-foreground sm:text-lg">
                         {order.product.brand} · {order.product.name}
+                        {lineCount > 1 ? ` · +${lineCount - 1} more` : ""}
                       </p>
                       <p className="mt-1 font-mono text-sm text-muted-foreground">
                         {order.orderNumber}
@@ -99,7 +111,9 @@ export default async function ProductionQueuePage() {
                       <p className="text-xs uppercase tracking-wide text-muted-foreground">
                         Quantity
                       </p>
-                      <p className="font-semibold text-foreground">{qty}</p>
+                      <p className="font-semibold text-foreground">
+                        {lineCount > 1 ? `${lineCount} lines` : qty}
+                      </p>
                     </div>
                     <div>
                       <p className="text-xs uppercase tracking-wide text-muted-foreground">

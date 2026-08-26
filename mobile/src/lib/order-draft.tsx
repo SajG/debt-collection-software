@@ -15,43 +15,75 @@ import type {
   TransportType,
 } from "./database.types";
 
-// The single wizard state. Every step reads and writes here; the whole
-// thing is persisted to AsyncStorage on every change so the OS killing
-// the app mid-order (memory pressure, phone call interrupt, backgrounded
-// for 20 min) doesn't lose the salesperson's typing.
+// v2 draft. Header fields stay flat; every SKU on the order lives in
+// `items[]`. Cart-first flow — screen 2 in the wizard is a repeatable
+// item list, not a linear step chain.
+//
+// Migration:
+//   v1 (order-draft-v1) was a flat 13-column blob (one SKU). If a
+//   salesperson had a v1 draft mid-order when the app updated, we
+//   convert it to a v2 draft with exactly one item so no typing is
+//   lost. See `migrateV1ToV2` below.
 
-const KEY = "order-draft-v1";
+const KEY = "order-draft-v2";
+const LEGACY_KEY = "order-draft-v1";
 
-export type OrderDraft = {
-  partyId: string | null;
-  partyName: string | null;
-  // When the customer isn't in the Tally ledger yet, the salesperson types
-  // the name and we submit it as newCustomerName. Reconciled to a real
-  // Party later once Tally sync brings the ledger entry in.
-  newCustomerName: string | null;
-  // Free text — the address to dispatch goods to (may differ from ledger).
-  dispatchLocation: string;
+export type OrderDraftItem = {
+  /** Local id so items can be edited/removed before submission. */
+  localId: string;
   brand: string | null;
   productId: string | null;
   productName: string | null;
-  quantity: string; // stringy so users can clear it back to empty
+  /** Empty when the product isn't in the catalogue — submitted as
+   *  newProductName on the RPC, server creates a stub. */
+  customProductName: string | null;
+  quantity: string;
   quantityUnit: QuantityUnit;
   packingType: string | null;
   sizeKg: string | null;
   productRate: string;
+};
+
+export type OrderDraft = {
+  // ── Header (screen 1) ─────────────────────────────────────────────
+  partyId: string | null;
+  partyName: string | null;
+  newCustomerName: string | null;
+  dispatchLocation: string;
   paymentTerm: PaymentTerm | null;
   transportType: TransportType | null;
   expectedDeliveryDate: string | null; // yyyy-mm-dd
-  // "With Synergy Barcode Token" etc., or a user-typed value via "Other".
   tokenType: string | null;
   notes: string;
-  // When the product isn't in the Tally BOM catalogue yet, salesperson
-  // types a name. Submitted alongside p_new_product_name; server creates
-  // a stub Product row on first save.
-  customProductName: string | null;
-  // Highest step index visited. Powers "Resume order" on home screen.
-  lastStep: number;
+  // ── Items (screen 2) ──────────────────────────────────────────────
+  items: OrderDraftItem[];
+  // ── Wizard bookkeeping ────────────────────────────────────────────
+  /** Sticky brand/packing/unit for the NEXT item added — the second
+   *  SKU on an order is usually the same brand and pack size. */
+  stickyBrand: string | null;
+  stickyPacking: string | null;
+  stickySize: string | null;
+  stickyUnit: QuantityUnit;
 };
+
+function newItemId(): string {
+  return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
+}
+
+export function emptyItem(): OrderDraftItem {
+  return {
+    localId: newItemId(),
+    brand: null,
+    productId: null,
+    productName: null,
+    customProductName: null,
+    quantity: "",
+    quantityUnit: "KG",
+    packingType: null,
+    sizeKg: null,
+    productRate: "",
+  };
+}
 
 export function emptyDraft(): OrderDraft {
   return {
@@ -59,56 +91,75 @@ export function emptyDraft(): OrderDraft {
     partyName: null,
     newCustomerName: null,
     dispatchLocation: "",
-    brand: null,
-    productId: null,
-    productName: null,
-    quantity: "",
-    quantityUnit: "KG",
-    packingType: null,
-    sizeKg: null,
-    productRate: "",
     paymentTerm: null,
     transportType: null,
     expectedDeliveryDate: null,
     tokenType: null,
     notes: "",
-    customProductName: null,
-    lastStep: 1,
+    items: [],
+    stickyBrand: null,
+    stickyPacking: null,
+    stickySize: null,
+    stickyUnit: "KG",
   };
 }
 
-/** True when the salesperson has typed anything into the current draft. */
-export function isDraftDirty(d: OrderDraft): boolean {
-  return Boolean(
-    d.partyId ||
-      d.newCustomerName ||
-      d.dispatchLocation.trim() ||
-      d.brand ||
-      d.productId ||
-      d.productName ||
-      d.customProductName ||
-      d.quantity ||
-      d.packingType ||
-      d.sizeKg ||
-      d.productRate.trim() ||
-      d.paymentTerm ||
-      d.transportType ||
-      d.tokenType ||
-      d.notes.trim(),
-  );
+/** Convert a v1 draft blob into a v2 draft. Called once on hydrate. */
+function migrateV1ToV2(raw: unknown): OrderDraft | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const base = emptyDraft();
+  const merged: OrderDraft = {
+    ...base,
+    partyId: (r.partyId as string | null) ?? null,
+    partyName: (r.partyName as string | null) ?? null,
+    newCustomerName: (r.newCustomerName as string | null) ?? null,
+    dispatchLocation: (r.dispatchLocation as string) ?? "",
+    paymentTerm: (r.paymentTerm as PaymentTerm | null) ?? null,
+    transportType: (r.transportType as TransportType | null) ?? null,
+    expectedDeliveryDate: (r.expectedDeliveryDate as string | null) ?? null,
+    tokenType: (r.tokenType as string | null) ?? null,
+    notes: (r.notes as string) ?? "",
+    stickyBrand: (r.brand as string | null) ?? null,
+    stickyPacking: (r.packingType as string | null) ?? null,
+    stickySize: (r.sizeKg as string | null) ?? null,
+    stickyUnit: (r.quantityUnit as QuantityUnit) ?? "KG",
+    items: [],
+  };
+  // Only lift the SKU into an item if the salesperson actually typed
+  // something for it — otherwise we'd produce a phantom empty line.
+  const hasSku =
+    r.brand ||
+    r.productId ||
+    r.productName ||
+    r.customProductName ||
+    (typeof r.quantity === "string" && r.quantity) ||
+    (typeof r.productRate === "string" && r.productRate.trim()) ||
+    r.packingType ||
+    r.sizeKg;
+  if (hasSku) {
+    merged.items = [
+      {
+        localId: newItemId(),
+        brand: (r.brand as string | null) ?? null,
+        productId: (r.productId as string | null) ?? null,
+        productName: (r.productName as string | null) ?? null,
+        customProductName: (r.customProductName as string | null) ?? null,
+        quantity: (r.quantity as string) ?? "",
+        quantityUnit: (r.quantityUnit as QuantityUnit) ?? "KG",
+        packingType: (r.packingType as string | null) ?? null,
+        sizeKg: (r.sizeKg as string | null) ?? null,
+        productRate: (r.productRate as string) ?? "",
+      },
+    ];
+  }
+  return merged;
 }
 
-/** True once every required field has a value — controls the review step. */
-export function isDraftComplete(d: OrderDraft): boolean {
+function isHeaderComplete(d: OrderDraft): boolean {
   return Boolean(
     (d.partyId || d.newCustomerName) &&
       d.dispatchLocation.trim() &&
-      d.brand &&
-      (d.productId || (d.customProductName && d.customProductName.trim())) &&
-      Number(d.quantity) > 0 &&
-      d.packingType &&
-      d.sizeKg &&
-      d.productRate.trim() &&
       d.paymentTerm &&
       d.transportType &&
       d.expectedDeliveryDate &&
@@ -116,11 +167,60 @@ export function isDraftComplete(d: OrderDraft): boolean {
   );
 }
 
+function isItemComplete(it: OrderDraftItem): boolean {
+  return Boolean(
+    it.brand &&
+      (it.productId || (it.customProductName && it.customProductName.trim())) &&
+      Number(it.quantity) > 0 &&
+      it.packingType &&
+      it.sizeKg &&
+      it.productRate.trim(),
+  );
+}
+
+export function isDraftDirty(d: OrderDraft): boolean {
+  if (
+    d.partyId ||
+    d.newCustomerName ||
+    d.dispatchLocation.trim() ||
+    d.paymentTerm ||
+    d.transportType ||
+    d.tokenType ||
+    d.notes.trim() ||
+    d.items.length > 0
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function isDraftComplete(d: OrderDraft): boolean {
+  return (
+    isHeaderComplete(d) && d.items.length >= 1 && d.items.every(isItemComplete)
+  );
+}
+
+export function draftTotal(d: OrderDraft): number {
+  let total = 0;
+  for (const it of d.items) {
+    const qty = Number(it.quantity) || 0;
+    const rate = Number(it.productRate.replace(/[₹,\s]/g, "")) || 0;
+    total += qty * rate;
+  }
+  return Math.round(total * 100) / 100;
+}
+
+// ── Provider ────────────────────────────────────────────────────────
+
 type WizardValue = {
   draft: OrderDraft;
   hydrated: boolean;
   setField: <K extends keyof OrderDraft>(k: K, v: OrderDraft[K]) => void;
   patch: (p: Partial<OrderDraft>) => void;
+  addItem: (it: Omit<OrderDraftItem, "localId">) => void;
+  updateItem: (localId: string, patch: Partial<OrderDraftItem>) => void;
+  removeItem: (localId: string) => void;
+  replaceDraft: (next: OrderDraft) => void;
   discard: () => Promise<void>;
 };
 
@@ -129,23 +229,35 @@ const WizardContext = createContext<WizardValue | null>(null);
 export function WizardProvider({ children }: { children: ReactNode }) {
   const [draft, setDraft] = useState<OrderDraft>(emptyDraft);
   const [hydrated, setHydrated] = useState(false);
-  // Debounce writes to AsyncStorage — one per tick is plenty and avoids
-  // hammering the disk while the user is typing in a text field.
   const writeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let mounted = true;
-    AsyncStorage.getItem(KEY).then((raw) => {
-      if (!mounted) return;
-      if (raw) {
-        try {
-          setDraft({ ...emptyDraft(), ...JSON.parse(raw) });
-        } catch {
-          /* corrupt draft — ignore, start fresh */
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (mounted) setDraft({ ...emptyDraft(), ...parsed });
+        } else {
+          // No v2 draft — check for a v1 draft to migrate. Salespeople
+          // upgrading mid-order must not lose their typing.
+          const legacy = await AsyncStorage.getItem(LEGACY_KEY);
+          if (legacy) {
+            try {
+              const migrated = migrateV1ToV2(JSON.parse(legacy));
+              if (migrated && mounted) setDraft(migrated);
+            } catch {
+              /* corrupt legacy — ignore */
+            }
+            await AsyncStorage.removeItem(LEGACY_KEY);
+          }
         }
+      } catch {
+        /* corrupt v2 — start fresh */
       }
-      setHydrated(true);
-    });
+      if (mounted) setHydrated(true);
+    })();
     return () => {
       mounted = false;
     };
@@ -156,8 +268,7 @@ export function WizardProvider({ children }: { children: ReactNode }) {
     if (writeTimer.current) clearTimeout(writeTimer.current);
     writeTimer.current = setTimeout(() => {
       AsyncStorage.setItem(KEY, JSON.stringify(draft)).catch(() => {
-        // Storage full or SecureStore quota — non-fatal; user can still
-        // finish the order and it'll queue in RAM. Warned in the console.
+        /* storage full — non-fatal */
       });
     }, 150);
     return () => {
@@ -173,14 +284,57 @@ export function WizardProvider({ children }: { children: ReactNode }) {
     setDraft((prev) => ({ ...prev, ...p }));
   }, []);
 
+  const addItem = useCallback<WizardValue["addItem"]>((it) => {
+    setDraft((prev) => ({
+      ...prev,
+      items: [...prev.items, { ...it, localId: newItemId() }],
+      // Update stickies from the item just added — next Add opens with
+      // these prefilled.
+      stickyBrand: it.brand,
+      stickyPacking: it.packingType,
+      stickySize: it.sizeKg,
+      stickyUnit: it.quantityUnit,
+    }));
+  }, []);
+
+  const updateItem = useCallback<WizardValue["updateItem"]>((localId, p) => {
+    setDraft((prev) => ({
+      ...prev,
+      items: prev.items.map((x) =>
+        x.localId === localId ? { ...x, ...p } : x,
+      ),
+    }));
+  }, []);
+
+  const removeItem = useCallback<WizardValue["removeItem"]>((localId) => {
+    setDraft((prev) => ({
+      ...prev,
+      items: prev.items.filter((x) => x.localId !== localId),
+    }));
+  }, []);
+
+  const replaceDraft = useCallback<WizardValue["replaceDraft"]>((next) => {
+    setDraft(next);
+  }, []);
+
   const discard = useCallback(async () => {
     await AsyncStorage.removeItem(KEY);
     setDraft(emptyDraft());
   }, []);
 
   const value = useMemo<WizardValue>(
-    () => ({ draft, hydrated, setField, patch, discard }),
-    [draft, hydrated, setField, patch, discard],
+    () => ({
+      draft,
+      hydrated,
+      setField,
+      patch,
+      addItem,
+      updateItem,
+      removeItem,
+      replaceDraft,
+      discard,
+    }),
+    [draft, hydrated, setField, patch, addItem, updateItem, removeItem, replaceDraft, discard],
   );
 
   return (
@@ -194,41 +348,40 @@ export function useWizard(): WizardValue {
   return ctx;
 }
 
-// Home screen preview of the in-progress draft. Reads AsyncStorage
-// directly so the home screen (outside WizardProvider) can offer a
-// "Resume order" card without duplicating provider state.
+// ── Home-screen preview (outside provider) ──────────────────────────
+
 export function useDraftPreview() {
   const [state, setState] = useState<{
     hydrated: boolean;
     hasDraft: boolean;
-    lastStep: number;
+    itemCount: number;
     summary: string | null;
-  }>({ hydrated: false, hasDraft: false, lastStep: 1, summary: null });
+  }>({ hydrated: false, hasDraft: false, itemCount: 0, summary: null });
 
   const refresh = useCallback(async () => {
     try {
       const raw = await AsyncStorage.getItem(KEY);
-      if (!raw) {
-        setState({ hydrated: true, hasDraft: false, lastStep: 1, summary: null });
+      let d: OrderDraft | null = null;
+      if (raw) {
+        d = { ...emptyDraft(), ...JSON.parse(raw) };
+      } else {
+        const legacy = await AsyncStorage.getItem(LEGACY_KEY);
+        if (legacy) d = migrateV1ToV2(JSON.parse(legacy));
+      }
+      if (!d || !isDraftDirty(d)) {
+        setState({ hydrated: true, hasDraft: false, itemCount: 0, summary: null });
         return;
       }
-      const d: OrderDraft = { ...emptyDraft(), ...JSON.parse(raw) };
-      const dirty = isDraftDirty(d);
       const summary =
-        d.partyName ||
-        d.newCustomerName ||
-        d.productName ||
-        d.customProductName ||
-        d.brand ||
-        null;
+        d.partyName || d.newCustomerName || d.items[0]?.productName || null;
       setState({
         hydrated: true,
-        hasDraft: dirty,
-        lastStep: d.lastStep || 1,
+        hasDraft: true,
+        itemCount: d.items.length,
         summary,
       });
     } catch {
-      setState({ hydrated: true, hasDraft: false, lastStep: 1, summary: null });
+      setState({ hydrated: true, hasDraft: false, itemCount: 0, summary: null });
     }
   }, []);
 
@@ -237,4 +390,39 @@ export function useDraftPreview() {
   }, [refresh]);
 
   return { ...state, refresh };
+}
+
+// ── Repeat-last-order helper ────────────────────────────────────────
+
+export type RepeatSeed = {
+  header: Partial<
+    Pick<
+      OrderDraft,
+      | "partyId"
+      | "partyName"
+      | "newCustomerName"
+      | "dispatchLocation"
+      | "paymentTerm"
+      | "transportType"
+      | "tokenType"
+    >
+  >;
+  items: Omit<OrderDraftItem, "localId">[];
+};
+
+/** Merge a repeat-seed into an empty draft. Intended flow: home-screen
+ *  "Repeat" tap → build seed → write directly to the v2 key → route to
+ *  the wizard entry, which hydrates the draft on mount. */
+export async function writeRepeatSeed(seed: RepeatSeed): Promise<void> {
+  const base = emptyDraft();
+  const next: OrderDraft = {
+    ...base,
+    ...seed.header,
+    items: seed.items.map((it) => ({ ...it, localId: newItemId() })),
+    stickyBrand: seed.items[0]?.brand ?? null,
+    stickyPacking: seed.items[0]?.packingType ?? null,
+    stickySize: seed.items[0]?.sizeKg ?? null,
+    stickyUnit: seed.items[0]?.quantityUnit ?? "KG",
+  };
+  await AsyncStorage.setItem(KEY, JSON.stringify(next));
 }
