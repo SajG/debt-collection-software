@@ -15,7 +15,7 @@ import DateTimePicker, {
   DateTimePickerAndroid,
   type DateTimePickerEvent,
 } from "@react-native-community/datetimepicker";
-import { useLocalSearchParams } from "expo-router";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { Screen } from "@/components/Screen";
 import { Button } from "@/components/Button";
 import { PickList } from "@/components/PickList";
@@ -89,6 +89,16 @@ export default function FactoryOrderDetail() {
   const { user } = useAuth();
   const { data, loading, error, refetch } = useOrderDetail(id ?? null);
   useOrderEventStream(refetch, user?.id ?? null);
+  // Belt-and-braces: refetch every time this screen comes into focus.
+  // Realtime should push admin approvals to the factory, but if the
+  // socket is stale (backgrounded app, cold nav from a notification)
+  // the "Awaiting approval" banner would linger. Focus refetch keeps
+  // the header status truthful the moment a factory user taps in.
+  useFocusEffect(
+    useCallback(() => {
+      void refetch();
+    }, [refetch]),
+  );
   const [submitting, setSubmitting] = useState(false);
 
   const next = useMemo<OrderStatus | null>(

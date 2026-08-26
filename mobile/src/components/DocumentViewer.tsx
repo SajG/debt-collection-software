@@ -13,6 +13,7 @@ import {
   View,
 } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ORDER_DOC_BUCKET, getSignedUrl } from "@/lib/uploads";
 import { theme } from "@/theme";
 
@@ -123,6 +124,7 @@ export function DocumentViewer({
   }
 
   const current = pages[index];
+  const insets = useSafeAreaInsets();
 
   return (
     <Modal
@@ -132,8 +134,22 @@ export function DocumentViewer({
       statusBarTranslucent
     >
       <View style={styles.root}>
-        <View style={styles.topBar}>
-          <Pressable onPress={onClose} hitSlop={12} style={styles.topBtn}>
+        {/* Pad by insets.top so the Close / Share buttons don't hide
+            under the status bar / notch. Was the reason "Close doesn't
+            work" — the tap target was behind the system UI. */}
+        <View
+          style={[
+            styles.topBar,
+            { paddingTop: Math.max(insets.top, 12), height: 56 + insets.top },
+          ]}
+        >
+          <Pressable
+            onPress={onClose}
+            hitSlop={16}
+            style={styles.topBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Close viewer"
+          >
             <Text style={styles.topBtnText}>✕ Close</Text>
           </Pressable>
           <Text style={styles.topLabel} numberOfLines={1}>
@@ -142,7 +158,7 @@ export function DocumentViewer({
           </Text>
           <Pressable
             onPress={shareCurrent}
-            hitSlop={12}
+            hitSlop={16}
             style={styles.topBtn}
             accessibilityRole="button"
             accessibilityLabel="Share via WhatsApp or other"
@@ -237,7 +253,8 @@ function mimeFor(path: string): string | undefined {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#000" },
   topBar: {
-    height: 56,
+    // height is set inline (base 56 + safe-area inset) so the buttons
+    // don't hide under the status bar on Android + notched iPhones.
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",

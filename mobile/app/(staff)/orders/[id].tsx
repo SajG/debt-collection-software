@@ -10,7 +10,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { Screen } from "@/components/Screen";
 import { Button } from "@/components/Button";
 import { TextField } from "@/components/TextField";
@@ -48,8 +48,15 @@ export default function OrderDetailScreen() {
   const [approvalBusy, setApprovalBusy] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   // Timeline auto-updates as new events land on this or any of the
-  // user's orders.
+  // user's orders. Plus a focus-refetch so a stale Realtime socket
+  // (backgrounded app, cold nav from a push) can't leave the header
+  // status out of date.
   useOrderEventStream(refetch, user?.id ?? null);
+  useFocusEffect(
+    useCallback(() => {
+      void refetch();
+    }, [refetch]),
+  );
 
   if (loading && !data) {
     return (

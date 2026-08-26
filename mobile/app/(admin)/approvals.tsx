@@ -162,6 +162,14 @@ export default function AdminApprovals() {
       Alert.alert("Approve failed", res.error);
       return;
     }
+    // Explicit confirmation — the row vanishes from the queue on
+    // reload, which was reading as "did anything happen?".
+    Alert.alert(
+      "Approved",
+      it.kind === "ORDER"
+        ? `${it.orderNumber} — ${it.partyName}\nNow on the factory floor.`
+        : `${it.orderNumber} — rate approved. Factory can start production.`,
+    );
     await load();
   }
 
