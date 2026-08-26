@@ -4,10 +4,11 @@ import { useAuth } from "@/auth/AuthContext";
 // FACTORY-only nav group. STAFF gets redirected out; ADMIN is allowed
 // in so they can shadow the factory view without switching accounts.
 export default function FactoryLayout() {
-  const { role, loading } = useAuth();
+  const { role, loading, session } = useAuth();
   if (loading) return null;
-  // Dev auth-bypass path — no session, no role. Fall through so the
-  // developer can preview the factory UI without an OTP setup.
+  // Session gate — see (staff)/_layout for the "sign-out sticks even
+  // when we're deep-navigated" rationale.
+  if (!session) return <Redirect href="/(auth)/phone" />;
   if (role && role !== "FACTORY" && role !== "ADMIN") {
     return <Redirect href="/(staff)" />;
   }

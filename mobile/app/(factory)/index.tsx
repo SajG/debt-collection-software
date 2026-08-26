@@ -381,14 +381,14 @@ function describeBlock(row: OrderListRow): {
 const styles = StyleSheet.create({
   header: {
     paddingHorizontal: theme.spacing.lg,
-    paddingTop: theme.spacing.lg,
+    paddingTop: theme.spacing.md,
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
   },
   hello: {
-    fontSize: theme.type.heading,
+    fontSize: theme.type.body,
     fontWeight: "700",
     color: theme.colors.text,
   },
@@ -413,8 +413,8 @@ const styles = StyleSheet.create({
   },
   controls: {
     paddingHorizontal: theme.spacing.lg,
-    paddingTop: theme.spacing.md,
-    gap: theme.spacing.sm,
+    paddingTop: theme.spacing.sm,
+    gap: theme.spacing.xs,
   },
   filters: {},
   sectionHeaderWrap: {

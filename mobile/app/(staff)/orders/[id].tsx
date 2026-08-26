@@ -53,7 +53,7 @@ export default function OrderDetailScreen() {
 
   if (loading && !data) {
     return (
-      <Screen>
+      <Screen back>
         <View style={styles.center}>
           <ActivityIndicator color={theme.colors.primary} size="large" />
         </View>
@@ -63,14 +63,14 @@ export default function OrderDetailScreen() {
 
   if (error || !data) {
     return (
-      <Screen>
+      <Screen back>
         <Text style={styles.error}>{t("detail.notFound")}</Text>
       </Screen>
     );
   }
 
   return (
-    <Screen padded={false}>
+    <Screen back padded={false}>
       <ScrollView contentContainerStyle={styles.scroll}>
         <View style={styles.headerRow}>
           <View style={{ flex: 1 }}>

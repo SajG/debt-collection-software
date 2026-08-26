@@ -196,7 +196,7 @@ export default function ScreenReview() {
   }
 
   return (
-    <Screen padded={false}>
+    <Screen back padded={false}>
       <View style={styles.header}>
         <WizardHeader step={3} title="Review & place" />
       </View>

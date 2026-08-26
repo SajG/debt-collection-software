@@ -72,7 +72,7 @@ export default function NewPaymentScreen() {
 
   if (!party) {
     return (
-      <Screen padded={false}>
+      <Screen back padded={false}>
         <View style={styles.searchWrap}>
           <TextField
             label="Customer"
@@ -121,7 +121,7 @@ export default function NewPaymentScreen() {
   }
 
   return (
-    <Screen scroll>
+    <Screen back scroll>
       <View style={styles.selectedParty}>
         <Text style={styles.selectedLabel}>Customer</Text>
         <View style={styles.selectedRow}>

@@ -65,7 +65,7 @@ export default function ScreenItems() {
   const canProceed = isDraftComplete(draft);
 
   return (
-    <Screen padded={false}>
+    <Screen back padded={false}>
       <View style={styles.header}>
         <WizardHeader step={2} title="Items" />
       </View>

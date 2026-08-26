@@ -119,7 +119,7 @@ export default function ScreenCustomerAndDelivery() {
   }
 
   return (
-    <Screen padded={false}>
+    <Screen back padded={false}>
       <View style={styles.header}>
         <WizardHeader step={1} title="Customer & delivery" />
       </View>

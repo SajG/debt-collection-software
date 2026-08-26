@@ -7,8 +7,9 @@ import { theme } from "@/theme";
 // A non-admin who reaches this group (should not happen — the root
 // gate routes only ADMIN here) is bounced to /.
 export default function AdminLayout() {
-  const { role, loading } = useAuth();
+  const { role, loading, session } = useAuth();
   if (loading) return null;
+  if (!session) return <Redirect href="/(auth)/phone" />;
   if (role !== "ADMIN") return <Redirect href="/" />;
 
   return (

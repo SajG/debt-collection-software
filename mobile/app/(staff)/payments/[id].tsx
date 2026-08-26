@@ -94,7 +94,7 @@ export default function PaymentDetailScreen() {
 
   if (loading && !data) {
     return (
-      <Screen>
+      <Screen back>
         <View style={styles.center}>
           <ActivityIndicator color={theme.colors.primary} size="large" />
         </View>
@@ -104,7 +104,7 @@ export default function PaymentDetailScreen() {
 
   if (error || !data) {
     return (
-      <Screen>
+      <Screen back>
         <View style={styles.center}>
           <Text style={styles.error}>{error ?? "Payment not found."}</Text>
         </View>
@@ -113,7 +113,7 @@ export default function PaymentDetailScreen() {
   }
 
   return (
-    <Screen scroll>
+    <Screen back scroll>
       <View style={styles.summary}>
         <Text style={styles.amount}>{formatINR(Number(data.amount))}</Text>
         <Text style={styles.party}>{data.partyName}</Text>

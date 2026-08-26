@@ -25,7 +25,7 @@ export default function StockScreen() {
     .reverse()[0];
 
   return (
-    <Screen padded={false}>
+    <Screen back padded={false}>
       <PageHeader
         title="Stock in factory"
         subtitle={
