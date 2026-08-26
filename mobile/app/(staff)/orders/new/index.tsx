@@ -121,31 +121,22 @@ export default function ScreenCustomerAndDelivery() {
       <FlatList
         contentContainerStyle={styles.body}
         keyboardShouldPersistTaps="handled"
-        data={draft.partyId ? [] : parties.data ?? []}
-        keyExtractor={(p) => p.id}
-        renderItem={({ item }) => (
-          <Pressable
-            onPress={() => pickParty(item.id, item.name)}
-            style={({ pressed }) => [styles.partyRow, pressed && { opacity: 0.7 }]}
-          >
-            <Text style={styles.partyName}>{item.name}</Text>
-            {item.city ? <Text style={styles.partyCity}>{item.city}</Text> : null}
-          </Pressable>
-        )}
+        data={[]}
+        keyExtractor={(_p, i) => String(i)}
+        renderItem={() => null}
         ListHeaderComponent={
           <View>
             <Section title="Customer">
               {/* Single always-editable customer name field. Type freely;
-                  matching ledger customers appear below as tap-to-pick
-                  rows. Tapping one binds partyId; any subsequent keystroke
-                  clears the binding so the salesperson can correct a
-                  typo without a "Change" round-trip.
+                  matching ledger customers appear inline right below as
+                  tap-to-pick rows (prefix match, capped list). Tapping
+                  one binds partyId; any subsequent keystroke clears the
+                  binding so the salesperson can correct a typo without
+                  a "Change" round-trip.
 
-                  The old dual-field UI (search + separate "new customer")
-                  had a bug: typing in the "new customer" input flipped
-                  selectedName truthy on the first keystroke and the
-                  input disappeared. This single-field design cannot
-                  reproduce that. */}
+                  RLS on Party (party_select_staff) means this dropdown
+                  only ever shows THIS salesperson's assigned customers.
+                  No cross-book leakage. */}
               <TextField
                 label="Customer name"
                 placeholder="Type customer name"
@@ -166,7 +157,44 @@ export default function ScreenCustomerAndDelivery() {
                   ✓ Ledger customer{draft.partyName ? ` — ${draft.partyName}` : ""}
                 </Text>
               ) : null}
-              {parties.loading && <ActivityIndicator />}
+              {!draft.partyId && search.trim().length >= 1 ? (
+                <View style={styles.suggestBox}>
+                  {parties.loading && (
+                    <View style={styles.suggestLoading}>
+                      <ActivityIndicator />
+                    </View>
+                  )}
+                  {!parties.loading && (parties.data?.length ?? 0) === 0 ? (
+                    <Text style={styles.suggestEmpty}>
+                      No ledger match — the name you typed will be saved
+                      as a new customer.
+                    </Text>
+                  ) : null}
+                  {(parties.data ?? []).slice(0, 8).map((p) => (
+                    <Pressable
+                      key={p.id}
+                      onPress={() => pickParty(p.id, p.name)}
+                      style={({ pressed }) => [
+                        styles.suggestRow,
+                        pressed && { opacity: 0.7 },
+                      ]}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Pick ${p.name}`}
+                    >
+                      <Text style={styles.partyName}>{p.name}</Text>
+                      {p.city ? (
+                        <Text style={styles.partyCity}>{p.city}</Text>
+                      ) : null}
+                    </Pressable>
+                  ))}
+                  {(parties.data?.length ?? 0) > 8 ? (
+                    <Text style={styles.suggestMore}>
+                      +{(parties.data?.length ?? 0) - 8} more — keep typing
+                      to narrow.
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
             </Section>
 
             <Section title="Delivery">
@@ -244,14 +272,6 @@ export default function ScreenCustomerAndDelivery() {
             <View style={{ height: theme.spacing.xl }} />
           </View>
         }
-        ListEmptyComponent={
-          draft.partyId ? null : search.trim() && !parties.loading ? (
-            <Text style={styles.emptyText}>
-              No ledger match — the name you typed will be saved as a new
-              customer.
-            </Text>
-          ) : null
-        }
       />
     </Screen>
   );
@@ -324,6 +344,35 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     backgroundColor: theme.colors.surface,
     marginTop: 8,
+  },
+  suggestBox: {
+    marginTop: 8,
+    borderRadius: theme.radius,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    overflow: "hidden",
+  },
+  suggestRow: {
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  suggestEmpty: {
+    padding: theme.spacing.md,
+    fontSize: theme.type.bodySmall,
+    color: theme.colors.textMuted,
+  },
+  suggestMore: {
+    padding: theme.spacing.md,
+    fontSize: theme.type.bodySmall,
+    color: theme.colors.textMuted,
+    fontStyle: "italic",
+  },
+  suggestLoading: {
+    padding: theme.spacing.md,
+    alignItems: "flex-start",
   },
   partyName: {
     fontSize: theme.type.body,

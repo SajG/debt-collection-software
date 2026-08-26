@@ -318,7 +318,12 @@ export function useParties(search: string) {
       .order("name", { ascending: true })
       .limit(200);
     const trimmed = search.trim();
-    if (trimmed) q = q.ilike("name", `%${trimmed}%`);
+    // Prefix match — typing "Shri" surfaces every ledger starting
+    // with "Shri". Substring would drown the user in incidental hits
+    // ("… (Shri something)"). RLS on Party filters to the caller's
+    // assigned rows only, so the dropdown never leaks another
+    // salesperson's book.
+    if (trimmed) q = q.ilike("name", `${trimmed}%`);
     const { data, error } = await q;
     if (error) throw error;
     return (data ?? []) as PartyRow[];
