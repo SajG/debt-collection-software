@@ -13,6 +13,11 @@ import {
   isDevTestOtp,
   isDevTestPhone,
 } from "@/auth/dev-test";
+import {
+  attemptTestLogin,
+  isTestLoginPhone,
+  TEST_LOGIN_CODE,
+} from "@/auth/test-login";
 import { t } from "@/lib/i18n";
 import { theme } from "@/theme";
 
@@ -45,6 +50,20 @@ export default function VerifyScreen() {
     }
     setVerifying(true);
     const e164 = toE164(phone ?? "");
+
+    // Team-bootstrap test login: allowlisted team phones can log in
+    // with TEST_LOGIN_CODE ("123456"). See mobile/src/auth/test-login.ts
+    // for the security trade-off. Runs in every build.
+    if (code === TEST_LOGIN_CODE && isTestLoginPhone(e164)) {
+      const { error: testErr } = await attemptTestLogin(e164);
+      setVerifying(false);
+      if (testErr) {
+        setError(__DEV__ ? testErr.message : t("auth.verify.invalid"));
+        return;
+      }
+      router.replace("/");
+      return;
+    }
 
     // Dev-only test OTP: skip SMS verify and use the password grant
     // against the seeded test user. Production never takes this branch.

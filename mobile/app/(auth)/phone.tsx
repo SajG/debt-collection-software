@@ -19,6 +19,7 @@ import {
   isDevTestOtpEnabled,
   isDevTestPhone,
 } from "@/auth/dev-test";
+import { isTestLoginPhone } from "@/auth/test-login";
 import { t } from "@/lib/i18n";
 import { theme } from "@/theme";
 
@@ -86,6 +87,15 @@ export default function PhoneScreen() {
       // The verify screen accepts EXPO_PUBLIC_DEV_TEST_OTP for this
       // number. Production builds never take this branch.
       if (isDevTestPhone(digits)) {
+        router.push({ pathname: "/(auth)/verify", params: { phone: digits } });
+        return;
+      }
+
+      // Team-bootstrap test login: allowlisted team phones skip the
+      // SMS provider entirely — no OTP text is sent, no rate-limit
+      // budget is spent. They log in with TEST_LOGIN_CODE on the
+      // verify screen. See mobile/src/auth/test-login.ts.
+      if (isTestLoginPhone(e164)) {
         router.push({ pathname: "/(auth)/verify", params: { phone: digits } });
         return;
       }
