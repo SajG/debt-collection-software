@@ -165,15 +165,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Navigate straight to the phone screen instead of bouncing through
     // "/" — the (staff)/(factory) groups never re-evaluate the root gate
     // once mounted, so relying on it produced the "sign out does nothing"
-    // symptom. Dismiss any deep stack first: if the user was on
-    // /(staff)/orders/[id], a bare replace leaves that screen in the
-    // history and back-swipe brings them back to an orphan view.
+    // symptom. Dismiss any deep stack first only when there IS something
+    // to dismiss — calling router.dismissAll() at the root dispatches a
+    // POP_TO_TOP that no navigator handles and logs a scary red warning
+    // in dev builds. The session-gate redirect in each group layout is
+    // the real backstop; dismissAll is just a nice-to-have when the
+    // user was deep-navigated.
     try {
-      // dismissAll throws if there's nothing to dismiss — swallow.
-      try {
+      if (typeof router.canDismiss === "function" && router.canDismiss()) {
         router.dismissAll();
-      } catch {
-        /* stack was already at root */
       }
       router.replace("/(auth)/phone");
     } catch {
