@@ -431,11 +431,14 @@ const styles = StyleSheet.create({
   },
   chip: {
     paddingHorizontal: theme.spacing.md,
-    paddingVertical: 8,
-    borderRadius: 999,
+    paddingVertical: 12,
+    borderRadius: theme.radius,
     borderWidth: 1,
     borderColor: theme.colors.border,
     backgroundColor: theme.colors.surface,
+    minHeight: 44,
+    justifyContent: "center",
+    alignItems: "center",
   },
   chipActive: {
     backgroundColor: theme.colors.primary,
@@ -445,9 +448,11 @@ const styles = StyleSheet.create({
     fontSize: theme.type.bodySmall,
     color: theme.colors.text,
     fontWeight: "600",
+    letterSpacing: 0.1,
   },
   chipTextActive: {
     color: "#fff",
+    fontWeight: "700",
   },
   footer: { marginTop: theme.spacing.md },
 });

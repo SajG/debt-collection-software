@@ -307,15 +307,15 @@ function ChipRow<T extends string>({
 
 const styles = StyleSheet.create({
   header: { padding: theme.spacing.lg, paddingBottom: 0 },
-  body: { padding: theme.spacing.lg, gap: theme.spacing.md },
-  section: { gap: 10 },
+  body: { padding: theme.spacing.lg, gap: 0, paddingBottom: theme.spacing.xl },
+  section: { gap: 10, marginTop: theme.spacing.lg },
   sectionTitle: {
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 0.5,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1.2,
     textTransform: "uppercase",
     color: theme.colors.textMuted,
-    marginTop: theme.spacing.md,
+    marginBottom: 2,
   },
   partyRow: {
     padding: theme.spacing.md,
@@ -370,36 +370,48 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   dateBtn: {
-    padding: theme.spacing.md,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: 14,
     borderRadius: theme.radius,
     borderWidth: 1,
     borderColor: theme.colors.border,
     backgroundColor: theme.colors.surface,
+    minHeight: 60,
+    justifyContent: "center",
   },
   dateLabel: {
-    fontSize: 12,
+    fontSize: 11,
     color: theme.colors.textMuted,
     textTransform: "uppercase",
-    fontWeight: "700",
+    fontWeight: "800",
+    letterSpacing: 1.0,
   },
   dateValue: {
     fontSize: theme.type.body,
     color: theme.colors.text,
     fontWeight: "700",
-    marginTop: 4,
+    marginTop: 6,
   },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  // Squared cards, not pills. Ovals read "casual"; the wizard's whole
+  // job is to make a professional-feeling order in <60 s. Match the
+  // ledger row + date-picker radius so every tappable in the section
+  // shares one visual language.
   chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 999,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: 12,
+    borderRadius: theme.radius,
     borderWidth: 1,
     borderColor: theme.colors.border,
     backgroundColor: theme.colors.surface,
-    minHeight: theme.tap,
+    minHeight: 44,
     justifyContent: "center",
+    alignItems: "center",
   },
   chipActive: {
+    // Filled dark card with a slightly heavier border — accessible on
+    // low-contrast HDR outdoor screens where the primary-tint pill
+    // washed out.
     backgroundColor: theme.colors.primary,
     borderColor: theme.colors.primary,
   },
@@ -407,8 +419,9 @@ const styles = StyleSheet.create({
     fontSize: theme.type.bodySmall,
     color: theme.colors.text,
     fontWeight: "600",
+    letterSpacing: 0.1,
   },
-  chipLabelActive: { color: "#fff" },
+  chipLabelActive: { color: "#fff", fontWeight: "700" },
   emptyText: {
     fontSize: theme.type.bodySmall,
     color: theme.colors.textMuted,
