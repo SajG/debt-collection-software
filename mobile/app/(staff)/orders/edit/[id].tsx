@@ -26,7 +26,7 @@ import {
   TRANSPORT_TYPES,
   TOKEN_TYPES,
 } from "@/lib/constants";
-import type { PaymentTerm, TransportType } from "@/lib/database.types";
+import type { OrderStatus, PaymentTerm, TransportType } from "@/lib/database.types";
 import { theme } from "@/theme";
 
 // Any STAFF / ADMIN can edit customer + delivery details on any
@@ -48,7 +48,7 @@ export default function EditOrderScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [orderNumber, setOrderNumber] = useState<string | null>(null);
-  const [status, setStatus] = useState<string | null>(null);
+  const [status, setStatus] = useState<OrderStatus | null>(null);
 
   const [partyId, setPartyId] = useState<string | null>(null);
   const [customerName, setCustomerName] = useState("");
@@ -85,7 +85,7 @@ export default function EditOrderScreen() {
       }
       type Row = {
         orderNumber: string;
-        currentStatus: string;
+        currentStatus: OrderStatus;
         partyId: string | null;
         newCustomerName: string | null;
         dispatchLocation: string | null;
