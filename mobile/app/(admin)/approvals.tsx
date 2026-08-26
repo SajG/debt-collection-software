@@ -85,7 +85,7 @@ async function loadApprovals(): Promise<Item[]> {
 async function approveOrderRpc(orderId: string, note: string | null) {
   const { error } = await supabase.rpc("approve_order", {
     p_order_id: orderId,
-    p_note: note?.slice(0, 1000) ?? null,
+    p_note: note?.slice(0, 1000) ?? undefined,
   });
   return error ? { error: error.message } : { ok: true as const };
 }

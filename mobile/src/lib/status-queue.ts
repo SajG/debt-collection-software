@@ -124,7 +124,7 @@ export async function drainStatusOnce(): Promise<{
       const { error } = await supabase.rpc("advance_order_status", {
         p_order_id: entry.orderId,
         p_target: entry.target,
-        p_note: entry.note,
+        p_note: entry.note ?? undefined,
       });
       if (error) throw new Error(error.message);
       await removeQueued(entry.localId);
@@ -164,7 +164,7 @@ export async function submitStatusAdvance(input: {
     const { error } = await supabase.rpc("advance_order_status", {
       p_order_id: input.orderId,
       p_target: input.target,
-      p_note: input.note,
+      p_note: input.note ?? undefined,
     });
     if (error) {
       // Network-shaped errors are opaque; queue for retry rather

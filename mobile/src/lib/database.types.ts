@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.5"
+    PostgrestVersion: "14.17"
   }
   public: {
     Tables: {
@@ -634,6 +634,8 @@ export type Database = {
         Row: {
           createdAt: string
           id: string
+          pageGroupId: string | null
+          pageIndex: number | null
           salesOrderId: string
           storagePath: string
           type: Database["public"]["Enums"]["DocumentType"]
@@ -642,6 +644,8 @@ export type Database = {
         Insert: {
           createdAt?: string
           id: string
+          pageGroupId?: string | null
+          pageIndex?: number | null
           salesOrderId: string
           storagePath: string
           type: Database["public"]["Enums"]["DocumentType"]
@@ -650,6 +654,8 @@ export type Database = {
         Update: {
           createdAt?: string
           id?: string
+          pageGroupId?: string | null
+          pageIndex?: number | null
           salesOrderId?: string
           storagePath?: string
           type?: Database["public"]["Enums"]["DocumentType"]
@@ -1421,6 +1427,91 @@ export type Database = {
           },
         ]
       }
+      SalesOrderItem: {
+        Row: {
+          brand: string
+          createdAt: string
+          id: string
+          lineNumber: number
+          lineValue: number
+          needsRateApproval: boolean
+          packingType: string | null
+          productId: string
+          productionStatus: Database["public"]["Enums"]["LineProductionStatus"]
+          productRate: string
+          quantity: number
+          quantityUnit: string
+          rateApprovalNote: string | null
+          rateApprovedAt: string | null
+          rateApprovedById: string | null
+          salesOrderId: string
+          sizeKg: string | null
+          updatedAt: string
+        }
+        Insert: {
+          brand: string
+          createdAt?: string
+          id: string
+          lineNumber: number
+          lineValue: number
+          needsRateApproval?: boolean
+          packingType?: string | null
+          productId: string
+          productionStatus?: Database["public"]["Enums"]["LineProductionStatus"]
+          productRate: string
+          quantity: number
+          quantityUnit: string
+          rateApprovalNote?: string | null
+          rateApprovedAt?: string | null
+          rateApprovedById?: string | null
+          salesOrderId: string
+          sizeKg?: string | null
+          updatedAt?: string
+        }
+        Update: {
+          brand?: string
+          createdAt?: string
+          id?: string
+          lineNumber?: number
+          lineValue?: number
+          needsRateApproval?: boolean
+          packingType?: string | null
+          productId?: string
+          productionStatus?: Database["public"]["Enums"]["LineProductionStatus"]
+          productRate?: string
+          quantity?: number
+          quantityUnit?: string
+          rateApprovalNote?: string | null
+          rateApprovedAt?: string | null
+          rateApprovedById?: string | null
+          salesOrderId?: string
+          sizeKg?: string | null
+          updatedAt?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "SalesOrderItem_productId_fkey"
+            columns: ["productId"]
+            isOneToOne: false
+            referencedRelation: "Product"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "SalesOrderItem_rateApprovedById_fkey"
+            columns: ["rateApprovedById"]
+            isOneToOne: false
+            referencedRelation: "Profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "SalesOrderItem_salesOrderId_fkey"
+            columns: ["salesOrderId"]
+            isOneToOne: false
+            referencedRelation: "SalesOrder"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       StaleOrderNotice: {
         Row: {
           notifiedAt: string
@@ -1587,20 +1678,22 @@ export type Database = {
       }
       _sweep_stale_orders: { Args: never; Returns: undefined }
       advance_order_status: {
-        // p_note widened to allow null — DEFAULT NULL server-side.
-        Args: { p_note?: string | null; p_order_id: string; p_target: string }
+        Args: { p_note?: string; p_order_id: string; p_target: string }
         Returns: {
           currentStatus: string
           id: string
         }[]
       }
       approve_order: {
-        // p_note widened to allow null — DEFAULT NULL server-side.
-        Args: { p_note?: string | null; p_order_id: string }
+        Args: { p_note?: string; p_order_id: string }
         Returns: {
           currentStatus: string
           id: string
         }[]
+      }
+      approve_rate: {
+        Args: { p_note?: string; p_order_id: string }
+        Returns: undefined
       }
       check_document_upload_rate_limit: {
         Args: { p_profile_id: string }
@@ -1624,27 +1717,23 @@ export type Database = {
         }[]
       }
       create_sales_order: {
-        // Nullability manually widened — the Postgres function
-        // signature uses DEFAULT NULL on most params but the
-        // supabase gen types generator infers all as non-null. See
-        // scripts/patch-database-types.mjs (runs after types:generate).
         Args: {
-          p_brand: string | null
-          p_credit_override_note?: string | null
-          p_dispatch_location?: string | null
-          p_expected_delivery_date: string | null
-          p_new_customer_name?: string | null
-          p_new_product_name?: string | null
-          p_notes: string | null
+          p_brand: string
+          p_credit_override_note?: string
+          p_dispatch_location?: string
+          p_expected_delivery_date: string
+          p_new_customer_name?: string
+          p_new_product_name?: string
+          p_notes: string
           p_packing_type: string
-          p_party_id: string | null
+          p_party_id: string
           p_payment_term: string
-          p_product_id: string | null
+          p_product_id: string
           p_product_rate: string
           p_quantity: number
           p_quantity_unit: string
           p_size_kg: string
-          p_token_type: string | null
+          p_token_type: string
           p_transport_type: string
         }
         Returns: {
@@ -1652,10 +1741,26 @@ export type Database = {
           orderNumber: string
         }[]
       }
+      create_sales_order_v2: {
+        Args: { p_header: Json; p_items: Json }
+        Returns: {
+          id: string
+          orderNumber: string
+        }[]
+      }
       current_user_role: { Args: never; Returns: string }
+      get_profile_directory: {
+        Args: never
+        Returns: {
+          id: string
+          ownerName: string
+          phone: string
+          role: string
+        }[]
+      }
       is_notification_config_ready: { Args: never; Returns: boolean }
       is_provisioned_phone: { Args: { p_phone: string }; Returns: boolean }
-      synworks_recompute_party_outstanding: {
+      paytrack_recompute_party_outstanding: {
         Args: { p_party_id: string }
         Returns: undefined
       }
@@ -1669,6 +1774,17 @@ export type Database = {
           currentStatus: string
           id: string
         }[]
+      }
+      replace_sales_order_items: {
+        Args: { p_items: Json; p_order_id: string }
+        Returns: {
+          id: string
+          orderValue: number
+        }[]
+      }
+      set_user_active: {
+        Args: { p_active: boolean; p_note?: string; p_target: string }
+        Returns: undefined
       }
     }
     Enums: {
@@ -1694,6 +1810,7 @@ export type Database = {
         | "OTHER"
       InvoiceSource: "TALLY" | "MANUAL"
       InvoiceStatus: "UNPAID" | "PARTIAL" | "PAID" | "OVERDUE" | "CANCELLED"
+      LineProductionStatus: "PENDING" | "IN_PRODUCTION" | "READY"
       MessageChannel: "WHATSAPP" | "SMS" | "EMAIL"
       MessageDirection: "OUTBOUND" | "INBOUND"
       MessageStatus:
@@ -1901,6 +2018,7 @@ export const Constants = {
       ],
       InvoiceSource: ["TALLY", "MANUAL"],
       InvoiceStatus: ["UNPAID", "PARTIAL", "PAID", "OVERDUE", "CANCELLED"],
+      LineProductionStatus: ["PENDING", "IN_PRODUCTION", "READY"],
       MessageChannel: ["WHATSAPP", "SMS", "EMAIL"],
       MessageDirection: ["OUTBOUND", "INBOUND"],
       MessageStatus: [

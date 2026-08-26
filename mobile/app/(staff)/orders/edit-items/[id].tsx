@@ -174,16 +174,7 @@ export default function EditItemsScreen() {
       sizeKg: it.sizeKg ?? undefined,
       productRate: it.productRate,
     }));
-    // Cast because generated Database types haven't been regenerated
-    // for replace_sales_order_items yet (added by migration
-    // 20260826150000_staff_edit_order_items). Same pattern as
-    // create_sales_order_v2 in order-queue.ts.
-    const { error } = await (
-      supabase.rpc as unknown as (
-        fn: string,
-        args: Record<string, unknown>,
-      ) => Promise<{ error: { message: string } | null }>
-    )("replace_sales_order_items", {
+    const { error } = await supabase.rpc("replace_sales_order_items", {
       p_order_id: id,
       p_items: payload,
     });
