@@ -12,11 +12,15 @@ import type {
 // Product.brand hint on individual products isn't the source of truth —
 // generic materials (PA-10 etc.) ship under any brand's packaging, and
 // the salesperson picks the brand at order time.
+// Three brands the shop actually sells today. Match the values in the
+// Product.brand column exactly — the ItemSheet filters by string equality.
+// Note the casing: "Stick-Onn" (marketing-canonical), not "Stick-onn".
 export const BRAND_LIST: readonly string[] = [
   "Polygum",
-  "Ombond",
+  "Stick-Onn",
+  "Polygum Industrial",
   "Omcol",
-  "Stick-onn",
+  "Ombond",
 ];
 
 // Verbatim from the Google Form "Packing?" dropdown (20 options).

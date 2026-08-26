@@ -336,6 +336,9 @@ export type ProductRow = {
   id: string;
   name: string;
   brand: string | null;
+  /** Factory-side grade code (WR-48, PA-60s, PSA 55, …). Salespeople
+   *  can search by either name or code; the picker shows both. */
+  code: string | null;
   sortOrder: number;
   /** Comes back as number | string | null from PostgREST for a decimal
    *  column; consumers coerce with Number(). Included so the review
@@ -347,12 +350,15 @@ export function useProducts() {
   return useQuery<ProductRow[]>("products", async () => {
     const { data, error } = await supabase
       .from("Product")
-      .select("id, name, brand, sortOrder, floorRate")
+      .select("id, name, brand, code, sortOrder, floorRate")
       .eq("isActive", true)
       .order("brand", { ascending: true })
       .order("sortOrder", { ascending: true });
     if (error) throw error;
-    return (data ?? []) as ProductRow[];
+    // Cast via unknown — the generated Database types don't know
+    // about Product.code yet (migration 20260826180000_product_grade_codes
+    // added the column; run npm run types:generate to refresh).
+    return (data ?? []) as unknown as ProductRow[];
   });
 }
 

@@ -52,11 +52,15 @@ export function ItemSheet({
   onDelete?: () => void;
 }) {
   const [item, setItem] = useState<Draft>(initial);
+  const [productSearch, setProductSearch] = useState("");
   const products = useProducts();
 
   // Reset local state whenever the sheet re-opens with new initial data.
   useEffect(() => {
-    if (visible) setItem(initial);
+    if (visible) {
+      setItem(initial);
+      setProductSearch("");
+    }
   }, [visible, initial]);
 
   const setField = <K extends keyof Draft>(k: K, v: Draft[K]) =>
@@ -64,13 +68,25 @@ export function ItemSheet({
 
   const brandProducts = useMemo(() => {
     if (!products.data) return [];
-    if (!item.brand) return products.data;
-    // Generic materials (brand === "") should show for every brand — a
-    // salesperson picking Polygum still needs to see PA-10 etc.
-    return products.data.filter(
-      (p) => !p.brand || p.brand === item.brand,
-    );
-  }, [products.data, item.brand]);
+    let list = products.data;
+    // Brand filter — Polygum, Stick-Onn, Polygum Industrial. Generic
+    // rows (brand === "" / null) still pass through so nothing gets
+    // hidden by accident.
+    if (item.brand) {
+      list = list.filter((p) => !p.brand || p.brand === item.brand);
+    }
+    // Name-OR-code prefix search. Typing "WR" surfaces the WR-48 and
+    // WR-45 grades; typing "Polygum D" surfaces D3+. Case-insensitive.
+    const needle = productSearch.trim().toLowerCase();
+    if (needle) {
+      list = list.filter((p) => {
+        const name = p.name.toLowerCase();
+        const code = (p.code ?? "").toLowerCase();
+        return name.includes(needle) || code.includes(needle);
+      });
+    }
+    return list;
+  }, [products.data, item.brand, productSearch]);
 
   const lineTotal = useMemo(() => {
     const q = Number(item.quantity) || 0;
@@ -138,6 +154,14 @@ export function ItemSheet({
             />
 
             <SectionLabel text="Product" />
+            <TextField
+              label="Search by name or grade code"
+              placeholder="e.g. Polygum D3+, WR-48, PSA 55"
+              value={productSearch}
+              onChangeText={setProductSearch}
+              autoCorrect={false}
+              autoCapitalize="none"
+            />
             {products.loading && !products.data ? (
               <Text style={styles.hint}>Loading products…</Text>
             ) : (
@@ -162,9 +186,30 @@ export function ItemSheet({
                       >
                         {p.name}
                       </Text>
+                      {p.code ? (
+                        <Text
+                          style={[
+                            styles.productChipCode,
+                            active && styles.productChipCodeActive,
+                          ]}
+                        >
+                          {p.code}
+                        </Text>
+                      ) : null}
                     </Pressable>
                   );
                 })}
+                {brandProducts.length === 0 && !products.loading ? (
+                  <Text style={styles.hint}>
+                    No product match. Type the name below to save as
+                    "new product".
+                  </Text>
+                ) : null}
+                {brandProducts.length > 40 ? (
+                  <Text style={styles.hint}>
+                    +{brandProducts.length - 40} more — refine search.
+                  </Text>
+                ) : null}
               </View>
             )}
             <TextField
@@ -385,6 +430,16 @@ const styles = StyleSheet.create({
   productChipLabelActive: {
     color: theme.colors.primary,
     fontWeight: "700",
+  },
+  productChipCode: {
+    fontSize: 11,
+    marginTop: 2,
+    color: theme.colors.textMuted,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+  },
+  productChipCodeActive: {
+    color: theme.colors.primary,
   },
   qtyRow: {
     flexDirection: "row",

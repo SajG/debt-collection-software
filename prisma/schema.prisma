@@ -768,6 +768,12 @@ model Product {
   id        String   @id @default(cuid())
   name      String
   brand     String
+  // Factory-side grade code (PA-60s for Polygum Special Purpose,
+  // WR-48 for Polygum D3+, PSA 55 for the industrial grade, etc.).
+  // Salespeople search by either the marketing name OR this code;
+  // factory sees the code on order cards. Nullable — commodity
+  // products (Cyanoacrylate, Heatproof) don't have a grade code.
+  code      String?
   isActive  Boolean  @default(true)
   sortOrder Int      @default(0)
   // Optional per-product floor price. Orders below this flip
