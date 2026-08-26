@@ -28,7 +28,7 @@ export default function NewCustomerScreen() {
   if (!profile) return null;
   if (!isAdmin) {
     return (
-      <Screen back>
+      <Screen>
         <PageHeader
           title="Add customer"
           subtitle="Only ADMIN users can create a customer from the app. Salespeople should place the order with the free-text customer name — an admin promotes it later."
@@ -78,7 +78,7 @@ export default function NewCustomerScreen() {
   }
 
   return (
-    <Screen back padded={false}>
+    <Screen padded={false}>
       <PageHeader
         title="Add customer"
         subtitle="Only name is required — everything else can be filled from the web later."

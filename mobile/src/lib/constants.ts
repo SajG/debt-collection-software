@@ -60,6 +60,7 @@ export const COMMON_PACKINGS: readonly string[] = [
   "Pouch in Printed Box (25 Pouches)",
   "Pouch in Plain Box (20 Pouches)",
   "Pouch in Printed Box (20 Pouches)",
+  "Hotmelt Bag (30 KG)",
 ];
 
 // Sizes in kg (large → small). Small-pack chips ("0.31", "0.45",

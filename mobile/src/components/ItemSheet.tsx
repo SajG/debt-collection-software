@@ -13,6 +13,7 @@ import { Button } from "@/components/Button";
 import { TextField } from "@/components/TextField";
 import { Segmented } from "@/components/Segmented";
 import { NumberPad } from "@/components/NumberPad";
+import { SelectField } from "@/components/SelectField";
 import { useProducts } from "@/lib/queries";
 import {
   BRAND_LIST,
@@ -301,10 +302,11 @@ export function ItemSheet({
             />
 
             <SectionLabel text="Packing" />
-            <ChipRow
-              values={COMMON_PACKINGS.slice(0, 10)}
-              selected={item.packingType}
-              onSelect={(v) => setField("packingType", v)}
+            <SelectField
+              label="Packing"
+              value={item.packingType}
+              options={COMMON_PACKINGS}
+              onChange={(v) => setField("packingType", v)}
             />
             <TextField
               label="Custom packing (optional)"
@@ -320,10 +322,11 @@ export function ItemSheet({
             />
 
             <SectionLabel text="Size" />
-            <ChipRow
-              values={COMMON_SIZES_KG}
-              selected={item.sizeKg}
-              onSelect={(v) => setField("sizeKg", v)}
+            <SelectField
+              label="Size"
+              value={item.sizeKg}
+              options={COMMON_SIZES_KG}
+              onChange={(v) => setField("sizeKg", v)}
               formatLabel={formatSizeLabel}
             />
             <TextField

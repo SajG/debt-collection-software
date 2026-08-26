@@ -65,7 +65,7 @@ export default function SettingsScreen() {
   );
 
   return (
-    <Screen back padded={false}>
+    <Screen padded={false}>
       <PageHeader
         title="Settings"
         subtitle="Turn off any notification you don't want. Status changes on your own orders stay on by default."

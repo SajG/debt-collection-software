@@ -47,7 +47,7 @@ export default function DuesScreen() {
     : t("dues.updatedNever");
 
   return (
-    <Screen back padded={false}>
+    <Screen padded={false}>
       <PageHeader title={t("dues.title")} subtitle={t("dues.subtitle")} />
 
       <View style={styles.searchWrap}>

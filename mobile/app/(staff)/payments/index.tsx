@@ -29,7 +29,7 @@ export default function PaymentsListScreen() {
 
   if (loading && !data) {
     return (
-      <Screen back>
+      <Screen>
         <View style={styles.center}>
           <ActivityIndicator color={theme.colors.primary} size="large" />
         </View>
@@ -38,7 +38,7 @@ export default function PaymentsListScreen() {
   }
 
   return (
-    <Screen back padded={false}>
+    <Screen padded={false}>
       <PageHeader
         title="Payments"
         subtitle="Recorded collections and proofs. Tap + to add a new one."
