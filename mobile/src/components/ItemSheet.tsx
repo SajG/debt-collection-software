@@ -37,6 +37,26 @@ import { theme } from "@/theme";
 
 type Draft = Omit<OrderDraftItem, "localId">;
 
+// Render a size string as a human-friendly label without changing the
+// wire value. Everything ≥ 1 → "N kg". Sub-1 with 3-digit-gram
+// equivalent → "N g" (e.g. "0.45" → "450 g"). The tiny ml-equivalent
+// entries the spray / cyanoacrylate SKUs use fall into the < 1 bucket:
+//   0.5   -> "500 ml"   (spray bottles are ml, not g)
+//   0.31  -> "310 ml"
+//   0.05  -> "50 ml"
+//   0.018 -> "18 ml"
+// The heuristic: if the raw value is a canonical "ml" size the price
+// list uses, label it ml; otherwise gram.
+const ML_SIZES = new Set(["0.5", "0.31", "0.05", "0.018"]);
+
+function formatSizeLabel(v: string): string {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return v;
+  if (n >= 1) return `${n} kg`;
+  if (ML_SIZES.has(v)) return `${Math.round(n * 1000)} ml`;
+  return `${Math.round(n * 1000)} g`;
+}
+
 export function ItemSheet({
   visible,
   initial,
@@ -299,11 +319,12 @@ export function ItemSheet({
               autoCorrect={false}
             />
 
-            <SectionLabel text="Size (kg)" />
+            <SectionLabel text="Size" />
             <ChipRow
               values={COMMON_SIZES_KG}
               selected={item.sizeKg}
               onSelect={(v) => setField("sizeKg", v)}
+              formatLabel={formatSizeLabel}
             />
             <TextField
               label="Custom size (optional, kg or ml)"
@@ -365,10 +386,15 @@ function ChipRow({
   values,
   selected,
   onSelect,
+  formatLabel,
 }: {
   values: readonly string[];
   selected: string | null;
   onSelect: (v: string) => void;
+  /** Optional value -> display string. Wire value stays raw; only the
+   *  chip label changes. Used for size chips to render "60 kg" / "450 g"
+   *  while keeping "60" / "0.45" on the order. */
+  formatLabel?: (v: string) => string;
 }) {
   return (
     <View style={styles.chipRow}>
@@ -388,7 +414,7 @@ function ChipRow({
               style={[styles.chipLabel, active && styles.chipLabelActive]}
               numberOfLines={1}
             >
-              {v}
+              {formatLabel ? formatLabel(v) : v}
             </Text>
           </Pressable>
         );
