@@ -12,19 +12,34 @@ import type {
 // Product.brand hint on individual products isn't the source of truth —
 // generic materials (PA-10 etc.) ship under any brand's packaging, and
 // the salesperson picks the brand at order time.
-// Three brands the shop actually sells today. Match the values in the
-// Product.brand column exactly — the ItemSheet filters by string equality.
-// Note the casing: "Stick-Onn" (marketing-canonical), not "Stick-onn".
+// Sentinel value for the private-label / custom brand flow. Picking
+// this chip reveals a TextField for the actual customer-facing brand
+// name; the value saved on the item is whatever the salesperson typed.
+export const PRIVATE_LABEL_SENTINEL = "Private Label / Other";
+
+// Brands the shop sells today. Match the values in the Product.brand
+// column exactly — the ItemSheet filters by string equality. Note the
+// casing: "Stick-Onn" (marketing-canonical), not "Stick-onn".
 export const BRAND_LIST: readonly string[] = [
   "Polygum",
   "Stick-Onn",
   "Polygum Industrial",
   "Omcol",
   "Ombond",
+  PRIVATE_LABEL_SENTINEL,
 ];
 
-// Verbatim from the Google Form "Packing?" dropdown (20 options).
+// Packing options. First few are the "small pack" formats the
+// Stick-Onn / Cyanoacrylate / spray SKUs ship in (squeeze bottle,
+// cartridge, pouch), then the drum / bucket / jar formats from the
+// Google Form. Every ItemSheet also shows a free-text "Custom packing"
+// field so a salesperson can enter anything not in this list.
 export const COMMON_PACKINGS: readonly string[] = [
+  "Squeeze Bottle",
+  "Cartridge",
+  "Spray Bottle",
+  "Pouch (loose)",
+  "Bottle (glass / dropper)",
   "Loose Printed Drum",
   "Loose Plain Drum",
   "Pouch in Drum (60 Pouches)",
@@ -47,7 +62,11 @@ export const COMMON_PACKINGS: readonly string[] = [
   "Pouch in Printed Box (20 Pouches)",
 ];
 
-// Verbatim from the form "Size in Kg" (21 options, largest → smallest).
+// Sizes in kg (large → small). Small-pack chips ("0.31", "0.45",
+// "0.5", "0.8") map to the cartridge / squeeze-bottle SKUs on the
+// price list (Stick-Onn Drill Free = 310 ml, Lam2Lam = 450 g, etc.).
+// The ItemSheet also has a free-text "Custom size" field for anything
+// off-list, and accepts both kg and ml equivalents.
 export const COMMON_SIZES_KG: readonly string[] = [
   "250",
   "215",
@@ -69,7 +88,11 @@ export const COMMON_SIZES_KG: readonly string[] = [
   "0.9",
   "0.8",
   "0.5",
+  "0.45",
+  "0.31",
   "0.25",
+  "0.05",
+  "0.018",
 ];
 
 // Verbatim from the form "Token or Gift?" — free string on the wire so

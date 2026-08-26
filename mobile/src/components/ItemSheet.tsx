@@ -18,6 +18,7 @@ import {
   BRAND_LIST,
   COMMON_PACKINGS,
   COMMON_SIZES_KG,
+  PRIVATE_LABEL_SENTINEL,
   QUANTITY_UNITS,
 } from "@/lib/constants";
 import { formatINR } from "@/lib/format";
@@ -53,6 +54,12 @@ export function ItemSheet({
 }) {
   const [item, setItem] = useState<Draft>(initial);
   const [productSearch, setProductSearch] = useState("");
+  // Private-label state. `privateLabel` is true when the salesperson
+  // picked the "Private Label / Other" brand chip; `privateLabelName`
+  // holds the customer-facing brand they type in. On save we write
+  // the typed value into item.brand.
+  const [privateLabel, setPrivateLabel] = useState(false);
+  const [privateLabelName, setPrivateLabelName] = useState("");
   const products = useProducts();
 
   // Reset local state whenever the sheet re-opens with new initial data.
@@ -60,6 +67,16 @@ export function ItemSheet({
     if (visible) {
       setItem(initial);
       setProductSearch("");
+      // If the initial brand doesn't match any known brand chip and
+      // isn't null, assume it's a saved private label — pre-fill.
+      const known = new Set<string>([...BRAND_LIST]);
+      if (initial.brand && !known.has(initial.brand)) {
+        setPrivateLabel(true);
+        setPrivateLabelName(initial.brand);
+      } else {
+        setPrivateLabel(false);
+        setPrivateLabelName("");
+      }
     }
   }, [visible, initial]);
 
@@ -149,9 +166,31 @@ export function ItemSheet({
             <SectionLabel text="Brand" />
             <ChipRow
               values={BRAND_LIST}
-              selected={item.brand}
-              onSelect={(v) => setField("brand", v)}
+              selected={privateLabel ? PRIVATE_LABEL_SENTINEL : item.brand}
+              onSelect={(v) => {
+                if (v === PRIVATE_LABEL_SENTINEL) {
+                  setPrivateLabel(true);
+                  setField("brand", privateLabelName || null);
+                } else {
+                  setPrivateLabel(false);
+                  setPrivateLabelName("");
+                  setField("brand", v);
+                }
+              }}
             />
+            {privateLabel ? (
+              <TextField
+                label="Private-label brand name"
+                placeholder="Enter the brand the customer sells under"
+                value={privateLabelName}
+                onChangeText={(v) => {
+                  setPrivateLabelName(v);
+                  setField("brand", v.trim() || null);
+                }}
+                autoCapitalize="words"
+                autoCorrect={false}
+              />
+            ) : null}
 
             <SectionLabel text="Product" />
             <TextField
@@ -213,8 +252,9 @@ export function ItemSheet({
               </View>
             )}
             <TextField
-              label="Or new product name"
-              placeholder="Not in catalogue"
+              label="Custom product / grade mix / private label"
+              placeholder='e.g. "PA-60s + PA-32s (mix)" or a private-label name'
+              hint="Use this for grade mixes (PA-60s + PA-32s), one-off blends, or a private-label product name. Overrides the catalogue pick."
               value={item.customProductName ?? ""}
               onChangeText={(v) => {
                 setItem((prev) => ({
@@ -242,9 +282,21 @@ export function ItemSheet({
 
             <SectionLabel text="Packing" />
             <ChipRow
-              values={COMMON_PACKINGS.slice(0, 8)}
+              values={COMMON_PACKINGS.slice(0, 10)}
               selected={item.packingType}
               onSelect={(v) => setField("packingType", v)}
+            />
+            <TextField
+              label="Custom packing (optional)"
+              placeholder='e.g. "310 ml cartridge", "500 ml squeeze bottle"'
+              value={
+                item.packingType && !COMMON_PACKINGS.includes(item.packingType)
+                  ? item.packingType
+                  : ""
+              }
+              onChangeText={(v) => setField("packingType", v.trim() || null)}
+              autoCapitalize="sentences"
+              autoCorrect={false}
             />
 
             <SectionLabel text="Size (kg)" />
@@ -252,6 +304,19 @@ export function ItemSheet({
               values={COMMON_SIZES_KG}
               selected={item.sizeKg}
               onSelect={(v) => setField("sizeKg", v)}
+            />
+            <TextField
+              label="Custom size (optional, kg or ml)"
+              placeholder='e.g. "310 ml", "0.45 kg"'
+              value={
+                item.sizeKg && !COMMON_SIZES_KG.includes(item.sizeKg)
+                  ? item.sizeKg
+                  : ""
+              }
+              onChangeText={(v) => setField("sizeKg", v.trim() || null)}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="default"
             />
 
             <SectionLabel text="Rate" />
