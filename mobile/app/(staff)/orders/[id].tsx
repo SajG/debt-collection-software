@@ -94,22 +94,40 @@ export default function OrderDetailScreen() {
           "CANCELLED",
           "REJECTED",
         ].includes(data.currentStatus) ? (
-          <Pressable
-            onPress={() =>
-              router.push({
-                pathname: "/(staff)/orders/edit/[id]",
-                params: { id: data.id },
-              })
-            }
-            style={({ pressed }) => [
-              styles.editBtn,
-              pressed && { opacity: 0.7 },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="Edit order details"
-          >
-            <Text style={styles.editBtnText}>✎ Edit details</Text>
-          </Pressable>
+          <View style={styles.editRow}>
+            <Pressable
+              onPress={() =>
+                router.push({
+                  pathname: "/(staff)/orders/edit/[id]",
+                  params: { id: data.id },
+                })
+              }
+              style={({ pressed }) => [
+                styles.editBtn,
+                pressed && { opacity: 0.7 },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Edit order details"
+            >
+              <Text style={styles.editBtnText}>✎ Edit details</Text>
+            </Pressable>
+            <Pressable
+              onPress={() =>
+                router.push({
+                  pathname: "/(staff)/orders/edit-items/[id]",
+                  params: { id: data.id },
+                })
+              }
+              style={({ pressed }) => [
+                styles.editBtn,
+                pressed && { opacity: 0.7 },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Edit line items"
+            >
+              <Text style={styles.editBtnText}>✎ Edit items</Text>
+            </Pressable>
+          </View>
         ) : null}
 
         {data.currentStatus === "REJECTED" && data.rejectionReason ? (
@@ -637,8 +655,12 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 12,
   },
+  editRow: {
+    flexDirection: "row",
+    gap: 8,
+    flexWrap: "wrap",
+  },
   editBtn: {
-    alignSelf: "flex-start",
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
     borderRadius: theme.radius,
