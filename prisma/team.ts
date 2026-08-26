@@ -21,6 +21,7 @@ export const TEAM: TeamRow[] = [
     note: "accountant; needs order rates for invoicing",
   },
   { ownerName: "Sachin Haveli",       role: "FACTORY", phone: "9923139100" },
+  { ownerName: "Pooja Jadhav",        role: "FACTORY", phone: "9356060196" },
 
   { ownerName: "Sanjay Thorat",   role: "STAFF", phone: "9552670106" },
   { ownerName: "Vikas Chaudhari", role: "STAFF", phone: "7020791094" },
