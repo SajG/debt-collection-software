@@ -314,7 +314,10 @@ model BusinessSettings {
 
   // P1 — order approval workflow. See migration
   // 20260821200000_order_approval_workflow for the mode semantics.
-  orderApprovalMode OrderApprovalMode @default(EXCEPTIONS_ONLY)
+  // Default flipped to ALL by 20260826120000_require_admin_approval_all_orders:
+  // every STAFF order must be approved by an admin before the factory
+  // can see it.
+  orderApprovalMode OrderApprovalMode @default(ALL)
 
   // Proforma number sequence
   // Incremented atomically on each proforma creation.
@@ -836,9 +839,9 @@ model SalesOrder {
   creditOverrideById String? @db.Uuid // set when a director overrides a blocked order
   creditOverrideNote String?
 
-  // F6 — rate approval. When needsRateApproval is true the factory
-  // hides the order from its queue until an admin approves via
-  // approveOrderRateAction (production/actions.ts).
+  // DEPRECATED (2026-08-26, require_admin_approval_all_orders):
+  // floor-rate gate removed. Columns kept for reader compatibility;
+  // create_sales_order_v2 no longer writes them.
   needsRateApproval Boolean   @default(false)
   rateApprovedById  String?   @db.Uuid
   rateApprovedAt    DateTime? @db.Timestamptz
@@ -888,9 +891,9 @@ model SalesOrderItem {
   lineValue    Decimal @db.Decimal(12, 2)
   lineNumber   Int
 
-  // Per-line F6. When any line has needsRateApproval=true a trigger
-  // sets SalesOrder.needsRateApproval=true so the factory RLS keeps
-  // hiding the whole order until an admin clears the line.
+  // DEPRECATED (2026-08-26, require_admin_approval_all_orders):
+  // per-line floor-rate gate removed. Columns kept for reader
+  // compatibility; create_sales_order_v2 no longer writes them.
   needsRateApproval Boolean   @default(false)
   rateApprovedById  String?   @db.Uuid
   rateApprovedAt    DateTime? @db.Timestamptz
