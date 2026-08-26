@@ -47,8 +47,6 @@ export default function ScreenCustomerAndDelivery() {
   const [showPicker, setShowPicker] = useState(false);
   const parties = useParties(search);
 
-  const selectedName = draft.partyName ?? draft.newCustomerName ?? null;
-
   // On customer change, pull last-used and merge into empty header
   // fields only — don't clobber a value the salesperson has already
   // typed for this draft.
@@ -92,10 +90,6 @@ export default function ScreenCustomerAndDelivery() {
     setSearch("");
   }
 
-  function clearParty() {
-    patch({ partyId: null, partyName: null });
-  }
-
   function onDateChange(_e: DateTimePickerEvent, d?: Date) {
     setShowPicker(false);
     if (!d) return;
@@ -127,7 +121,7 @@ export default function ScreenCustomerAndDelivery() {
       <FlatList
         contentContainerStyle={styles.body}
         keyboardShouldPersistTaps="handled"
-        data={selectedName ? [] : parties.data ?? []}
+        data={draft.partyId ? [] : parties.data ?? []}
         keyExtractor={(p) => p.id}
         renderItem={({ item }) => (
           <Pressable
@@ -141,39 +135,38 @@ export default function ScreenCustomerAndDelivery() {
         ListHeaderComponent={
           <View>
             <Section title="Customer">
-              {selectedName ? (
-                <View style={styles.selectedRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.selectedLabel}>
-                      {draft.partyId ? "Ledger customer" : "New customer"}
-                    </Text>
-                    <Text style={styles.selectedName}>{selectedName}</Text>
-                  </View>
-                  <Pressable onPress={clearParty} hitSlop={12} style={styles.changeBtn}>
-                    <Text style={styles.changeText}>Change</Text>
-                  </Pressable>
-                </View>
-              ) : (
-                <>
-                  <TextField
-                    label="Search ledger"
-                    placeholder="Type customer name"
-                    value={search}
-                    onChangeText={setSearch}
-                    autoCorrect={false}
-                    autoCapitalize="words"
-                  />
-                  {parties.loading && <ActivityIndicator />}
-                  <TextField
-                    label="Or new customer (not in Tally yet)"
-                    placeholder="Type full name"
-                    value={draft.newCustomerName ?? ""}
-                    onChangeText={(v) =>
-                      patch({ newCustomerName: v, partyId: null, partyName: null })
-                    }
-                  />
-                </>
-              )}
+              {/* Single always-editable customer name field. Type freely;
+                  matching ledger customers appear below as tap-to-pick
+                  rows. Tapping one binds partyId; any subsequent keystroke
+                  clears the binding so the salesperson can correct a
+                  typo without a "Change" round-trip.
+
+                  The old dual-field UI (search + separate "new customer")
+                  had a bug: typing in the "new customer" input flipped
+                  selectedName truthy on the first keystroke and the
+                  input disappeared. This single-field design cannot
+                  reproduce that. */}
+              <TextField
+                label="Customer name"
+                placeholder="Type customer name"
+                value={draft.partyName ?? draft.newCustomerName ?? ""}
+                onChangeText={(v) => {
+                  patch({
+                    partyId: null,
+                    partyName: null,
+                    newCustomerName: v,
+                  });
+                  setSearch(v);
+                }}
+                autoCorrect={false}
+                autoCapitalize="words"
+              />
+              {draft.partyId ? (
+                <Text style={styles.ledgerBadge}>
+                  ✓ Ledger customer{draft.partyName ? ` — ${draft.partyName}` : ""}
+                </Text>
+              ) : null}
+              {parties.loading && <ActivityIndicator />}
             </Section>
 
             <Section title="Delivery">
@@ -252,9 +245,10 @@ export default function ScreenCustomerAndDelivery() {
           </View>
         }
         ListEmptyComponent={
-          selectedName ? null : search.trim() && !parties.loading ? (
+          draft.partyId ? null : search.trim() && !parties.loading ? (
             <Text style={styles.emptyText}>
-              No ledger match. Type into the "new customer" field below.
+              No ledger match — the name you typed will be saved as a new
+              customer.
             </Text>
           ) : null
         }
@@ -368,6 +362,12 @@ const styles = StyleSheet.create({
     color: theme.colors.primary,
     fontWeight: "700",
     fontSize: theme.type.bodySmall,
+  },
+  ledgerBadge: {
+    fontSize: theme.type.bodySmall,
+    color: theme.colors.primary,
+    fontWeight: "700",
+    marginTop: 4,
   },
   dateBtn: {
     padding: theme.spacing.md,

@@ -10,7 +10,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { Screen } from "@/components/Screen";
 import { Button } from "@/components/Button";
 import { TextField } from "@/components/TextField";
@@ -81,6 +81,36 @@ export default function OrderDetailScreen() {
           </View>
           <StatusBadge status={data.currentStatus} size="lg" />
         </View>
+
+        {/* Edit-details link. Any STAFF can edit customer + delivery
+            details on any pre-dispatch order (RLS + trigger enforce
+            field + status gates). See migration
+            20260826140000_staff_can_edit_orders. */}
+        {(role === "STAFF" || role === "ADMIN") &&
+        ![
+          "DISPATCHED",
+          "PARTIALLY_DISPATCHED",
+          "DELIVERED",
+          "CANCELLED",
+          "REJECTED",
+        ].includes(data.currentStatus) ? (
+          <Pressable
+            onPress={() =>
+              router.push({
+                pathname: "/(staff)/orders/edit/[id]",
+                params: { id: data.id },
+              })
+            }
+            style={({ pressed }) => [
+              styles.editBtn,
+              pressed && { opacity: 0.7 },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Edit order details"
+          >
+            <Text style={styles.editBtnText}>✎ Edit details</Text>
+          </Pressable>
+        ) : null}
 
         {data.currentStatus === "REJECTED" && data.rejectionReason ? (
           <View style={styles.rejectionBanner}>
@@ -606,6 +636,20 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     justifyContent: "space-between",
     gap: 12,
+  },
+  editBtn: {
+    alignSelf: "flex-start",
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    borderRadius: theme.radius,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+    backgroundColor: theme.colors.surface,
+  },
+  editBtnText: {
+    color: theme.colors.primary,
+    fontWeight: "700",
+    fontSize: theme.type.bodySmall,
   },
   title: {
     fontSize: theme.type.title,
