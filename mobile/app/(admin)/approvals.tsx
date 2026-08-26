@@ -50,7 +50,7 @@ async function loadApprovals(): Promise<Item[]> {
     .from("SalesOrder")
     .select(
       `id, orderNumber, currentStatus, orderValue, brand, createdAt,
-       needsRateApproval,
+       needsRateApproval, newCustomerName,
        party:Party!SalesOrder_partyId_fkey(name),
        product:Product!SalesOrder_productId_fkey(name)`,
     )
@@ -66,6 +66,7 @@ async function loadApprovals(): Promise<Item[]> {
     brand: string | null;
     createdAt: string;
     needsRateApproval: boolean;
+    newCustomerName: string | null;
     party: { name: string } | null;
     product: { name: string } | null;
   };
@@ -73,7 +74,7 @@ async function loadApprovals(): Promise<Item[]> {
     kind: r.currentStatus === "PENDING_APPROVAL" ? "ORDER" : "RATE",
     id: r.id,
     orderNumber: r.orderNumber,
-    partyName: r.party?.name ?? "—",
+    partyName: r.party?.name ?? r.newCustomerName ?? "—",
     productName: r.product?.name ?? "—",
     brand: r.brand,
     orderValue: Number(r.orderValue ?? 0),

@@ -59,6 +59,7 @@ export type OrderListRow = Pick<
   | "expectedDeliveryDate"
   | "createdAt"
   | "brand"
+  | "newCustomerName"
 > & {
   party: { id: string; name: string } | null;
   product: { name: string; brand: string | null } | null;
@@ -95,6 +96,7 @@ export function useOwnOrders(
         // returns null for every row you didn't personally place.
         `id, orderNumber, currentStatus, quantity, quantityUnit,
          expectedDeliveryDate, createdAt, brand, salespersonId,
+         newCustomerName,
          needsRateApproval, holdReasonCategory, holdReason,
          party:Party!SalesOrder_partyId_fkey(id, name),
          product:Product!SalesOrder_productId_fkey(name, brand),

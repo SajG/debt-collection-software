@@ -195,7 +195,7 @@ export default function HomeScreen() {
       kind: "server",
       key: `s:${o.id}`,
       id: o.id,
-      partyName: o.party?.name ?? "—",
+      partyName: o.party?.name ?? o.newCustomerName ?? "—",
       productName: o.product?.name ?? "—",
       brand: o.brand ?? o.product?.brand ?? null,
       quantity: String(o.quantity),

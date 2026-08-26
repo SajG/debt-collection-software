@@ -70,7 +70,7 @@ export default function FactoryHome() {
     const needle = search.trim().toLowerCase();
     if (!needle) return inTab;
     return inTab.filter((o) => {
-      const partyName = (o.party?.name ?? "").toLowerCase();
+      const partyName = (o.party?.name ?? o.newCustomerName ?? "").toLowerCase();
       const orderNo = o.orderNumber.toLowerCase();
       const salesName = (o.salesperson?.ownerName ?? "").toLowerCase();
       return (
@@ -192,7 +192,7 @@ export default function FactoryHome() {
         renderItem={({ item }) => (
           <View style={{ marginBottom: 12 }}>
             <OrderCard
-              partyName={item.party?.name ?? "—"}
+              partyName={item.party?.name ?? item.newCustomerName ?? "—"}
               productName={
                 item.itemCount > 1
                   ? `${item.product?.name ?? "—"} · +${item.itemCount - 1} more`
