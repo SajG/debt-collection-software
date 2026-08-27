@@ -27,21 +27,15 @@ import { t } from "@/lib/i18n";
 import { theme } from "@/theme";
 
 // Factory home. Five tabs (adds "Blocked" over the old four) + a
-// search bar + a "By stage / By salesperson" grouping toggle.
-//
-// "By stage" is the original behaviour: within a tab, orders are
-// listed oldest-first. "By salesperson" groups orders under the
-// salesperson who placed them; salespeople are ordered by their
-// oldest pending order in the current tab, so whoever has the most
-// stale work floats to the top.
+// search bar. Within a tab, orders are listed oldest-first so the
+// shop floor always sees the stalest work first — no grouping toggle
+// to think about.
 
 type Filter = "queue" | "in_production" | "ready" | "dispatched" | "blocked";
-type Grouping = "stage" | "salesperson";
 
 export default function FactoryHome() {
   const { profile, user, signOut } = useAuth();
   const [filter, setFilter] = useState<Filter>("queue");
-  const [grouping, setGrouping] = useState<Grouping>("stage");
   const [search, setSearch] = useState("");
 
   const { data, loading, error, refetch } = useOwnOrders(
@@ -81,32 +75,10 @@ export default function FactoryHome() {
     });
   }, [data, filter, search]);
 
-  // For "By stage" grouping we render a single flat section. For "By
-  // salesperson" we group by ownerName and sort groups by the oldest
-  // createdAt within each — the salesperson with the stalest order
-  // floats to the top so the factory knows who to chase first.
-  const sections = useMemo(() => {
-    if (grouping === "stage") {
-      return [{ title: null as string | null, data: sortByCreatedAsc(filtered) }];
-    }
-    const byPerson = new Map<
-      string,
-      { title: string; data: OrderListRow[]; oldest: string }
-    >();
-    for (const o of filtered) {
-      const key = o.salesperson?.ownerName ?? "Unknown user";
-      let g = byPerson.get(key);
-      if (!g) {
-        g = { title: key, data: [], oldest: o.createdAt };
-        byPerson.set(key, g);
-      }
-      g.data.push(o);
-      if (o.createdAt < g.oldest) g.oldest = o.createdAt;
-    }
-    return Array.from(byPerson.values())
-      .map((g) => ({ ...g, data: sortByCreatedAsc(g.data) }))
-      .sort((a, b) => a.oldest.localeCompare(b.oldest));
-  }, [filtered, grouping]);
+  const sections = useMemo(
+    () => [{ title: null as string | null, data: sortByCreatedAsc(filtered) }],
+    [filtered],
+  );
 
   const emptyMessage = getEmptyMessage(filter, !!search.trim());
 
@@ -148,36 +120,24 @@ export default function FactoryHome() {
           autoCorrect={false}
           autoCapitalize="none"
         />
-        <View style={styles.filters}>
-          <Segmented<Filter>
-            value={filter}
-            onChange={setFilter}
-            options={[
-              { label: t("factory.tab.queue"), value: "queue" },
-              { label: t("factory.tab.inProd"), value: "in_production" },
-              { label: t("factory.tab.ready"), value: "ready" },
-              { label: t("factory.tab.dispatched"), value: "dispatched" },
-              { label: t("factory.tab.blocked"), value: "blocked" },
-            ]}
-          />
-        </View>
-        <View style={styles.filters}>
-          <Segmented<Grouping>
-            value={grouping}
-            onChange={setGrouping}
-            options={[
-              { label: t("factory.group.byStage"), value: "stage" },
-              { label: t("factory.group.bySalesperson"), value: "salesperson" },
-            ]}
-          />
-        </View>
+        <Segmented<Filter>
+          value={filter}
+          onChange={setFilter}
+          options={[
+            { label: t("factory.tab.queue"), value: "queue" },
+            { label: t("factory.tab.inProd"), value: "in_production" },
+            { label: t("factory.tab.ready"), value: "ready" },
+            { label: t("factory.tab.dispatched"), value: "dispatched" },
+            { label: t("factory.tab.blocked"), value: "blocked" },
+          ]}
+        />
       </View>
 
       <SectionList
         sections={sections}
         keyExtractor={(o) => o.id}
         contentContainerStyle={styles.list}
-        stickySectionHeadersEnabled={grouping === "salesperson"}
+        stickySectionHeadersEnabled={false}
         renderSectionHeader={({ section }) =>
           section.title ? (
             <View style={styles.sectionHeaderWrap}>

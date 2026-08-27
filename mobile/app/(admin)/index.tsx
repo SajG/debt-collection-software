@@ -295,8 +295,9 @@ export default function AdminCommandCentre() {
 
         <Row>
           <Tile
-            label="Overdue vs expected"
+            label="Overdue deliveries"
             value={String(tiles.overdue)}
+            sub="Past expected delivery date"
             danger={tiles.overdue > 0}
             onPress={() => router.push("/(admin)/factory")}
           />

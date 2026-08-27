@@ -55,6 +55,14 @@ export type OrderDraft = {
   expectedDeliveryDate: string | null; // yyyy-mm-dd
   tokenType: string | null;
   notes: string;
+  // ── Pricing (screen 3) ────────────────────────────────────────────
+  /** Cash discount as a percentage of subtotal (e.g. "2", "3"). Empty
+   *  string = 0. Applied to subtotal, then GST is computed on the
+   *  discounted taxable amount. */
+  discountPct: string;
+  /** GST percentage. Default 18. Kept editable in case of future
+   *  slab changes or exempt lines. */
+  gstPct: string;
   // ── Items (screen 2) ──────────────────────────────────────────────
   items: OrderDraftItem[];
   // ── Wizard bookkeeping ────────────────────────────────────────────
@@ -96,6 +104,8 @@ export function emptyDraft(): OrderDraft {
     expectedDeliveryDate: null,
     tokenType: null,
     notes: "",
+    discountPct: "",
+    gstPct: "18",
     items: [],
     stickyBrand: null,
     stickyPacking: null,
@@ -208,6 +218,45 @@ export function draftTotal(d: OrderDraft): number {
     total += qty * rate;
   }
   return Math.round(total * 100) / 100;
+}
+
+export type DraftBreakdown = {
+  subtotal: number;
+  discountPct: number;
+  discountAmount: number;
+  taxable: number;
+  gstPct: number;
+  gstAmount: number;
+  grandTotal: number;
+};
+
+function clampPct(v: string, fallback: number): number {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  if (n > 100) return 100;
+  return n;
+}
+
+/** Money breakdown for the review screen and any downstream reader.
+ *  Half-away-from-zero rounding at every step so what the salesperson
+ *  sees on screen exactly matches what the server persists. */
+export function draftBreakdown(d: OrderDraft): DraftBreakdown {
+  const subtotal = draftTotal(d);
+  const discountPct = clampPct(d.discountPct, 0);
+  const discountAmount = Math.round(subtotal * discountPct) / 100;
+  const taxable = Math.round((subtotal - discountAmount) * 100) / 100;
+  const gstPct = clampPct(d.gstPct, 18);
+  const gstAmount = Math.round(taxable * gstPct) / 100;
+  const grandTotal = Math.round((taxable + gstAmount) * 100) / 100;
+  return {
+    subtotal,
+    discountPct,
+    discountAmount,
+    taxable,
+    gstPct,
+    gstAmount,
+    grandTotal,
+  };
 }
 
 // ── Provider ────────────────────────────────────────────────────────

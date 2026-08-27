@@ -1,16 +1,17 @@
 import { useMemo, useState } from "react";
-import { Alert, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { Screen } from "@/components/Screen";
 import { WizardHeader } from "@/components/WizardHeader";
 import { Button } from "@/components/Button";
 import { confirm } from "@/components/Confirm";
 import {
-  draftTotal,
+  draftBreakdown,
   isDraftComplete,
   useWizard,
   type OrderDraftItem,
 } from "@/lib/order-draft";
+import { TextField } from "@/components/TextField";
 import { useConnectivity } from "@/lib/connectivity";
 import {
   enqueue,
@@ -38,8 +39,10 @@ function parseRate(raw: string): number {
   return m ? Number(m[0]) : 0;
 }
 
+const DISCOUNT_CHIPS = ["0", "2", "3"] as const;
+
 export default function ScreenReview() {
-  const { draft, discard } = useWizard();
+  const { draft, discard, setField } = useWizard();
   const { online } = useConnectivity();
   const [submitting, setSubmitting] = useState(false);
   const { data: credit } = usePartyCredit(draft.partyId ?? null);
@@ -59,7 +62,8 @@ export default function ScreenReview() {
     return m;
   }, [products]);
 
-  const total = draftTotal(draft);
+  const breakdown = useMemo(() => draftBreakdown(draft), [draft]);
+  const total = breakdown.grandTotal;
   const projected = (credit?.totalOutstanding ?? 0) + total;
   const overLimit =
     credit?.creditLimit != null && projected > credit.creditLimit;
@@ -102,6 +106,8 @@ export default function ScreenReview() {
       tokenType: draft.tokenType,
       notes: draft.notes.trim() ? draft.notes.trim() : null,
       creditOverrideNote: null,
+      discountPct: breakdown.discountPct,
+      gstPct: breakdown.gstPct,
     };
     const items: OrderRpcItem[] = draft.items.map((it) => ({
       productId: it.productId,
@@ -261,9 +267,75 @@ export default function ScreenReview() {
           <ItemRow key={it.localId} item={it} idx={i + 1} />
         ))}
 
-        <View style={styles.grandTotalRow}>
-          <Text style={styles.grandTotalLabel}>Order total</Text>
-          <Text style={styles.grandTotalValue}>{formatINR(total)}</Text>
+        <Text style={styles.itemsHeader}>Cash discount</Text>
+        <View style={styles.chipRow}>
+          {DISCOUNT_CHIPS.map((c) => {
+            const active =
+              (draft.discountPct || "0") === c ||
+              (c === "0" && !draft.discountPct);
+            return (
+              <Pressable
+                key={c}
+                onPress={() => setField("discountPct", c === "0" ? "" : c)}
+                style={({ pressed }) => [
+                  styles.chip,
+                  active && styles.chipActive,
+                  pressed && { opacity: 0.8 },
+                ]}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+              >
+                <Text
+                  style={[
+                    styles.chipLabel,
+                    active && styles.chipLabelActive,
+                  ]}
+                >
+                  {c}%
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <TextField
+          label="Custom discount % (optional)"
+          placeholder="e.g. 1.5"
+          keyboardType="numeric"
+          value={
+            draft.discountPct &&
+            !DISCOUNT_CHIPS.includes(
+              draft.discountPct as (typeof DISCOUNT_CHIPS)[number],
+            )
+              ? draft.discountPct
+              : ""
+          }
+          onChangeText={(v) => setField("discountPct", v.trim())}
+        />
+
+        <View style={styles.breakdown}>
+          <BreakdownRow label="Subtotal" value={formatINR(breakdown.subtotal)} />
+          {breakdown.discountAmount > 0 ? (
+            <BreakdownRow
+              label={`Cash discount (${breakdown.discountPct}%)`}
+              value={`− ${formatINR(breakdown.discountAmount)}`}
+              muted
+            />
+          ) : null}
+          {breakdown.discountAmount > 0 ? (
+            <BreakdownRow
+              label="Taxable amount"
+              value={formatINR(breakdown.taxable)}
+            />
+          ) : null}
+          <BreakdownRow
+            label={`GST (${breakdown.gstPct}%)`}
+            value={formatINR(breakdown.gstAmount)}
+          />
+          <View style={styles.breakdownDivider} />
+          <View style={styles.grandTotalRow}>
+            <Text style={styles.grandTotalLabel}>Grand total</Text>
+            <Text style={styles.grandTotalValue}>{formatINR(total)}</Text>
+          </View>
         </View>
 
         <View style={{ height: theme.spacing.md }} />
@@ -286,6 +358,27 @@ export default function ScreenReview() {
         />
       </ScrollView>
     </Screen>
+  );
+}
+
+function BreakdownRow({
+  label,
+  value,
+  muted,
+}: {
+  label: string;
+  value: string;
+  muted?: boolean;
+}) {
+  return (
+    <View style={styles.breakdownRow}>
+      <Text style={[styles.breakdownLabel, muted && styles.breakdownMuted]}>
+        {label}
+      </Text>
+      <Text style={[styles.breakdownValue, muted && styles.breakdownMuted]}>
+        {value}
+      </Text>
+    </View>
   );
 }
 
@@ -406,11 +499,57 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     fontVariant: ["tabular-nums"],
   },
-  grandTotalRow: {
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  chip: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    minHeight: theme.tap,
+    justifyContent: "center",
+  },
+  chipActive: {
+    backgroundColor: theme.colors.primary,
+    borderColor: theme.colors.primary,
+  },
+  chipLabel: {
+    fontSize: theme.type.body,
+    color: theme.colors.text,
+    fontWeight: "700",
+  },
+  chipLabelActive: { color: "#fff" },
+  breakdown: {
     marginTop: theme.spacing.md,
     padding: theme.spacing.md,
     borderRadius: theme.radius,
     backgroundColor: theme.colors.surface,
+    gap: 6,
+  },
+  breakdownRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  breakdownLabel: {
+    fontSize: theme.type.body,
+    color: theme.colors.text,
+    fontWeight: "600",
+  },
+  breakdownValue: {
+    fontSize: theme.type.body,
+    color: theme.colors.text,
+    fontWeight: "700",
+    fontVariant: ["tabular-nums"],
+  },
+  breakdownMuted: { color: theme.colors.textMuted },
+  breakdownDivider: {
+    height: 1,
+    backgroundColor: theme.colors.border,
+    marginVertical: 4,
+  },
+  grandTotalRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "baseline",

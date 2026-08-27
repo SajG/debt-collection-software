@@ -35,6 +35,10 @@ export type OrderRpcHeader = {
   tokenType: string | null;
   notes: string | null;
   creditOverrideNote: string | null;
+  /** Cash discount % applied to subtotal. 0 when absent. */
+  discountPct: number;
+  /** GST %. Default 18. */
+  gstPct: number;
 };
 
 export type OrderRpcItem = {
@@ -131,6 +135,10 @@ function migrateV1Entry(v1: LegacyV1Entry): QueuedOrder {
         tokenType: v1.payload.p_token_type,
         notes: v1.payload.p_notes,
         creditOverrideNote: v1.payload.p_credit_override_note ?? null,
+        // v1 predates discount + GST — default to 0 discount, 18% GST
+        // so replayed orders match today's server contract.
+        discountPct: 0,
+        gstPct: 18,
       },
       items: [
         {
@@ -296,12 +304,21 @@ export async function drainOnce(): Promise<{ sent: number; failed: number }> {
       // Cast because get-generated Database types haven't been regenerated
       // for create_sales_order_v2 yet (added by migration
       // 20260824181000_create_sales_order_v2).
+      // Backfill discount/GST defaults for entries that were queued
+       // before those fields existed on OrderRpcHeader. The RPC treats
+       // missing keys as 0 / 18 anyway; being explicit here documents
+       // the retry contract.
+      const header = {
+        ...entry.payload.header,
+        discountPct: entry.payload.header.discountPct ?? 0,
+        gstPct: entry.payload.header.gstPct ?? 18,
+      };
       const { error } = await (supabase.rpc as unknown as (
         fn: string,
         args: Record<string, unknown>,
       ) => Promise<{ error: { message: string } | null }>)(
         "create_sales_order_v2",
-        { p_header: entry.payload.header, p_items: entry.payload.items },
+        { p_header: header, p_items: entry.payload.items },
       );
       if (error) throw new Error(error.message);
       await removeQueued(entry.localId);

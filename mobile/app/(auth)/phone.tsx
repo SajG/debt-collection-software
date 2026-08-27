@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { Screen } from "@/components/Screen";
 import { TextField } from "@/components/TextField";
@@ -10,15 +10,7 @@ import {
   normalisePhoneInput,
   toE164,
 } from "@/auth/phone-utils";
-import {
-  DEV_TEST_EMAIL,
-  DEV_TEST_OTP,
-  DEV_TEST_PASSWORD,
-  DEV_TEST_PHONE,
-  isDevPasswordLoginEnabled,
-  isDevTestOtpEnabled,
-  isDevTestPhone,
-} from "@/auth/dev-test";
+import { isDevTestPhone } from "@/auth/dev-test";
 import { isTestLoginPhone } from "@/auth/test-login";
 import { t } from "@/lib/i18n";
 import { theme } from "@/theme";
@@ -27,7 +19,6 @@ export default function PhoneScreen() {
   const [phone, setPhone] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  const [devSigningIn, setDevSigningIn] = useState(false);
 
   async function sendCode() {
     setError(null);
@@ -115,25 +106,6 @@ export default function PhoneScreen() {
     }
   }
 
-  async function devSignIn() {
-    if (!DEV_TEST_EMAIL || !DEV_TEST_PASSWORD) return;
-    setError(null);
-    setDevSigningIn(true);
-    try {
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: DEV_TEST_EMAIL,
-        password: DEV_TEST_PASSWORD,
-      });
-      if (signInError) {
-        setError(signInError.message);
-        return;
-      }
-      router.replace("/");
-    } finally {
-      setDevSigningIn(false);
-    }
-  }
-
   return (
     <Screen scroll>
       <View style={styles.header}>
@@ -159,35 +131,6 @@ export default function PhoneScreen() {
         loading={sending}
         onPress={sendCode}
       />
-
-      {isDevPasswordLoginEnabled() && (
-        <View style={styles.devSection}>
-          <Text style={styles.devLabel}>Dev build</Text>
-          {isDevTestOtpEnabled() && (
-            <Text style={styles.devHint}>
-              Test phone {DEV_TEST_PHONE} · code {DEV_TEST_OTP}
-            </Text>
-          )}
-          <Pressable
-            onPress={devSignIn}
-            disabled={devSigningIn}
-            style={({ pressed }) => [
-              styles.devBtn,
-              pressed && { opacity: 0.85 },
-              devSigningIn && { opacity: 0.6 },
-            ]}
-            accessibilityRole="button"
-          >
-            <Text style={styles.devBtnText}>
-              {devSigningIn ? "Signing in…" : `Sign in as ${DEV_TEST_EMAIL}`}
-            </Text>
-          </Pressable>
-          <Text style={styles.devHint}>
-            Visible only in __DEV__ with EXPO_PUBLIC_DEV_TEST_* set. Never
-            appears in release builds.
-          </Text>
-        </View>
-      )}
     </Screen>
   );
 }
@@ -201,41 +144,6 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: theme.type.body,
-    color: theme.colors.textMuted,
-  },
-  devSection: {
-    marginTop: theme.spacing.xl,
-    padding: theme.spacing.md,
-    borderRadius: theme.radius,
-    borderWidth: 1,
-    borderStyle: "dashed",
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
-    gap: 8,
-  },
-  devLabel: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: theme.colors.textMuted,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  devBtn: {
-    minHeight: theme.tap,
-    borderRadius: theme.radius,
-    borderWidth: 1,
-    borderColor: theme.colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: theme.spacing.md,
-  },
-  devBtnText: {
-    color: theme.colors.primary,
-    fontSize: theme.type.button,
-    fontWeight: "700",
-  },
-  devHint: {
-    fontSize: theme.type.bodySmall - 2,
     color: theme.colors.textMuted,
   },
 });

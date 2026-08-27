@@ -12,8 +12,8 @@ import {
 import { Button } from "@/components/Button";
 import { TextField } from "@/components/TextField";
 import { Segmented } from "@/components/Segmented";
-import { NumberPad } from "@/components/NumberPad";
 import { SelectField } from "@/components/SelectField";
+import { PickerField, type PickerItem } from "@/components/PickerField";
 import { useProducts } from "@/lib/queries";
 import {
   BRAND_LIST,
@@ -27,28 +27,16 @@ import type { QuantityUnit } from "@/lib/database.types";
 import type { OrderDraftItem } from "@/lib/order-draft";
 import { theme } from "@/theme";
 
-// Bottom-sheet item editor. One sheet handles Add and Edit — the caller
-// passes an initial item and gets a completed item back on Save. On
-// Add, brand/packing/size/unit are pre-filled from wizard "stickies"
-// so the second SKU on an order is one tap away from the first.
-//
-// Deliberately NOT a screen push: the whole point of the rewrite is
-// that adding an item does not lose the cart context. Keep this modal
-// dense enough to complete in <15 s.
+// Bottom-sheet item editor. Every field is a labelled dropdown so the
+// sheet reads as one clean column — brand, product, packing, size all
+// use the same trigger UI. The escape hatches (custom product / custom
+// packing / custom size / private-label brand) sit inline as text
+// fields shown only when needed.
 
 type Draft = Omit<OrderDraftItem, "localId">;
 
-// Render a size string as a human-friendly label without changing the
-// wire value. Everything ≥ 1 → "N kg". Sub-1 with 3-digit-gram
-// equivalent → "N g" (e.g. "0.45" → "450 g"). The tiny ml-equivalent
-// entries the spray / cyanoacrylate SKUs use fall into the < 1 bucket:
-//   0.5   -> "500 ml"   (spray bottles are ml, not g)
-//   0.31  -> "310 ml"
-//   0.05  -> "50 ml"
-//   0.018 -> "18 ml"
-// The heuristic: if the raw value is a canonical "ml" size the price
-// list uses, label it ml; otherwise gram.
 const ML_SIZES = new Set(["0.5", "0.31", "0.05", "0.018"]);
+const CUSTOM_PRODUCT_SENTINEL = "__custom__";
 
 function formatSizeLabel(v: string): string {
   const n = Number(v);
@@ -74,22 +62,16 @@ export function ItemSheet({
   onDelete?: () => void;
 }) {
   const [item, setItem] = useState<Draft>(initial);
-  const [productSearch, setProductSearch] = useState("");
-  // Private-label state. `privateLabel` is true when the salesperson
-  // picked the "Private Label / Other" brand chip; `privateLabelName`
-  // holds the customer-facing brand they type in. On save we write
-  // the typed value into item.brand.
+  // Private-label state.
   const [privateLabel, setPrivateLabel] = useState(false);
   const [privateLabelName, setPrivateLabelName] = useState("");
+  // Custom-product state — user picked "Custom / not in catalogue".
+  const [customProduct, setCustomProduct] = useState(false);
   const products = useProducts();
 
-  // Reset local state whenever the sheet re-opens with new initial data.
   useEffect(() => {
     if (visible) {
       setItem(initial);
-      setProductSearch("");
-      // If the initial brand doesn't match any known brand chip and
-      // isn't null, assume it's a saved private label — pre-fill.
       const known = new Set<string>([...BRAND_LIST]);
       if (initial.brand && !known.has(initial.brand)) {
         setPrivateLabel(true);
@@ -98,33 +80,57 @@ export function ItemSheet({
         setPrivateLabel(false);
         setPrivateLabelName("");
       }
+      setCustomProduct(
+        Boolean(
+          !initial.productId &&
+            initial.customProductName &&
+            initial.customProductName.trim(),
+        ),
+      );
     }
   }, [visible, initial]);
 
   const setField = <K extends keyof Draft>(k: K, v: Draft[K]) =>
     setItem((prev) => ({ ...prev, [k]: v }));
 
+  // Products filtered by brand. Generic rows (brand = "" / null) always
+  // pass so nothing gets accidentally hidden.
   const brandProducts = useMemo(() => {
     if (!products.data) return [];
-    let list = products.data;
-    // Brand filter — Polygum, Stick-Onn, Polygum Industrial. Generic
-    // rows (brand === "" / null) still pass through so nothing gets
-    // hidden by accident.
-    if (item.brand) {
-      list = list.filter((p) => !p.brand || p.brand === item.brand);
-    }
-    // Name-OR-code prefix search. Typing "WR" surfaces the WR-48 and
-    // WR-45 grades; typing "Polygum D" surfaces D3+. Case-insensitive.
-    const needle = productSearch.trim().toLowerCase();
-    if (needle) {
-      list = list.filter((p) => {
-        const name = p.name.toLowerCase();
-        const code = (p.code ?? "").toLowerCase();
-        return name.includes(needle) || code.includes(needle);
-      });
-    }
-    return list;
-  }, [products.data, item.brand, productSearch]);
+    if (!item.brand) return products.data;
+    return products.data.filter((p) => !p.brand || p.brand === item.brand);
+  }, [products.data, item.brand]);
+
+  const productItems = useMemo<PickerItem[]>(() => {
+    const rows: PickerItem[] = brandProducts.map((p) => ({
+      value: p.id,
+      label: p.name,
+      sublabel: p.code ?? null,
+      searchText: `${p.name} ${p.code ?? ""} ${p.brand ?? ""}`,
+    }));
+    rows.push({
+      value: CUSTOM_PRODUCT_SENTINEL,
+      label: "Custom / not in catalogue",
+      sublabel: "Type a name below",
+    });
+    return rows;
+  }, [brandProducts]);
+
+  // Brand dropdown items — chip list + private-label sentinel.
+  const brandItems = useMemo<PickerItem[]>(
+    () =>
+      BRAND_LIST.map((b) => ({
+        value: b,
+        label: b,
+      })),
+    [],
+  );
+
+  const brandValue = privateLabel
+    ? PRIVATE_LABEL_SENTINEL
+    : item.brand;
+
+  const productValue = customProduct ? CUSTOM_PRODUCT_SENTINEL : item.productId;
 
   const lineTotal = useMemo(() => {
     const q = Number(item.quantity) || 0;
@@ -141,15 +147,36 @@ export function ItemSheet({
       item.productRate.trim(),
   );
 
-  function selectProduct(id: string, name: string, brand: string | null) {
+  function onBrandChange(v: string) {
+    if (v === PRIVATE_LABEL_SENTINEL) {
+      setPrivateLabel(true);
+      setField("brand", privateLabelName.trim() || null);
+    } else {
+      setPrivateLabel(false);
+      setPrivateLabelName("");
+      setField("brand", v);
+    }
+  }
+
+  function onProductChange(v: string) {
+    if (v === CUSTOM_PRODUCT_SENTINEL) {
+      setCustomProduct(true);
+      setItem((prev) => ({
+        ...prev,
+        productId: null,
+        productName: null,
+      }));
+      return;
+    }
+    const p = brandProducts.find((x) => x.id === v);
+    if (!p) return;
+    setCustomProduct(false);
     setItem((prev) => ({
       ...prev,
-      productId: id,
-      productName: name,
+      productId: p.id,
+      productName: p.name,
       customProductName: null,
-      // If the product has a brand hint and the user hasn't picked one,
-      // adopt it. Doesn't override an explicit brand choice.
-      brand: prev.brand ?? brand ?? null,
+      brand: prev.brand ?? p.brand ?? null,
     }));
   }
 
@@ -184,20 +211,12 @@ export function ItemSheet({
             contentContainerStyle={styles.body}
             keyboardShouldPersistTaps="handled"
           >
-            <SectionLabel text="Brand" />
-            <ChipRow
-              values={BRAND_LIST}
-              selected={privateLabel ? PRIVATE_LABEL_SENTINEL : item.brand}
-              onSelect={(v) => {
-                if (v === PRIVATE_LABEL_SENTINEL) {
-                  setPrivateLabel(true);
-                  setField("brand", privateLabelName || null);
-                } else {
-                  setPrivateLabel(false);
-                  setPrivateLabelName("");
-                  setField("brand", v);
-                }
-              }}
+            <PickerField
+              label="Brand"
+              value={brandValue}
+              items={brandItems}
+              onChange={onBrandChange}
+              placeholder="Choose brand"
             />
             {privateLabel ? (
               <TextField
@@ -213,95 +232,53 @@ export function ItemSheet({
               />
             ) : null}
 
-            <SectionLabel text="Product" />
-            <TextField
-              label="Search by name or grade code"
-              placeholder="e.g. Polygum D3+, WR-48, PSA 55"
-              value={productSearch}
-              onChangeText={setProductSearch}
-              autoCorrect={false}
-              autoCapitalize="none"
+            <PickerField
+              label="Product / grade"
+              value={productValue}
+              items={productItems}
+              onChange={onProductChange}
+              placeholder={
+                products.loading && !products.data
+                  ? "Loading products…"
+                  : "Search by name or grade code"
+              }
+              searchable
+              searchPlaceholder="e.g. Polygum D3+, WR-48, PSA 55"
             />
-            {products.loading && !products.data ? (
-              <Text style={styles.hint}>Loading products…</Text>
-            ) : (
-              <View style={styles.productList}>
-                {brandProducts.slice(0, 40).map((p) => {
-                  const active = p.id === item.productId;
-                  return (
-                    <Pressable
-                      key={p.id}
-                      onPress={() => selectProduct(p.id, p.name, p.brand)}
-                      style={({ pressed }) => [
-                        styles.productChip,
-                        active && styles.productChipActive,
-                        pressed && { opacity: 0.75 },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.productChipLabel,
-                          active && styles.productChipLabelActive,
-                        ]}
-                      >
-                        {p.name}
-                      </Text>
-                      {p.code ? (
-                        <Text
-                          style={[
-                            styles.productChipCode,
-                            active && styles.productChipCodeActive,
-                          ]}
-                        >
-                          {p.code}
-                        </Text>
-                      ) : null}
-                    </Pressable>
-                  );
-                })}
-                {brandProducts.length === 0 && !products.loading ? (
-                  <Text style={styles.hint}>
-                    No product match. Type the name below to save as
-                    "new product".
-                  </Text>
-                ) : null}
-                {brandProducts.length > 40 ? (
-                  <Text style={styles.hint}>
-                    +{brandProducts.length - 40} more — refine search.
-                  </Text>
-                ) : null}
-              </View>
-            )}
-            <TextField
-              label="Product / grade / private label"
-              placeholder="Product name, grade, or private-label name"
-              hint="Type any product or grade not in the catalogue, or the customer's private-label name. Overrides the catalogue pick."
-              value={item.customProductName ?? ""}
-              onChangeText={(v) => {
-                setItem((prev) => ({
-                  ...prev,
-                  customProductName: v,
-                  productId: v.trim() ? null : prev.productId,
-                  productName: v.trim() ? null : prev.productName,
-                }));
-              }}
-            />
-
-            <SectionLabel text="Quantity" />
-            <View style={styles.qtyRow}>
-              <Text style={styles.qtyValue}>{item.quantity || "0"}</Text>
-              <Segmented<QuantityUnit>
-                options={QUANTITY_UNITS.map((u) => ({ label: u, value: u }))}
-                value={item.quantityUnit}
-                onChange={(v) => setField("quantityUnit", v)}
+            {customProduct ? (
+              <TextField
+                label="Custom product name"
+                placeholder="Product name, grade, or private-label name"
+                value={item.customProductName ?? ""}
+                onChangeText={(v) => {
+                  setItem((prev) => ({
+                    ...prev,
+                    customProductName: v,
+                    productId: null,
+                    productName: null,
+                  }));
+                }}
               />
-            </View>
-            <NumberPad
+            ) : null}
+
+            <TextField
+              label="Quantity"
+              placeholder="0"
+              keyboardType="decimal-pad"
               value={item.quantity}
-              onChange={(v) => setField("quantity", v)}
+              onChangeText={(v) =>
+                setField(
+                  "quantity",
+                  v.replace(/[^0-9.]/g, "").replace(/(\..*)\./g, "$1"),
+                )
+              }
+            />
+            <Segmented<QuantityUnit>
+              options={QUANTITY_UNITS.map((u) => ({ label: u, value: u }))}
+              value={item.quantityUnit}
+              onChange={(v) => setField("quantityUnit", v)}
             />
 
-            <SectionLabel text="Packing" />
             <SelectField
               label="Packing"
               value={item.packingType}
@@ -321,7 +298,6 @@ export function ItemSheet({
               autoCorrect={false}
             />
 
-            <SectionLabel text="Size" />
             <SelectField
               label="Size"
               value={item.sizeKg}
@@ -343,7 +319,6 @@ export function ItemSheet({
               keyboardType="default"
             />
 
-            <SectionLabel text="Rate" />
             <TextField
               label="Rate per unit"
               placeholder="e.g. 185"
@@ -383,47 +358,6 @@ export function ItemSheet({
 
 function SectionLabel({ text }: { text: string }) {
   return <Text style={styles.sectionLabel}>{text}</Text>;
-}
-
-function ChipRow({
-  values,
-  selected,
-  onSelect,
-  formatLabel,
-}: {
-  values: readonly string[];
-  selected: string | null;
-  onSelect: (v: string) => void;
-  /** Optional value -> display string. Wire value stays raw; only the
-   *  chip label changes. Used for size chips to render "60 kg" / "450 g"
-   *  while keeping "60" / "0.45" on the order. */
-  formatLabel?: (v: string) => string;
-}) {
-  return (
-    <View style={styles.chipRow}>
-      {values.map((v) => {
-        const active = v === selected;
-        return (
-          <Pressable
-            key={v}
-            onPress={() => onSelect(v)}
-            style={({ pressed }) => [
-              styles.chip,
-              active && styles.chipActive,
-              pressed && { opacity: 0.8 },
-            ]}
-          >
-            <Text
-              style={[styles.chipLabel, active && styles.chipLabelActive]}
-              numberOfLines={1}
-            >
-              {formatLabel ? formatLabel(v) : v}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
 }
 
 const styles = StyleSheet.create({
@@ -479,74 +413,6 @@ const styles = StyleSheet.create({
     color: theme.colors.textMuted,
     marginTop: 10,
   },
-  hint: { fontSize: theme.type.bodySmall, color: theme.colors.textMuted },
-  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
-    minHeight: theme.tap,
-    justifyContent: "center",
-  },
-  chipActive: {
-    backgroundColor: theme.colors.primary,
-    borderColor: theme.colors.primary,
-  },
-  chipLabel: {
-    fontSize: theme.type.bodySmall,
-    color: theme.colors.text,
-    fontWeight: "600",
-  },
-  chipLabelActive: { color: "#fff" },
-  productList: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  productChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
-    minHeight: theme.tap,
-    justifyContent: "center",
-  },
-  productChipActive: {
-    borderColor: theme.colors.primary,
-    backgroundColor: theme.colors.surface,
-    borderWidth: 2,
-  },
-  productChipLabel: {
-    fontSize: theme.type.bodySmall,
-    color: theme.colors.text,
-  },
-  productChipLabelActive: {
-    color: theme.colors.primary,
-    fontWeight: "700",
-  },
-  productChipCode: {
-    fontSize: 11,
-    marginTop: 2,
-    color: theme.colors.textMuted,
-    fontWeight: "700",
-    letterSpacing: 0.5,
-  },
-  productChipCodeActive: {
-    color: theme.colors.primary,
-  },
-  qtyRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  qtyValue: {
-    fontSize: 40,
-    fontWeight: "700",
-    color: theme.colors.text,
-    fontVariant: ["tabular-nums"],
-  },
   totalRow: {
     marginTop: 14,
     flexDirection: "row",
@@ -574,5 +440,6 @@ const styles = StyleSheet.create({
     paddingTop: theme.spacing.sm,
     borderTopWidth: 1,
     borderTopColor: theme.colors.border,
+    justifyContent: "space-between",
   },
 });
