@@ -121,6 +121,7 @@ export default function FactoryHome() {
           autoCapitalize="none"
         />
         <Segmented<Filter>
+          compact
           value={filter}
           onChange={setFilter}
           options={[

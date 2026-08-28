@@ -31,7 +31,7 @@ import type { QuantityUnit } from "@/lib/database.types";
 import { useQueue } from "@/lib/order-queue";
 import { useDocQueue } from "@/lib/order-doc-queue";
 import { useStatusQueue } from "@/lib/status-queue";
-import { useDraftPreview, writeRepeatSeed } from "@/lib/order-draft";
+import { clearDraft, useDraftPreview, writeRepeatSeed } from "@/lib/order-draft";
 import { supabase } from "@/lib/supabase";
 import { t } from "@/lib/i18n";
 import { theme } from "@/theme";
@@ -326,32 +326,59 @@ export default function HomeScreen() {
 
       {draftPreview.hasDraft && (
         <View style={styles.resumeWrap}>
-          <Pressable
-            onPress={() => router.push("/(staff)/orders/new")}
-            style={({ pressed }) => [
-              styles.resumeCard,
-              pressed && { opacity: 0.85 },
-            ]}
-            accessibilityRole="button"
-          >
-            <View style={{ flex: 1 }}>
-              <Text style={styles.resumeLabel}>Resume order</Text>
-              <Text style={styles.resumeSummary} numberOfLines={1}>
-                {draftPreview.summary ?? "Draft in progress"}
-              </Text>
-              <Text style={styles.resumeMeta}>
-                {draftPreview.itemCount === 0
-                  ? "Customer & delivery"
-                  : `${draftPreview.itemCount} ${draftPreview.itemCount === 1 ? "item" : "items"}`}
-              </Text>
-            </View>
-            <Text style={styles.resumeChevron}>›</Text>
-          </Pressable>
+          <View style={styles.resumeRow}>
+            <Pressable
+              onPress={() => router.push("/(staff)/orders/new")}
+              style={({ pressed }) => [
+                styles.resumeCard,
+                pressed && { opacity: 0.85 },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Resume in-progress order"
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={styles.resumeLabel}>Resume order</Text>
+                <Text style={styles.resumeSummary} numberOfLines={1}>
+                  {draftPreview.summary ?? "Draft in progress"}
+                </Text>
+                <Text style={styles.resumeMeta}>
+                  {draftPreview.itemCount === 0
+                    ? "Customer & delivery"
+                    : `${draftPreview.itemCount} ${draftPreview.itemCount === 1 ? "item" : "items"}`}
+                </Text>
+              </View>
+              <Text style={styles.resumeChevron}>›</Text>
+            </Pressable>
+            <Pressable
+              onPress={() =>
+                confirm({
+                  title: "Delete this draft?",
+                  body:
+                    "Everything typed for this order will be gone. This cannot be undone.",
+                  confirmLabel: "Delete draft",
+                  destructive: true,
+                  onConfirm: async () => {
+                    await clearDraft();
+                    await draftPreview.refresh();
+                  },
+                })
+              }
+              style={({ pressed }) => [
+                styles.resumeDeleteBtn,
+                pressed && { opacity: 0.85 },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Delete this draft"
+            >
+              <Text style={styles.resumeDeleteGlyph}>×</Text>
+            </Pressable>
+          </View>
         </View>
       )}
 
       <View style={styles.filters}>
         <Segmented<Filter>
+          compact
           value={filter}
           onChange={setFilter}
           options={[
@@ -579,7 +606,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.lg,
     paddingTop: theme.spacing.md,
   },
+  resumeRow: {
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "stretch",
+  },
   resumeCard: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
@@ -588,6 +621,21 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: theme.colors.primary,
     backgroundColor: "#EAF2EF",
+  },
+  resumeDeleteBtn: {
+    width: 44,
+    borderRadius: theme.radius,
+    borderWidth: 1,
+    borderColor: theme.colors.danger,
+    backgroundColor: theme.colors.dangerBg,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  resumeDeleteGlyph: {
+    fontSize: 24,
+    lineHeight: 24,
+    color: theme.colors.danger,
+    fontWeight: "800",
   },
   resumeLabel: {
     fontSize: 12,

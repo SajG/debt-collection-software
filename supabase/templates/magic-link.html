@@ -1,0 +1,87 @@
+<!--
+  Syncit email OTP template.
+
+  DESIGN CHOICE — deliberate, do not change back:
+    This template renders `{{ .Token }}` as large text, not
+    `{{ .ConfirmationURL }}` as a link. Reason: on Android, Gmail
+    opens links inside its own in-app WebView. Deep-linking back
+    into an Expo app from that WebView is unreliable — requires
+    a verified Android App Link (assetlinks.json served on a
+    verified domain over HTTPS with the correct SHA-256 fingerprint)
+    and even then fails on some OEM ROMs. A 6-digit code the user
+    reads and types works EVERY TIME on EVERY device, with no App
+    Links plumbing to maintain.
+
+    If somebody later "improves" this back to a magic link because
+    it feels more modern, they will get a flood of "the link
+    doesn't do anything" tickets from Android users. Don't.
+
+  Paste-in: Supabase dashboard → Authentication → Email Templates
+  → "Magic Link" (yes, the template name references links; we
+  hijack it because Supabase reuses this template for
+  signInWithOtp email codes).
+
+  Variables:
+    {{ .Token }}   the 6-digit code
+    {{ .Email }}   the recipient email
+    {{ .SiteURL }} project Site URL (unused here on purpose)
+-->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Your Syncit sign-in code</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f5f7f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#0b1d18;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f7f6;padding:40px 0;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="background:#ffffff;border:1px solid #d8dedc;border-radius:12px;overflow:hidden;">
+            <!-- Header -->
+            <tr>
+              <td style="background:#093d30;padding:20px 28px;">
+                <span style="display:inline-block;vertical-align:middle;">
+                  <svg width="26" height="26" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" aria-label="Syncit">
+                    <g fill="none" stroke-width="40">
+                      <circle cx="206" cy="206" r="84" stroke="#3DDC97"/>
+                      <circle cx="306" cy="306" r="84" stroke="#FFFFFF"/>
+                      <path d="M 264.7 266.1 A 84 84 0 0 1 177.7 285.1" stroke="#3DDC97"/>
+                    </g>
+                  </svg>
+                </span>
+                <span style="display:inline-block;vertical-align:middle;margin-left:10px;color:#ffffff;font-weight:800;font-size:18px;letter-spacing:0.2px;">
+                  Syncit
+                </span>
+              </td>
+            </tr>
+            <!-- Body -->
+            <tr>
+              <td style="padding:32px 28px 28px;">
+                <p style="margin:0 0 8px;font-size:14px;color:#5a6b65;">
+                  Your sign-in code
+                </p>
+                <!-- The Token — large, monospace, selectable -->
+                <div style="margin:8px 0 20px;padding:16px 20px;background:#f5f7f6;border:1px solid #d8dedc;border-radius:10px;text-align:center;">
+                  <div style="font-family:'SF Mono',Menlo,Consolas,monospace;font-size:36px;font-weight:800;letter-spacing:10px;color:#0b1d18;">
+                    {{ .Token }}
+                  </div>
+                </div>
+                <p style="margin:0 0 16px;font-size:14px;line-height:1.55;color:#0b1d18;">
+                  Enter this code on the Syncit app or website to sign in.
+                  It expires in 10 minutes and can only be used once.
+                </p>
+                <p style="margin:0;font-size:12px;line-height:1.55;color:#5a6b65;">
+                  If you didn't try to sign in, ignore this email — no
+                  action is needed.
+                </p>
+              </td>
+            </tr>
+          </table>
+          <p style="margin:16px 0 0;font-size:11px;color:#5a6b65;">
+            Sent by Syncit on behalf of Synergy Bonding Solutions.
+          </p>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

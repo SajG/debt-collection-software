@@ -47,6 +47,42 @@ export async function recordLoginAttempt(
   });
 }
 
+// ─────────────────────────────────────────────────────────────────
+// Email-OTP send rate limit (SY-email)
+//
+// Different shape from checkLoginRateLimit — it counts every send
+// (successful + failed) rather than only failures, because a
+// successful send still burns provider quota and inbox goodwill.
+// Per-IP throttling is enforced separately by middleware.ts (the
+// existing edge token bucket, extended to /login/email-code + the
+// verify path).
+//
+// Caps:
+//   3 sends per email per 15 minutes
+// ─────────────────────────────────────────────────────────────────
+
+const EMAIL_OTP_WINDOW_MINUTES = 15;
+const EMAIL_OTP_MAX_SENDS = 3;
+
+export async function checkEmailOtpSendLimit(
+  email: string,
+): Promise<{ limited: boolean; retryAfterMinutes: number }> {
+  const windowStart = new Date(
+    Date.now() - EMAIL_OTP_WINDOW_MINUTES * 60 * 1000,
+  );
+  const count = await db.loginAttempt.count({
+    where: {
+      email: email.toLowerCase().trim(),
+      factor: "EMAIL_OTP",
+      createdAt: { gte: windowStart },
+    },
+  });
+  return {
+    limited: count >= EMAIL_OTP_MAX_SENDS,
+    retryAfterMinutes: EMAIL_OTP_WINDOW_MINUTES,
+  };
+}
+
 // ── Action rate limits ───────────────────────────────────────────
 // Both reuse existing audit tables as the counter — every send writes a
 // Message row and every import writes a SyncLog row, so no extra

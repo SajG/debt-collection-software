@@ -13,6 +13,9 @@
     "db:studio": "prisma studio",
     "verify:team": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/verify-team.ts",
     "rotate:compromised": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/rotate-compromised-passwords.ts",
+    "backfill:team-emails": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/backfill-team-emails.ts",
+    "verify:emails": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/verify-emails.ts",
+    "dev:otp": "node --env-file=.env scripts/dev-get-otp.mjs",
     "brand:build": "node syncit-brand/build-assets.mjs",
     "tokens:build": "node packages/tokens/generate.mjs",
     "fonts:fetch": "node scripts/fetch-fonts.mjs"

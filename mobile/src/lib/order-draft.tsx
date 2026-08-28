@@ -397,6 +397,18 @@ export function useWizard(): WizardValue {
   return ctx;
 }
 
+/**
+ * Wipe the persisted draft. Callable from anywhere — the home
+ * screen "Delete draft" button uses this without being inside a
+ * WizardProvider. If a WizardProvider is currently mounted (i.e.
+ * the wizard is on screen), its `discard()` should be used instead
+ * so React state stays in sync; this helper is for the outer app.
+ */
+export async function clearDraft(): Promise<void> {
+  await AsyncStorage.removeItem(KEY);
+  await AsyncStorage.removeItem(LEGACY_KEY);
+}
+
 // ── Home-screen preview (outside provider) ──────────────────────────
 
 export function useDraftPreview() {

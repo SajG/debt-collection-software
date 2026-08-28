@@ -10,16 +10,36 @@ import { createClient as createSsrClient } from "@/lib/supabase/server";
 
 export type ActionResult = { ok: true; profileId?: string } | { error: string };
 
-export type IssueCodeResult =
-  | { ok: true; code: string; expiresAt: string }
-  | { error: string };
-
 export type RevokeDeviceResult = { ok: true } | { error: string };
+
+export type InviteResult =
+  | { ok: true; email: string; kind: "invited" | "magiclink" }
+  | { error: string };
 
 const roleEnum = z.enum(["ADMIN", "STAFF", "FACTORY"]);
 
 // Same rule the mobile phone-auth form uses: Indian 10-digit mobile.
 const phoneRegex = /^[6-9]\d{9}$/;
+
+// Fake-domain blocklist. Every one of these has bitten us or is a
+// documented placeholder: the old @synworks.local pattern, RFC-2606
+// test/example TLDs, and "internal" which some enterprise IdPs use
+// as a private domain we do NOT want authenticating end users.
+// Enforced at three layers: this validator, a CHECK constraint on
+// Profile.email (migration 20260828050000_profile_email), and the
+// backfill script.
+const FAKE_DOMAIN_RE = /\.(local|test|invalid|internal|localhost|example)$/i;
+
+const emailSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .email("Enter a valid email address")
+  .max(254)
+  .refine(
+    (v) => !FAKE_DOMAIN_RE.test(v),
+    "Use a real deliverable email — not .local / .test / .invalid / .internal.",
+  );
 
 const createSchema = z.object({
   ownerName: z.string().trim().min(2, "Enter the person's name").max(120),
@@ -30,6 +50,7 @@ const createSchema = z.object({
     .max(120)
     .default("Syncit"),
   phone: z.string().trim().regex(phoneRegex, "Enter a 10-digit Indian mobile"),
+  email: emailSchema,
   role: roleEnum,
 });
 
@@ -62,25 +83,33 @@ export async function createUserAction(input: {
   ownerName: string;
   businessName?: string;
   phone: string;
+  email: string;
   role: Role;
 }): Promise<ActionResult> {
   const admin = await requireAdmin();
 
   const parsed = createSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.errors[0].message };
-  const { ownerName, businessName, phone, role } = parsed.data;
+  const { ownerName, businessName, phone, email, role } = parsed.data;
 
   // Rule out obvious collisions before touching Supabase Auth so the
   // rollback path is rarer.
-  const dupe = await db.profile.findFirst({ where: { phone } });
-  if (dupe) return { error: `A user with phone ${phone} already exists.` };
+  const dupePhone = await db.profile.findFirst({ where: { phone } });
+  if (dupePhone) return { error: `A user with phone ${phone} already exists.` };
+  const dupeEmail = await db.profile.findFirst({ where: { email } });
+  if (dupeEmail) return { error: `A user with email ${email} already exists.` };
 
   const supabase = createAdminClient();
   const e164 = `+91${phone}`;
+  // Create the auth user with BOTH phone and email — phone stays the
+  // identity anchor, email is the new sign-in channel. Don't confirm
+  // the email yet; the invite link that follows will confirm it.
   const { data: created, error: createErr } =
     await supabase.auth.admin.createUser({
       phone: e164,
+      email,
       phone_confirm: true,
+      email_confirm: false,
     });
   if (createErr || !created?.user) {
     return { error: createErr?.message ?? "Could not create auth user." };
@@ -95,6 +124,7 @@ export async function createUserAction(input: {
           businessName,
           ownerName,
           phone,
+          email,
           role,
           createdById: admin.id,
         },
@@ -104,15 +134,13 @@ export async function createUserAction(input: {
           actorId: admin.id,
           targetProfileId: userId,
           action: "CREATED",
-          detail: `role=${role} phone=+91${phone}`,
+          detail: `role=${role} phone=+91${phone} email=${email}`,
         },
       });
     });
   } catch (e) {
     // Roll back the auth user so the invariant "auth.users row implies
-    // Profile row" stays true. Best-effort — if the delete fails, an
-    // orphan auth row still can't sign in because AuthContext refuses
-    // sessions without a Profile.
+    // Profile row" stays true.
     await supabase.auth.admin.deleteUser(userId).catch(() => undefined);
     return {
       error:
@@ -121,6 +149,11 @@ export async function createUserAction(input: {
           : "Profile insert failed (auth rollback attempted).",
     };
   }
+
+  // Fire an invite email immediately so the workflow is one-and-done
+  // for the admin. Best-effort — a mail failure here does not roll
+  // back the user; the "Resend invite" button covers it.
+  await inviteUserAction({ profileId: userId }).catch(() => undefined);
 
   revalidatePath("/admin/users");
   return { ok: true, profileId: userId };
@@ -231,37 +264,11 @@ export async function reactivateUserAction(input: {
   return { ok: true };
 }
 
-// ─────────────────────────────────────────────────────────────────
-// Device enrollment (SY1)
-// ─────────────────────────────────────────────────────────────────
-
-// Admin generates a one-time 8-char enrollment code for `profileId`.
-// The plaintext code is returned exactly once here; the DB stores
-// only its SHA-256 hash. Do not log it, do not persist client-side,
-// do not put it in a URL. Show, copy, discard.
-export async function issueEnrollmentCodeAction(input: {
-  profileId: string;
-}): Promise<IssueCodeResult> {
-  await requireAdmin();
-  // Use the SSR (cookie-scoped) client, not the service-role admin
-  // client. The RPC checks `auth.uid()` to enforce ADMIN-only + to
-  // stamp the issuer in the audit log. service_role has no
-  // auth.uid() so the RPC raised "Not authenticated" — see the
-  // header of prisma/migrations/20260827180000_device_enrollment.
-  const supabase = createSsrClient();
-  const { data, error } = await supabase.rpc("issue_enrollment_code", {
-    p_profile_id: input.profileId,
-  });
-  if (error || typeof data !== "string" || data.length !== 8) {
-    return {
-      error: error?.message ?? "Could not issue an enrollment code.",
-    };
-  }
-  const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-  revalidatePath("/admin/users");
-  revalidatePath("/admin/devices");
-  return { ok: true, code: data, expiresAt };
-}
+// Enrollment-code action removed (SY-email). The admin sign-in path
+// for mobile is now: admin invites by email → user gets a 6-digit
+// code by email → mobile signs in and registers the device via the
+// register_device() RPC. See admin/users invite flow + mobile/app/
+// (auth)/email.tsx.
 
 // Revoke a specific device: sets Device.revokedAt and — because of
 // the one-active-device-per-user simplification — kicks the user off
@@ -361,4 +368,165 @@ export async function changeRoleAction(input: {
 
   revalidatePath("/admin/users");
   return { ok: true };
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Invite user by email (SY-email)
+//
+// Fires supabase.auth.admin.inviteUserByEmail. If the auth user
+// already exists (common — createUserAction created it), invite
+// fails; we fall back to admin.generateLink({type:'magiclink'}) so
+// re-inviting is idempotent. Either way the user receives an email
+// that lets them set a password or click through to sign in.
+// ─────────────────────────────────────────────────────────────────
+
+const RESEND_WINDOW_MS = 5 * 60 * 1000;
+
+function appUrl(): string {
+  const raw =
+    process.env.NEXT_PUBLIC_APP_URL ??
+    process.env.NEXT_PUBLIC_SITE_URL ??
+    "";
+  return raw.replace(/\/+$/, "");
+}
+
+async function sendInvite(
+  supabase: ReturnType<typeof createAdminClient>,
+  email: string,
+  meta: { profileId: string; ownerName: string; role: Role },
+): Promise<{ ok: true; kind: "invited" | "magiclink" } | { error: string }> {
+  const base = appUrl();
+  const redirectTo = base ? `${base}/auth/callback` : undefined;
+
+  const { error: inviteErr } = await supabase.auth.admin.inviteUserByEmail(
+    email,
+    { data: meta, redirectTo },
+  );
+  if (!inviteErr) return { ok: true, kind: "invited" };
+
+  const msg = inviteErr.message.toLowerCase();
+  const alreadyExists =
+    msg.includes("already") ||
+    msg.includes("registered") ||
+    msg.includes("exists");
+  if (!alreadyExists) return { error: inviteErr.message };
+
+  const { error: linkErr } = await supabase.auth.admin.generateLink({
+    type: "magiclink",
+    email,
+    options: { redirectTo },
+  });
+  if (linkErr) return { error: linkErr.message };
+  return { ok: true, kind: "magiclink" };
+}
+
+export async function inviteUserAction(input: {
+  profileId: string;
+}): Promise<InviteResult> {
+  const admin = await requireAdmin();
+
+  const target = await db.profile.findUnique({
+    where: { id: input.profileId },
+    select: {
+      id: true,
+      email: true,
+      ownerName: true,
+      role: true,
+      isActive: true,
+    },
+  });
+  if (!target) return { error: "User not found." };
+  if (!target.isActive)
+    return { error: "User is deactivated — reactivate first." };
+  if (!target.email)
+    return { error: "This user has no email. Add one first." };
+
+  const supabase = createAdminClient();
+  const res = await sendInvite(supabase, target.email, {
+    profileId: target.id,
+    ownerName: target.ownerName,
+    role: target.role,
+  });
+  if ("error" in res) return { error: res.error };
+
+  await db.$transaction(async (tx) => {
+    await tx.profile.update({
+      where: { id: target.id },
+      data: { invitedAt: new Date(), invitedById: admin.id },
+    });
+    await tx.userAuditLog.create({
+      data: {
+        actorId: admin.id,
+        targetProfileId: target.id,
+        action: "INVITED",
+        detail: `${res.kind} → ${target.email}`,
+      },
+    });
+  });
+
+  revalidatePath("/admin/users");
+  return { ok: true, email: target.email, kind: res.kind };
+}
+
+export async function resendInviteAction(input: {
+  profileId: string;
+}): Promise<InviteResult> {
+  const admin = await requireAdmin();
+
+  const target = await db.profile.findUnique({
+    where: { id: input.profileId },
+    select: {
+      id: true,
+      email: true,
+      ownerName: true,
+      role: true,
+      isActive: true,
+    },
+  });
+  if (!target) return { error: "User not found." };
+  if (!target.isActive) return { error: "User is deactivated." };
+  if (!target.email) return { error: "This user has no email." };
+
+  // Rate limit — 5 min per profile. Read the last INVITED / INVITE_RESENT
+  // event and refuse if inside the window.
+  const recent = await db.userAuditLog.findFirst({
+    where: {
+      targetProfileId: target.id,
+      action: { in: ["INVITED", "INVITE_RESENT"] },
+    },
+    orderBy: { createdAt: "desc" },
+    select: { createdAt: true },
+  });
+  if (recent && Date.now() - recent.createdAt.getTime() < RESEND_WINDOW_MS) {
+    const waitS = Math.ceil(
+      (RESEND_WINDOW_MS - (Date.now() - recent.createdAt.getTime())) / 1000,
+    );
+    return { error: `An invite went out recently. Try again in ${waitS} s.` };
+  }
+
+  const supabase = createAdminClient();
+  const res = await sendInvite(supabase, target.email, {
+    profileId: target.id,
+    ownerName: target.ownerName,
+    role: target.role,
+  });
+  if ("error" in res) return { error: res.error };
+
+  await db.$transaction(async (tx) => {
+    await tx.profile.update({
+      where: { id: target.id },
+      data: { invitedAt: new Date(), invitedById: admin.id },
+    });
+    await tx.userAuditLog.create({
+      data: {
+        actorId: admin.id,
+        targetProfileId: target.id,
+        action: "INVITE_RESENT",
+        detail: `${res.kind} → ${target.email}`,
+      },
+    });
+  });
+
+  revalidatePath("/admin/users");
+  return { ok: true, email: target.email, kind: res.kind };
 }

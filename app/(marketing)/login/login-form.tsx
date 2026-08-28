@@ -123,6 +123,18 @@ export function LoginForm({ callbackUrl }: { callbackUrl?: string }) {
       <p className="text-center text-sm text-muted-foreground">
         Accounts are created by an administrator.
       </p>
+
+      {/* Alt path — same email-OTP flow the mobile app uses. Kept as a
+          non-primary link because most web sessions are director-only
+          and go through the password + TOTP path. */}
+      <div className="text-center">
+        <a
+          href={`/login/email-code${callbackUrl ? `?callbackUrl=${encodeURIComponent(callbackUrl)}` : ""}`}
+          className="text-sm text-primary underline-offset-4 hover:underline"
+        >
+          Email me a code instead
+        </a>
+      </div>
     </form>
   );
 }

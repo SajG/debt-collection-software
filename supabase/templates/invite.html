@@ -1,0 +1,107 @@
+<!--
+  Syncit invite email template.
+
+  Paste the content of this file into Supabase → Authentication →
+  Email Templates → "Invite user". See docs/EMAIL-TEMPLATES.md for
+  step-by-step instructions and where to update this if the wording
+  needs to change again.
+
+  Variables Supabase substitutes at send time:
+    {{ .Email }}             the recipient email
+    {{ .Data.ownerName }}    from inviteUserByEmail(email, { data })
+    {{ .ConfirmationURL }}   the invite acceptance link
+    {{ .SiteURL }}           NEXT_PUBLIC_APP_URL (dashboard uses this
+                             for its redirect_to)
+
+  Design constraints for email:
+    * inline styles only — mail clients strip <style> tags
+    * table layout for Outlook compatibility
+    * no external images — logo is inlined as an SVG-in-<img>
+    * one CTA above the fold; download link secondary below
+-->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>You've been added to Syncit</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f5f7f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#0b1d18;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f7f6;padding:40px 0;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border:1px solid #d8dedc;border-radius:12px;overflow:hidden;">
+            <!-- Logo header on Bond green -->
+            <tr>
+              <td style="background:#093d30;padding:24px 32px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td>
+                      <span style="display:inline-block;vertical-align:middle;">
+                        <!-- Inline SVG mark — no external asset request. -->
+                        <svg width="28" height="28" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" aria-label="Syncit">
+                          <g fill="none" stroke-width="40">
+                            <circle cx="206" cy="206" r="84" stroke="#3DDC97"/>
+                            <circle cx="306" cy="306" r="84" stroke="#FFFFFF"/>
+                            <path d="M 264.7 266.1 A 84 84 0 0 1 177.7 285.1" stroke="#3DDC97"/>
+                          </g>
+                        </svg>
+                      </span>
+                      <span style="display:inline-block;vertical-align:middle;margin-left:10px;color:#ffffff;font-weight:800;font-size:20px;letter-spacing:0.2px;">
+                        Syncit
+                      </span>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <!-- Body -->
+            <tr>
+              <td style="padding:32px;">
+                <p style="margin:0 0 16px;font-size:18px;line-height:1.5;">
+                  {{ .Data.ownerName }}, you've been added to Syncit by
+                  Synergy Bonding Solutions.
+                </p>
+                <p style="margin:0 0 20px;font-size:15px;line-height:1.55;color:#5a6b65;">
+                  Open the Syncit app and enter this email address:
+                  <strong style="color:#0b1d18;">{{ .Email }}</strong>.
+                  We'll send you a 6-digit code to sign in.
+                </p>
+                <p style="margin:0 0 28px;font-size:14px;line-height:1.55;color:#5a6b65;">
+                  This invite link is for the web console only. On mobile,
+                  the sign-in flow uses email + 6-digit code — no link to
+                  click.
+                </p>
+                <!-- Primary CTA — web console -->
+                <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 28px;">
+                  <tr>
+                    <td style="background:#093d30;border-radius:8px;">
+                      <a href="{{ .ConfirmationURL }}" style="display:inline-block;padding:12px 22px;color:#ffffff;font-weight:700;font-size:15px;text-decoration:none;">
+                        Open Syncit web
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+                <!-- Secondary: mobile download -->
+                <p style="margin:0 0 8px;font-size:14px;line-height:1.55;color:#5a6b65;">
+                  For the mobile app, ask your admin for the current
+                  download link (Play Store / TestFlight / APK).
+                </p>
+                <!-- Footer note -->
+                <hr style="border:none;border-top:1px solid #d8dedc;margin:28px 0;" />
+                <p style="margin:0;font-size:12px;line-height:1.55;color:#5a6b65;">
+                  If you weren't expecting this, ignore this email — no
+                  account will be activated without you clicking the
+                  button above or entering the email on the app.
+                </p>
+              </td>
+            </tr>
+          </table>
+          <!-- Legal / ownership line outside the card -->
+          <p style="margin:16px 0 0;font-size:11px;color:#5a6b65;">
+            Sent by Syncit on behalf of Synergy Bonding Solutions.
+          </p>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

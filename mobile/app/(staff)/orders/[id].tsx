@@ -4,6 +4,7 @@ import {
   Alert,
   Image,
   Linking,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -134,6 +135,29 @@ export default function OrderDetailScreen() {
             >
               <Text style={styles.editBtnText}>✎ Edit items</Text>
             </Pressable>
+            {/* Cancel — narrower status gate than the edit buttons.
+                LR_GENERATED is edit-able (correct a wrong LR number)
+                but the factory already booked material, so cancel
+                past READY_TO_DISPATCH is refused by cancel_own_order. */}
+            {[
+              "ORDER_PLACED",
+              "PENDING_APPROVAL",
+              "IN_PRODUCTION",
+              "ON_HOLD",
+              "READY_TO_DISPATCH",
+            ].includes(data.currentStatus) ? (
+              <Pressable
+                onPress={() => promptCancel(data.id, data.orderNumber, refetch)}
+                style={({ pressed }) => [
+                  styles.cancelBtn,
+                  pressed && { opacity: 0.7 },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel this order"
+              >
+                <Text style={styles.cancelBtnText}>✕ Cancel</Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : null}
 
@@ -287,6 +311,75 @@ export default function OrderDetailScreen() {
       </ScrollView>
     </Screen>
   );
+}
+
+// Prompt for a cancellation reason and, on submit, fire the
+// cancel_own_order RPC. Uses Alert.prompt on iOS (native text
+// input); on Android that API doesn't exist, so we fall back to a
+// plain confirm with a fixed reason. Reason is required by the RPC
+// either way.
+function promptCancel(
+  orderId: string,
+  orderNumber: string,
+  refetch: () => void,
+): void {
+  const submit = async (reason: string) => {
+    const clean = reason.trim();
+    if (!clean) {
+      Alert.alert(
+        "Reason required",
+        "A cancellation reason is required so the timeline reads well.",
+      );
+      return;
+    }
+    // Supabase types haven't been regenerated for cancel_own_order
+    // (added in migration 20260828070000_cancel_own_order). Cast.
+    const { error } = await (
+      supabase.rpc as unknown as (
+        fn: string,
+        args: Record<string, unknown>,
+      ) => Promise<{ error: { message: string } | null }>
+    )("cancel_own_order", { p_order_id: orderId, p_reason: clean });
+    if (error) {
+      Alert.alert("Cancel failed", error.message);
+      return;
+    }
+    refetch();
+  };
+
+  if (Platform.OS === "ios") {
+    Alert.prompt(
+      `Cancel ${orderNumber}?`,
+      "Give a short reason — this shows on the order timeline.",
+      [
+        { text: "Keep order", style: "cancel" },
+        {
+          text: "Cancel order",
+          style: "destructive",
+          onPress: (text: string | undefined) => submit(text ?? ""),
+        },
+      ],
+      "plain-text",
+      "",
+      "default",
+    );
+  } else {
+    // Android has no Alert.prompt. Confirm-with-fixed-reason is a
+    // shrug compromise — the timeline still records who + when,
+    // just without the specific reason.
+    Alert.alert(
+      `Cancel ${orderNumber}?`,
+      "This will cancel the order and notify the factory.",
+      [
+        { text: "Keep order", style: "cancel" },
+        {
+          text: "Cancel order",
+          style: "destructive",
+          onPress: () => submit("Cancelled from mobile"),
+        },
+      ],
+    );
+  }
 }
 
 function ConfirmDeliveredCard({
@@ -677,6 +770,19 @@ const styles = StyleSheet.create({
   },
   editBtnText: {
     color: theme.colors.primary,
+    fontWeight: "700",
+    fontSize: theme.type.bodySmall,
+  },
+  cancelBtn: {
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    borderRadius: theme.radius,
+    borderWidth: 1,
+    borderColor: theme.colors.danger,
+    backgroundColor: theme.colors.dangerBg,
+  },
+  cancelBtnText: {
+    color: theme.colors.danger,
     fontWeight: "700",
     fontSize: theme.type.bodySmall,
   },

@@ -51,8 +51,9 @@ describe("admin/users/actions.ts — all exported server actions are ADMIN-gated
         "changeRoleAction",
         "createUserAction",
         "deactivateUserAction",
-        "issueEnrollmentCodeAction",
+        "inviteUserAction",
         "reactivateUserAction",
+        "resendInviteAction",
         "revokeDeviceAction",
       ].sort(),
     );

@@ -44,6 +44,67 @@ than the file looking clean. If you are reading this because you found
 a `@synworks.local` reference in git history: the credentials it
 pointed to no longer exist on the Supabase side.
 
+## Known past exposure — `redeem_and_mint_session` RPC
+
+**Window:** from the first prod deploy of the SQL-mint enrollment
+flow (SY1-b) up to and including the cleanup rotation on
+**2026-08-28**.
+
+**What was exposed.** `public.redeem_and_mint_session(phone, code,
+device jsonb)` was anon-callable and SECURITY DEFINER. On every
+successful redeem it:
+
+1. Attached a synthetic email `<profile-uuid>@device.paytrack.local`
+   to the auth user (if not already set).
+2. Generated a 32-byte random password and wrote
+   `extensions.crypt(pw, extensions.gen_salt('bf'))` directly into
+   `auth.users.encrypted_password`.
+3. Returned the plaintext password back to the mobile client so it
+   could immediately call `signInWithPassword`.
+
+The RPC and the client both treated the credential as "one-shot" —
+the app used it once and threw it away. But the Supabase row keeps
+`encrypted_password` valid indefinitely. Anyone who intercepted a
+plaintext (mobile TLS breakage, MITM on a compromised device,
+Sentry breadcrumb leak, log-drain misconfig) could reuse it days
+later to obtain a fresh JWT via
+`/auth/v1/token?grant_type=password`, on the synthetic email the
+same RPC had set.
+
+**Impact.** Same shape as the SY0 exposure: a leaked plaintext →
+any-role JWT on the target user, until the password was rotated
+out. Distinct from SY0 in that the plaintext was fresh per
+enrolment (not "same as the phone number"), so this only threatens
+users who actually enrolled during the SQL-mint window, and only
+if their plaintext leaked. Every user who enrolled between SY1-b
+and SY-email is on that list.
+
+**Remediation (2026-08-28).**
+
+1. Dropped `redeem_and_mint_session`, `redeem_enrollment_code`,
+   `issue_enrollment_code`, and the `EnrollmentCode` table
+   (migration `20260828060000_email_otp_signin`). The whole
+   anon-callable + SECURITY DEFINER + writes-to-auth surface is
+   gone.
+2. Migrated every user to Supabase's native email OTP —
+   `signInWithOtp` + `verifyOtp`, `shouldCreateUser: false` as
+   the allowlist gate. See SY-email.
+3. Ran `npm run rotate:compromised -- --commit` (extended for this
+   exposure) against production, which for every affected user:
+   (a) set a fresh 256-bit cryptographically-random password known
+   to nobody, (b) replaced any `@synworks.local` /
+   `@device.paytrack.local` / `@invalid.local` email with the real
+   `Profile.email` collected via SY11 backfill,
+   (c) invalidated every existing session via
+   `admin.signOut(user.id, "global")`.
+4. `verify-emails.ts` (`npm run verify:emails`) is the gate that
+   runs BEFORE any future rotation — it refuses to proceed unless
+   every active Profile carries a real deliverable address, so
+   we never re-invent a `@device.paytrack.local` handle.
+
+**Why the record stays.** Same reason as SY0 — see the section
+above.
+
 
 ## Who can access what
 
@@ -139,39 +200,71 @@ repo root; the workflow reads it automatically.
 
 ## Sessions
 
-- **Mobile** — device-enrollment model (SY1). No SMS. A `paytrack:
-  lastActiveAt` timestamp in AsyncStorage plus a per-device biometric
-  or PIN gate; **7 days** idle wipes the local session and forces
-  re-enrolment with a new admin-issued code. See
+- **Mobile — email OTP, one active device per user (SY-email)** —
+  No SMS. No admin-issued enrollment codes. The user types their
+  email in `/(auth)/email`; Supabase sends a 6-digit token via the
+  configured SMTP provider; the user types it in `/(auth)/code`
+  and `verifyOtp({ type: 'email' })` issues the JWT. The mobile
+  app then calls `register_device()` which inserts a Device row
+  and revokes any prior device for that profile (one-active-
+  device invariant). Biometric or 6-digit PIN unlocks on every
+  cold start and every foreground after >5 min backgrounded — see
+  `mobile/src/auth/device-lock.ts`. Deep runbook:
   `docs/LOGIN-RUNBOOK.md`.
+- **Allowlist gate.** `signInWithOtp({ email, options: {
+  shouldCreateUser: false } })` is how "only admins decide who
+  uses the app" is enforced. Any address the admin never invited
+  gets no code — silently, so there is no oracle for whether an
+  email is known.
+- **No idle sign-out (SY-idle).** The former 7-day idle timeout
+  was removed. It only punished users who took leave — the device
+  lock is what protects a lost phone. `syncit:lastActiveAt` is
+  still written on every foreground for the Device.lastSeenAt
+  heartbeat (`touch_device_seen`), but never triggers a sign-out.
+- **Refresh-token keep-alive.** Every AppState 'active' transition
+  calls `supabase.auth.getSession()`, which rotates the refresh
+  token. As long as the user opens the app once per Supabase's
+  refresh TTL (30 d default), they stay signed in indefinitely.
+  Full behaviour + dashboard settings in `docs/RUNBOOK.md`.
 - **Web** — email + password + **mandatory TOTP for the ADMIN role**
-  (SY2). Session assurance:
-  - `aal1` = password only. Every fresh sign-in starts here.
-  - `aal2` = password + verified second factor challenge.
+  (SY2), OR alternative email OTP path (SY-email) via the "Email me
+  a code instead" link on `/login`. ADMIN accounts on the email-OTP
+  path are STILL bounced through `/login/challenge` for TOTP before
+  reaching `aal2` — `requireAdmin()` is factor-agnostic. Session
+  assurance:
+  - `aal1` = password / email code only. Every fresh sign-in
+    starts here.
+  - `aal2` = above + verified second factor challenge.
   `requireAdmin()` and `requireProfileApi({ adminOnly: true })`
-  refuse `aal1` and either send the user to `/login/challenge` (if
-  a verified factor exists) or `/settings/security` (if not). MFA
-  is currently ADMIN-only — STAFF and FACTORY may enrol from
+  refuse `aal1` and either send the user to `/login/challenge`
+  (if a verified factor exists) or `/settings/security` (if not).
+  MFA is currently ADMIN-only — STAFF and FACTORY may enrol from
   `/settings/security` but are not required to.
 - **Recovery codes** — at TOTP enrolment, 8 single-use codes are
-  generated server-side, shown to the user exactly once, and stored
-  in `RecoveryCode` as SHA-256 hashes. Consumption is one-shot via
-  the `consume_recovery_code` SECURITY DEFINER RPC (granted to
-  service_role only — the browser never touches it). Redeeming a
-  recovery code drops the session and requires the user to re-enrol
-  TOTP from `/settings/security`; recovery is an escape hatch, not
-  a durable factor.
-- **Rate limit** — `LoginAttempt` gained a `factor` column
-  (`PASSWORD | TOTP | RECOVERY`). Each factor has its own 5-fails-
-  in-15-minutes freeze; a fumbled password does not burn the MFA-
-  code budget.
+  generated server-side, shown to the user exactly once, and
+  stored in `RecoveryCode` as SHA-256 hashes. Consumption is
+  one-shot via the `consume_recovery_code` SECURITY DEFINER RPC
+  (granted to service_role only — the browser never touches it).
+  Redeeming a recovery code drops the session and requires the
+  user to re-enrol TOTP from `/settings/security`; recovery is an
+  escape hatch, not a durable factor.
+- **Rate limit** — `LoginAttempt` carries a `factor` column
+  (`PASSWORD | TOTP | RECOVERY | EMAIL_OTP`). Each factor has its
+  own 5-fails-in-15-minutes freeze; a fumbled password does not
+  burn the MFA-code budget. Email OTP has an additional
+  send-side cap: 3 sends per email per 15 min
+  (`checkEmailOtpSendLimit`), counting successful sends too — a
+  successful send still burns provider quota. Per-IP burst
+  limiting on `/login` + `/login/*` sub-paths + `/api/auth/*`
+  lives in `middleware.ts` (10 req / 60 s / IP).
 - **Absolute session floor (SY7)** — every session is torn down
-  after **90 days** regardless of activity, on top of the idle
-  timeout. Mobile stamps `syncit:authenticatedSince` at
-  `SIGNED_IN` and checks it on every cold start; web stamps an
-  httpOnly `syncit_auth_since` cookie at successful login and the
-  middleware compares on every request. Token refresh does NOT
-  extend the anchor — 90 days from first sign-in is a hard cap.
+  after **90 days** regardless of activity. Mobile stamps
+  `syncit:authenticatedSince` at `SIGNED_IN` (never at
+  `TOKEN_REFRESHED`) and checks it on every cold start; web
+  stamps an httpOnly `syncit_auth_since` cookie at successful
+  login and the middleware compares on every request. With
+  SY-email, hitting the cap is self-service — the user gets a
+  code by email, no admin involved.
 - **Sign out everywhere (SY7)** — Web `/settings/security` has a
   "Sign out everywhere" action that calls
   `supabase.auth.admin.signOut(userId, "global")`. Kills every
@@ -179,7 +272,7 @@ repo root; the workflow reads it automatically.
   cookie is dropped immediately so the current tab lands on
   `/login`.
 - Web + mobile session lifetimes otherwise follow Supabase defaults
-  (1 h access, 30 d refresh).
+  (1 h access, 30 d refresh, rotation enabled).
 
 ## Database hardening (SY7)
 

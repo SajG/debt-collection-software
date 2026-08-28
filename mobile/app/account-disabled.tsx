@@ -20,7 +20,7 @@ export default function AccountDisabled() {
         </Text>
         <Button
           label="Back to sign in"
-          onPress={() => router.replace("/(auth)/enroll")}
+          onPress={() => router.replace("/(auth)/email")}
         />
       </View>
     </Screen>

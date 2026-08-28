@@ -100,16 +100,18 @@ function makeNonce(): string {
 export async function middleware(request: NextRequest) {
   const { pathname: pathnameForRate } = request.nextUrl;
 
-  // Rate limit /login and every /api/auth/* endpoint per IP per
+  // Rate limit /login (and its sub-paths — /login/email-code,
+  // /login/challenge) plus every /api/auth/* endpoint per IP per
   // minute. Bearer-authed and cron endpoints skip this — they
-  // authenticate on their own and are not scan targets in the
-  // same way. See RATE_LIMIT above.
+  // authenticate on their own and are not scan targets in the same
+  // way. See RATE_LIMIT above.
   const isRateGated =
     pathnameForRate === "/login" ||
+    pathnameForRate.startsWith("/login/") ||
     pathnameForRate.startsWith("/api/auth/");
   if (isRateGated) {
     const bucket = `${clientIp(request)}::${
-      pathnameForRate === "/login" ? "login" : "auth"
+      pathnameForRate.startsWith("/login") ? "login" : "auth"
     }`;
     if (overRateLimit(bucket)) {
       // 429 with Retry-After so a well-behaved client backs off.

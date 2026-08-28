@@ -23,6 +23,52 @@ function timeAgo(d: Date | null | undefined): string {
   return `${Math.round(hrs / 24)}d`;
 }
 
+/** Invite-lifecycle chip. Three states derived from the two
+ *  timestamps set by inviteUserAction + AuthContext:
+ *    firstSignInAt set        → "Signed in"
+ *    invitedAt set, no signin → "Invited"
+ *    email null / never invited → "Never invited"
+ */
+function inviteBadge({
+  email,
+  invitedAt,
+  firstSignInAt,
+}: {
+  email: string | null;
+  invitedAt: Date | null;
+  firstSignInAt: Date | null;
+}): JSX.Element {
+  if (firstSignInAt) {
+    return (
+      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+        Signed in
+      </span>
+    );
+  }
+  if (invitedAt) {
+    return (
+      <span
+        className="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-800"
+        title={`Invited ${timeAgo(invitedAt)} — not signed in yet`}
+      >
+        Invited · {timeAgo(invitedAt)}
+      </span>
+    );
+  }
+  if (!email) {
+    return (
+      <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-700">
+        No email
+      </span>
+    );
+  }
+  return (
+    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+      Never invited
+    </span>
+  );
+}
+
 export default async function UsersAdminPage({
   searchParams,
 }: {
@@ -51,10 +97,13 @@ export default async function UsersAdminPage({
       id: true,
       ownerName: true,
       phone: true,
+      email: true,
       role: true,
       isActive: true,
       deactivatedAt: true,
       createdAt: true,
+      invitedAt: true,
+      firstSignInAt: true,
       _count: { select: { salesOrders: true } },
     },
   });
@@ -168,9 +217,11 @@ export default async function UsersAdminPage({
               <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="py-2 pr-3">Name</th>
                 <th className="py-2 pr-3">Phone</th>
+                <th className="py-2 pr-3">Email</th>
                 <th className="py-2 pr-3">Role</th>
                 <th className="py-2 pr-3">MFA</th>
                 <th className="py-2 pr-3">Status</th>
+                <th className="py-2 pr-3">Invite</th>
                 <th className="py-2 pr-3">Last login</th>
                 <th className="py-2 pr-3 text-right">Orders</th>
                 <th className="py-2 pr-3 text-right">Actions</th>
@@ -191,6 +242,15 @@ export default async function UsersAdminPage({
                     ) : null}
                   </td>
                   <td className="py-2 pr-3 font-mono">+91 {p.phone ?? "—"}</td>
+                  <td className="py-2 pr-3">
+                    {p.email ? (
+                      <span className="text-sm text-foreground">{p.email}</span>
+                    ) : (
+                      <span className="text-xs italic text-muted-foreground">
+                        no email
+                      </span>
+                    )}
+                  </td>
                   <td className="py-2 pr-3">{p.role}</td>
                   <td className="py-2 pr-3">
                     {p.role !== "ADMIN" ? (
@@ -219,6 +279,13 @@ export default async function UsersAdminPage({
                       </span>
                     )}
                   </td>
+                  <td className="py-2 pr-3">
+                    {inviteBadge({
+                      email: p.email,
+                      invitedAt: p.invitedAt,
+                      firstSignInAt: p.firstSignInAt,
+                    })}
+                  </td>
                   <td className="py-2 pr-3 text-muted-foreground">
                     {timeAgo(lastSignIn.get(p.id) ?? null)}
                   </td>
@@ -232,6 +299,7 @@ export default async function UsersAdminPage({
                         ownerName: p.ownerName,
                         role: p.role,
                         isActive: p.isActive,
+                        email: p.email,
                       }}
                       isSelf={p.id === profile.id}
                     />

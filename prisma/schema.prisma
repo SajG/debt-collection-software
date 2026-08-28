@@ -213,6 +213,12 @@ model Profile {
   businessName        String
   ownerName           String
   phone               String?
+  // Email is the authentication channel (SY-email). Phone remains
+  // the identity / display anchor (Tally cost centres, UI). Unique
+  // when set; NULL is allowed during backfill. STAFF cannot read
+  // colleague emails — see the header of migration
+  // 20260828050000_profile_email + the directory-RPC comment.
+  email               String?   @unique
   role                Role      @default(STAFF)
   // Managed by /admin/users. Deactivation is reversible; RLS lock-out
   // is done at the DB via current_user_role() returning NULL when
@@ -221,6 +227,13 @@ model Profile {
   deactivatedAt       DateTime? @db.Timestamptz
   deactivatedById     String?   @db.Uuid
   createdById         String?   @db.Uuid
+  // Invite lifecycle. `invitedAt` is set on the first successful
+  // inviteUserByEmail; `firstSignInAt` is stamped by AuthContext /
+  // the login flow the first time the user actually completes
+  // sign-in. Both nullable — legacy users predate the invite path.
+  invitedAt           DateTime? @db.Timestamptz
+  invitedById         String?   @db.Uuid
+  firstSignInAt       DateTime? @db.Timestamptz
   // Maps this salesperson to their Tally Cost Centre / Sales Executive name
   costCentreName      String?
   // Notification prefs — default all ON; toggled from mobile settings.
@@ -252,8 +265,6 @@ model Profile {
   approvedOrderItems   SalesOrderItem[]   @relation("SalesOrderItemRateApprover")
   auditLogsAsActor     UserAuditLog[]     @relation("UserAuditActor")
   auditLogsAsTarget    UserAuditLog[]     @relation("UserAuditTarget")
-  enrollmentCodes      EnrollmentCode[]   @relation("EnrollmentCodeTarget")
-  issuedEnrollmentCodes EnrollmentCode[]  @relation("EnrollmentCodeIssuer")
   devices              Device[]           @relation("DeviceOwner")
   revokedDevices       Device[]           @relation("DeviceRevoker")
   recoveryCodes        RecoveryCode[]     @relation("RecoveryCodeOwner")
@@ -262,30 +273,12 @@ model Profile {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// DEVICE ENROLLMENT (SY1)
-// SMS-OTP + password grant is gone. A person receives a one-time
-// 8-char code from an admin and redeems it on their device; a Device
-// row is written and the device carries the session from then on.
+// DEVICE REGISTRY (SY-email)
+// SMS-OTP is gone (SY0). Enrollment-code path is gone (SY-email).
+// A user signs in via Supabase email OTP; the mobile app then
+// registers this device via register_device() so admins can see +
+// revoke it from /admin/devices. One active device per user.
 // ─────────────────────────────────────────────────────────────────
-
-model EnrollmentCode {
-  id                 String    @id
-  profileId          String    @db.Uuid
-  // SHA-256 hex of the plaintext code. Plaintext leaves the DB once,
-  // in issue_enrollment_code()'s return value.
-  codeHash           String
-  issuedById         String    @db.Uuid
-  expiresAt          DateTime  @db.Timestamptz
-  consumedAt         DateTime? @db.Timestamptz
-  consumedByDeviceId String?
-  createdAt          DateTime  @default(now()) @db.Timestamptz
-
-  profile  Profile @relation("EnrollmentCodeTarget", fields: [profileId], references: [id], onDelete: Cascade)
-  issuedBy Profile @relation("EnrollmentCodeIssuer", fields: [issuedById], references: [id], onDelete: Restrict)
-
-  @@index([profileId, expiresAt])
-  @@index([codeHash])
-}
 
 model Device {
   id          String    @id
@@ -314,6 +307,8 @@ enum UserAuditAction {
   ENROLLMENT_CODE_ISSUED
   DEVICE_ENROLLED
   DEVICE_REVOKED
+  INVITED
+  INVITE_RESENT
 }
 
 model UserAuditLog {
@@ -1134,6 +1129,7 @@ enum LoginAttemptFactor {
   PASSWORD
   TOTP
   RECOVERY
+  EMAIL_OTP
 }
 
 // One-time backup codes shown once at TOTP enrolment. Codes generated

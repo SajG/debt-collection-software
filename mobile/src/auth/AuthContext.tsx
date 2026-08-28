@@ -33,13 +33,19 @@ import {
 // activity forces the whole session away and clears the local lock,
 // so a lost phone re-enrols from scratch.
 
+// Foreground activity stamp. Written on every AppState 'active'
+// transition and consumed by the Device.lastSeenAt heartbeat (via
+// touch_device_seen in loadProfile). Deliberately NOT used for
+// idle sign-out any more — the device lock (biometric / PIN)
+// protects a lost phone, and an idle timeout only punished users
+// who took leave. See SY-idle for the reasoning that removed it.
 const IDLE_STORAGE_KEY = "syncit:lastActiveAt";
-const IDLE_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1000; // 7 days (was 30 pre-SY1)
 
-// Absolute session lifetime (SY7). No matter how active the phone is,
-// after 90 days the local session is wiped and re-enrolment is
-// required. Independent of Supabase's own refresh-token TTL — this
-// enforces a floor at the physical-device layer.
+// Absolute session lifetime (SY7). No matter how active the phone
+// is, after 90 days the local session is wiped and re-auth is
+// required. With SY-email that re-auth is self-service: the user
+// types their email and gets a fresh 6-digit code. No admin needed.
+// Independent of Supabase's own refresh-token TTL.
 const AUTHENTICATED_SINCE_KEY = "syncit:authenticatedSince";
 const ABSOLUTE_SESSION_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
 
@@ -104,14 +110,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setProfile(data);
 
+    // Stamp firstSignInAt on the very first successful load. RLS
+    // allows an own-row UPDATE (profile_select_own + profile_update_own).
+    // The generated Supabase types haven't been regenerated yet for
+    // the SY-email columns; cast the read + write through `unknown`.
+    const withEmailFields = data as unknown as { firstSignInAt?: string | null };
+    if (withEmailFields.firstSignInAt == null) {
+      const stamp = new Date().toISOString();
+      const { error: stampErr } = await (
+        supabase.from("Profile").update as unknown as (
+          v: Record<string, unknown>,
+        ) => { eq: (col: string, val: string) => Promise<{ error: unknown }> }
+      )({ firstSignInAt: stamp }).eq("id", userId);
+      if (!stampErr) {
+        // Cast to Profile — the extra field is invisible to the
+        // generated types but present on the actual row.
+        setProfile(
+          Object.assign({}, data, { firstSignInAt: stamp }) as Profile,
+        );
+      }
+    }
+
     // Best-effort touch of the device's lastSeenAt so the admin's
     // devices page reflects reality. Non-blocking; ignore errors.
     void (async () => {
       const deviceId = await getDeviceId();
       if (!deviceId) return;
       try {
-        // Types not yet regenerated for touch_device_seen (added in
-        // migration 20260827180000_device_enrollment). Cast to loosen.
         await (supabase.rpc as unknown as (
           fn: string,
           args: Record<string, unknown>,
@@ -136,22 +161,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    async function bootWithIdleCheck() {
-      const rawStamp = await AsyncStorage.getItem(IDLE_STORAGE_KEY);
-      const rawAuthSince = await AsyncStorage.getItem(AUTHENTICATED_SINCE_KEY);
-      const now = Date.now();
-      const stamp = rawStamp ? Number(rawStamp) : NaN;
+    async function bootWithAbsoluteCheck() {
+      // Only the ABSOLUTE 90-day cap forces a hard sign-out here.
+      // Idle-timeout was removed — the device lock protects a lost
+      // phone, and idle-signout was a support burden for people who
+      // took leave (SY-idle). Foreground stamp is still written by
+      // the AppState listener below for Device.lastSeenAt telemetry.
+      const rawAuthSince = await AsyncStorage.getItem(
+        AUTHENTICATED_SINCE_KEY,
+      );
       const authSince = rawAuthSince ? Number(rawAuthSince) : NaN;
-      const idleFor = Number.isFinite(stamp) ? now - stamp : 0;
-      const sessionAge = Number.isFinite(authSince) ? now - authSince : 0;
-      const idleExpired =
-        Number.isFinite(stamp) && idleFor > IDLE_TIMEOUT_MS;
       const absoluteExpired =
-        Number.isFinite(authSince) && sessionAge > ABSOLUTE_SESSION_MS;
-      if (idleExpired || absoluteExpired) {
-        // Nuke everything, force re-enrolment. `absoluteExpired`
-        // fires even for an active daily user — the 90-day cap is
-        // the point of the setting.
+        Number.isFinite(authSince) &&
+        Date.now() - authSince > ABSOLUTE_SESSION_MS;
+      if (absoluteExpired) {
+        // Torn down; user re-auths via /(auth)/email using SY-email —
+        // no admin action needed.
         await supabase.auth.signOut();
         await AsyncStorage.multiRemove([
           IDLE_STORAGE_KEY,
@@ -179,7 +204,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       setLoading(false);
     }
-    void bootWithIdleCheck();
+    void bootWithAbsoluteCheck();
 
     const { data: sub } = supabase.auth.onAuthStateChange(async (evt, s) => {
       if (!mounted) return;
@@ -212,6 +237,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const appSub = AppState.addEventListener("change", (state) => {
       if (state === "active") {
         void AsyncStorage.setItem(IDLE_STORAGE_KEY, String(Date.now()));
+        // Refresh-token keep-alive. Supabase rotates the refresh
+        // token on every getSession() call; as long as the user
+        // opens the app at least once per Supabase's refresh TTL
+        // (30 d default), they stay signed in indefinitely. Fire
+        // and forget — a failure just means we couldn't rotate,
+        // not that the session died.
+        void supabase.auth.getSession().catch(() => undefined);
         // If we came back from a long background stretch, re-engage
         // the lock so the root gate re-prompts for biometric/PIN.
         if (lastBackgroundedAt.current) {
@@ -254,7 +286,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (typeof router.canDismiss === "function" && router.canDismiss()) {
         router.dismissAll();
       }
-      router.replace("/(auth)/enroll");
+      router.replace("/(auth)/email");
     } catch {
       /* router not ready during tests */
     }

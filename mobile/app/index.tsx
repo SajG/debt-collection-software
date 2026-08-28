@@ -6,7 +6,7 @@ import { theme } from "@/theme";
 
 // Single source of truth for post-boot routing.
 //
-// No session         → /(auth)/enroll   (device enrollment, SY1)
+// No session         → /(auth)/email   (device enrollment, SY1)
 // Session, locked    → /unlock          (biometric or PIN)
 // Session, no profile→ AuthContext signs the user out defensively
 // FACTORY            → /(factory)
@@ -24,7 +24,7 @@ export default function IndexGate() {
     );
   }
 
-  if (!session) return <Redirect href="/(auth)/enroll" />;
+  if (!session) return <Redirect href="/(auth)/email" />;
   if (locked) return <Redirect href="/unlock" />;
   if (!profile) return <Redirect href="/no-profile" />;
 

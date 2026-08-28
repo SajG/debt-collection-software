@@ -6,6 +6,7 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  checkEmailOtpSendLimit,
   checkLoginRateLimit,
   recordLoginAttempt,
 } from "@/lib/rate-limit";
@@ -220,4 +221,103 @@ export async function challengeAction(
 
   const dest = next && next.startsWith("/") ? next : "/dashboard";
   redirect(dest);
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Email-OTP path (SY-email) — alternative to password.
+//
+// Same allowlist rule as mobile: shouldCreateUser: false. If the
+// address isn't already in auth.users (i.e. no admin ever invited
+// this person), Supabase silently returns success without sending
+// mail. From the caller's perspective every failure looks the same
+// — generic message, no oracle.
+//
+// ADMIN accounts signing in via this path are STILL subject to
+// requireAdmin()'s aal2 gate — verifyOtp completes at aal1, and
+// hitting any /dashboard route bounces them to /login/challenge for
+// TOTP. See require-admin-aal.test.ts.
+// ─────────────────────────────────────────────────────────────────
+
+const requestCodeSchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(254),
+  callbackUrl: z.string().optional(),
+});
+
+export async function requestEmailCodeAction(input: {
+  email: string;
+  callbackUrl?: string;
+}): Promise<{ ok: true } | { error: string }> {
+  const parsed = requestCodeSchema.safeParse(input);
+  if (!parsed.success) return { error: "Enter a valid email address." };
+  const { email } = parsed.data;
+
+  // Cap: 3 sends per email per 15 minutes. Counts every send
+  // (successful + failed) — a successful send still burns provider
+  // quota, so the check is on totals, not fails.
+  const { limited, retryAfterMinutes } = await checkEmailOtpSendLimit(email);
+  if (limited) {
+    return {
+      error: `Too many code requests. Try again in ${retryAfterMinutes} minutes.`,
+    };
+  }
+
+  const supabase = createClient();
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: { shouldCreateUser: false },
+  });
+
+  // Record every send so the rate limit works. Treat Supabase's own
+  // errors as failures for accounting; the outward message stays
+  // generic.
+  await recordLoginAttempt(email, !error, "EMAIL_OTP");
+  if (error) {
+    return {
+      error:
+        "We couldn't send a code. Ask your admin to check your email is on file.",
+    };
+  }
+  return { ok: true };
+}
+
+const verifyCodeSchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(254),
+  token: z.string().trim().regex(/^\d{6}$/, "Enter the 6-digit code."),
+  callbackUrl: z.string().optional(),
+});
+
+export async function verifyEmailCodeAction(input: {
+  email: string;
+  token: string;
+  callbackUrl?: string;
+}): Promise<ActionResult> {
+  const parsed = verifyCodeSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.errors[0].message };
+  const { email, token, callbackUrl } = parsed.data;
+
+  const supabase = createClient();
+  const { error } = await supabase.auth.verifyOtp({
+    email,
+    token,
+    type: "email",
+  });
+  if (error) {
+    await recordLoginAttempt(email, false, "EMAIL_OTP");
+    return { error: "That code didn't work. Try requesting a fresh one." };
+  }
+  await recordLoginAttempt(email, true, "EMAIL_OTP");
+
+  // Stamp the absolute-session cookie so middleware enforces 90-day
+  // absolute lifetime on this path too.
+  cookies().set("syncit_auth_since", String(Date.now()), {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 90,
+  });
+
+  const safeCallback =
+    callbackUrl && callbackUrl.startsWith("/") ? callbackUrl : "/dashboard";
+  redirect(safeCallback);
 }
