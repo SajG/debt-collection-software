@@ -102,3 +102,21 @@
 .pt-slide-in  { animation: pt-slide-in 0.7s  cubic-bezier(0.16, 1, 0.3, 1) both; }
 .pt-fade-in   { animation: pt-fade-in  0.5s  ease both; }
 .pt-float     { animation: pt-float    5s    ease-in-out infinite; }
+
+/* Tabular numerals — apply to every quantity, rate, amount, outstanding
+   figure. Money that doesn't line up in a column is the loudest
+   "homemade" signal in a business app; this is the highest-impact
+   single change for making the UI look professional.
+   Prefer <Num> from @/components/ui/Num so the intent is greppable. */
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" on, "lnum" on;
+}
+
+/* Keyboard-nav row highlight — used by _components/keyboard-nav-catcher.tsx.
+   Any table row with data-kbnav-index gets a subtle hover state on
+   `data-kbnav-active` so j/k feedback is visible without JS-side style. */
+[data-kbnav-active="true"] {
+  background: hsl(var(--muted));
+  box-shadow: inset 2px 0 0 hsl(var(--primary));
+}

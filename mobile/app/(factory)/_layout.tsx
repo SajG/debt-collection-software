@@ -8,7 +8,7 @@ export default function FactoryLayout() {
   if (loading) return null;
   // Session gate — see (staff)/_layout for the "sign-out sticks even
   // when we're deep-navigated" rationale.
-  if (!session) return <Redirect href="/(auth)/phone" />;
+  if (!session) return <Redirect href="/(auth)/enroll" />;
   if (role && role !== "FACTORY" && role !== "ADMIN") {
     return <Redirect href="/(staff)" />;
   }

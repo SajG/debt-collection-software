@@ -9,7 +9,7 @@ import { theme } from "@/theme";
 export default function AdminLayout() {
   const { role, loading, session } = useAuth();
   if (loading) return null;
-  if (!session) return <Redirect href="/(auth)/phone" />;
+  if (!session) return <Redirect href="/(auth)/enroll" />;
   if (role !== "ADMIN") return <Redirect href="/" />;
 
   return (

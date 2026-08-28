@@ -252,8 +252,57 @@ model Profile {
   approvedOrderItems   SalesOrderItem[]   @relation("SalesOrderItemRateApprover")
   auditLogsAsActor     UserAuditLog[]     @relation("UserAuditActor")
   auditLogsAsTarget    UserAuditLog[]     @relation("UserAuditTarget")
+  enrollmentCodes      EnrollmentCode[]   @relation("EnrollmentCodeTarget")
+  issuedEnrollmentCodes EnrollmentCode[]  @relation("EnrollmentCodeIssuer")
+  devices              Device[]           @relation("DeviceOwner")
+  revokedDevices       Device[]           @relation("DeviceRevoker")
+  recoveryCodes        RecoveryCode[]     @relation("RecoveryCodeOwner")
 
   @@index([isActive, role])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// DEVICE ENROLLMENT (SY1)
+// SMS-OTP + password grant is gone. A person receives a one-time
+// 8-char code from an admin and redeems it on their device; a Device
+// row is written and the device carries the session from then on.
+// ─────────────────────────────────────────────────────────────────
+
+model EnrollmentCode {
+  id                 String    @id
+  profileId          String    @db.Uuid
+  // SHA-256 hex of the plaintext code. Plaintext leaves the DB once,
+  // in issue_enrollment_code()'s return value.
+  codeHash           String
+  issuedById         String    @db.Uuid
+  expiresAt          DateTime  @db.Timestamptz
+  consumedAt         DateTime? @db.Timestamptz
+  consumedByDeviceId String?
+  createdAt          DateTime  @default(now()) @db.Timestamptz
+
+  profile  Profile @relation("EnrollmentCodeTarget", fields: [profileId], references: [id], onDelete: Cascade)
+  issuedBy Profile @relation("EnrollmentCodeIssuer", fields: [issuedById], references: [id], onDelete: Restrict)
+
+  @@index([profileId, expiresAt])
+  @@index([codeHash])
+}
+
+model Device {
+  id          String    @id
+  profileId   String    @db.Uuid
+  label       String
+  platform    String
+  osVersion   String?
+  appVersion  String?
+  lastSeenAt  DateTime  @default(now()) @db.Timestamptz
+  enrolledAt  DateTime  @default(now()) @db.Timestamptz
+  revokedAt   DateTime? @db.Timestamptz
+  revokedById String?   @db.Uuid
+
+  profile   Profile  @relation("DeviceOwner", fields: [profileId], references: [id], onDelete: Cascade)
+  revokedBy Profile? @relation("DeviceRevoker", fields: [revokedById], references: [id], onDelete: SetNull)
+
+  @@index([profileId, revokedAt])
 }
 
 enum UserAuditAction {
@@ -262,6 +311,9 @@ enum UserAuditAction {
   DEACTIVATED
   ROLE_CHANGED
   PHONE_CHANGED
+  ENROLLMENT_CODE_ISSUED
+  DEVICE_ENROLLED
+  DEVICE_REVOKED
 }
 
 model UserAuditLog {
@@ -311,6 +363,13 @@ model BusinessSettings {
   // When false: hide every Tally UI surface, skip Tally-only cron
   // passes, and switch honest empty states in for "Last synced" banners.
   tallyEnabled Boolean @default(false)
+
+  // Minimum mobile app version this deployment accepts. NULL = no
+  // floor. When the device's Constants.expoConfig.version is lower,
+  // the mobile app blocks the shell and shows an "update required"
+  // screen. Reserved for security releases; routine version bumps
+  // ride the OTA "update available" banner.
+  mobileMinAppVersion String?
 
   // P1 — order approval workflow. See migration
   // 20260821200000_order_approval_workflow for the mode semantics.
@@ -1058,9 +1117,36 @@ model LoginAttempt {
   // enforces at-least-one at the DB level.
   email      String?
   phone      String?
+  // Which factor this attempt was for. PASSWORD covers the classic
+  // email+password grant; TOTP covers the second-factor challenge;
+  // RECOVERY covers a backup-code redemption. Rate limits filter by
+  // factor so a bad password can't burn your MFA-code budget.
+  factor     LoginAttemptFactor @default(PASSWORD)
   successful Boolean  @default(false)
   createdAt  DateTime @default(now())
 
   @@index([email, createdAt])
   @@index([phone, createdAt])
+  @@index([email, factor, createdAt])
+}
+
+enum LoginAttemptFactor {
+  PASSWORD
+  TOTP
+  RECOVERY
+}
+
+// One-time backup codes shown once at TOTP enrolment. Codes generated
+// server-side, plaintext returned exactly once (via the enrol RPC
+// wrapper). Only the SHA-256 hash lives in the DB.
+model RecoveryCode {
+  id        String    @id
+  profileId String    @db.Uuid
+  codeHash  String
+  usedAt    DateTime? @db.Timestamptz
+  createdAt DateTime  @default(now()) @db.Timestamptz
+
+  profile Profile @relation("RecoveryCodeOwner", fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, usedAt])
 }

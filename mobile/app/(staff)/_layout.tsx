@@ -10,7 +10,7 @@ export default function StaffLayout() {
   // Session gate. Without this the group stays mounted after sign-out
   // if the deep-stack replace doesn't propagate fast enough, and the
   // user sees the same screen they were on.
-  if (!session) return <Redirect href="/(auth)/phone" />;
+  if (!session) return <Redirect href="/(auth)/enroll" />;
   if (role === "FACTORY") return <Redirect href="/(factory)" />;
   return <Stack screenOptions={{ headerShown: false }} />;
 }

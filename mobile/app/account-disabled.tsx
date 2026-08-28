@@ -14,13 +14,13 @@ export default function AccountDisabled() {
       <View style={styles.wrap}>
         <Text style={styles.title}>Your access has been removed</Text>
         <Text style={styles.body}>
-          An administrator has disabled your SynWorks account. Your
+          An administrator has disabled your Syncit account. Your
           data is safe — nothing has been deleted. Contact your admin
           to be reactivated.
         </Text>
         <Button
           label="Back to sign in"
-          onPress={() => router.replace("/(auth)/phone")}
+          onPress={() => router.replace("/(auth)/enroll")}
         />
       </View>
     </Screen>

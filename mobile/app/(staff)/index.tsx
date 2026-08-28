@@ -12,7 +12,17 @@ import { Screen } from "@/components/Screen";
 import { Segmented } from "@/components/Segmented";
 import { OrderCard } from "@/components/OrderCard";
 import { FAB } from "@/components/FAB";
-import { QueueSummary } from "@/components/QueueSummary";
+import { SyncPill } from "@/components/SyncPill";
+import { UpdateBanner } from "@/components/UpdateBanner";
+import { useAppUpdates } from "@/lib/app-updates";
+
+// Small wrapper so the update-check hook only runs where the banner
+// renders. Keeps the /(staff) home layout the single source of the
+// OTA notification without leaking the state into other screens.
+function UpdateBannerBinding() {
+  const { otaReady, restart } = useAppUpdates();
+  return <UpdateBanner visible={otaReady} onRestart={() => void restart()} />;
+}
 import { confirm } from "@/components/Confirm";
 import { useFocusEffect } from "expo-router";
 import { useAuth } from "@/auth/AuthContext";
@@ -266,11 +276,10 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      {pendingUnsent > 0 ? (
-        <View style={styles.pendingBanner}>
-          <QueueSummary />
-        </View>
-      ) : null}
+      <View style={styles.pillRow}>
+        <SyncPill />
+      </View>
+      <UpdateBannerBinding />
 
       <View style={styles.tilesRow}>
         <NavTile
@@ -299,14 +308,19 @@ export default function HomeScreen() {
 
       {isAdmin && (
         <View style={styles.scopeToggle}>
-          <Segmented<Scope>
-            value={scope}
-            onChange={setScope}
-            options={[
-              { label: t("home.scope.mine"), value: "mine" },
-              { label: t("home.scope.all"), value: "all" },
+          <Pressable
+            onPress={() => setScope(scope === "mine" ? "all" : "mine")}
+            style={({ pressed }) => [
+              styles.scopeChip,
+              pressed && { opacity: 0.8 },
             ]}
-          />
+            accessibilityRole="switch"
+            accessibilityState={{ checked: scope === "all" }}
+          >
+            <Text style={styles.scopeChipText}>
+              Viewing: {scope === "mine" ? t("home.scope.mine") : t("home.scope.all")} ▾
+            </Text>
+          </Pressable>
         </View>
       )}
 
@@ -443,20 +457,20 @@ function NavTile({
 const styles = StyleSheet.create({
   header: {
     paddingHorizontal: theme.spacing.lg,
-    paddingTop: theme.spacing.md,
+    paddingTop: theme.spacing.sm,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
   },
-  headerText: { flex: 1, gap: 2 },
+  headerText: { flex: 1, gap: 0 },
   hello: {
-    fontSize: theme.type.body,
+    fontSize: theme.type.bodySmall,
     fontWeight: "700",
     color: theme.colors.text,
   },
   subtitle: {
-    fontSize: theme.type.bodySmall,
+    fontSize: theme.type.bodySmall - 2,
     color: theme.colors.textMuted,
   },
   headerActions: {
@@ -483,63 +497,77 @@ const styles = StyleSheet.create({
     color: theme.colors.danger,
     fontWeight: "700",
   },
-  pendingBanner: {
-    marginHorizontal: theme.spacing.lg,
-    marginTop: theme.spacing.md,
-    padding: theme.spacing.md,
-    borderRadius: theme.radius,
-    borderWidth: 1,
-    borderColor: "#F59E0B",
-    backgroundColor: "#FFFBEB",
-  },
-  pendingText: {
-    fontSize: theme.type.bodySmall,
-    color: "#78350F",
-    fontWeight: "600",
+  // Sync pill sits on its own thin row directly under the greeting.
+  // The old amber banner ate too much vertical space for what is a
+  // single chip. Chip is self-hiding when there's nothing to show.
+  pillRow: {
+    paddingHorizontal: theme.spacing.lg,
+    paddingTop: theme.spacing.xs,
   },
   tilesRow: {
     flexDirection: "row",
-    gap: 8,
+    gap: 6,
     paddingHorizontal: theme.spacing.lg,
-    paddingTop: theme.spacing.sm,
+    paddingTop: theme.spacing.xs,
   },
   tile: {
     flex: 1,
-    minHeight: 48,
+    // Compact pill — one line, ~30 px tall. The nav destinations
+    // are secondary; the orders list is the point of this screen.
+    minHeight: 30,
     flexDirection: "row",
-    borderRadius: theme.radius,
+    borderRadius: 999,
     borderWidth: 1,
     borderColor: theme.colors.border,
     backgroundColor: theme.colors.surface,
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
+    gap: 3,
     paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   tileGlyph: {
-    fontSize: 16,
+    fontSize: 11,
     color: theme.colors.primary,
     fontWeight: "700",
-    lineHeight: 18,
+    lineHeight: 12,
   },
   tileLabel: {
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: "600",
     color: theme.colors.text,
-    letterSpacing: 0.2,
+    letterSpacing: 0.1,
     textAlign: "center",
   },
   scopeToggle: {
     paddingHorizontal: theme.spacing.lg,
-    paddingTop: theme.spacing.md,
+    paddingTop: theme.spacing.xs,
+    alignItems: "flex-start",
+  },
+  scopeChip: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  scopeChipText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: theme.colors.text,
+    letterSpacing: 0.2,
   },
   filters: {
     paddingHorizontal: theme.spacing.lg,
-    paddingTop: theme.spacing.md,
+    paddingTop: theme.spacing.xs,
+    paddingBottom: theme.spacing.xs,
   },
   list: {
-    padding: theme.spacing.lg,
-    paddingBottom: 140, // clear space for the FAB
+    paddingHorizontal: theme.spacing.lg,
+    paddingTop: theme.spacing.xs,
+    paddingBottom: 96, // clear space for the FAB
   },
   empty: {
     textAlign: "center",

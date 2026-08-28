@@ -25,6 +25,14 @@ const PUBLIC_PREFIXES = [
   // in the URL IS the auth; the page shows only status + docs for
   // that one order. Verified in lib/status-link.ts.
   "/status/",
+  // Anonymous — the browser POSTs violation reports here with no
+  // credentials; we accept, log, and drop the body's PII.
+  "/api/csp-report",
+  // Honeypot — must reach its own 404 handler so the alert line
+  // fires with full request metadata. Redirecting to /login would
+  // still leave a trail in access logs but hide the shape of the
+  // scan.
+  "/api/v1/",
 ];
 
 function isPublic(pathname: string): boolean {
@@ -32,69 +40,111 @@ function isPublic(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((p) => pathname.startsWith(p));
 }
 
-// Constant-time compare so a network timer can't leak the token byte-by-byte.
-function safeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
+// ── Best-effort edge rate limiter ─────────────────────────────────
+// Middleware runs in V8 isolates on Vercel Edge. Globals survive
+// across requests within one isolate; isolates are recycled and
+// geo-distributed. So this bucket catches a single-source flood
+// hitting one region — the correct defence against a distributed
+// attack is Vercel's Attack Challenge Mode (dashboard toggle).
+// SECURITY.md explains the split.
+//
+// Buckets are keyed by IP + coarse route (login vs auth-api) and
+// hold a rolling 60-second window count. When the count exceeds
+// LIMIT the request gets a 429.
+const RATE_WINDOW_MS = 60_000;
+const RATE_LIMIT = 10;
+
+type Bucket = { count: number; windowStart: number };
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const rateBuckets: Map<string, Bucket> =
+  ((globalThis as any).__syncitRate ??=
+    new Map<string, Bucket>()) as Map<string, Bucket>;
+
+function clientIp(request: NextRequest): string {
+  const fwd = request.headers.get("x-forwarded-for");
+  if (fwd) return fwd.split(",")[0]!.trim();
+  return request.headers.get("x-real-ip") ?? "unknown";
 }
 
-const ACCESS_COOKIE = "sw_access";
+function overRateLimit(key: string): boolean {
+  const now = Date.now();
+  const existing = rateBuckets.get(key);
+  if (!existing || now - existing.windowStart > RATE_WINDOW_MS) {
+    rateBuckets.set(key, { count: 1, windowStart: now });
+    // Bound map size so a churn of unique IPs (a scan) doesn't
+    // balloon isolate memory. 10k entries × ~64 B ≈ 640 KB max.
+    if (rateBuckets.size > 10_000) {
+      const cutoff = now - RATE_WINDOW_MS;
+      rateBuckets.forEach((v, k) => {
+        if (v.windowStart < cutoff && rateBuckets.size > 8_000) {
+          rateBuckets.delete(k);
+        }
+      });
+    }
+    return false;
+  }
+  existing.count += 1;
+  return existing.count > RATE_LIMIT;
+}
+
+/** Base64url nonce, 16 bytes. Regenerated per request. Web Crypto is
+ *  available on the Edge runtime; no Buffer dependency. */
+function makeNonce(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
 
 export async function middleware(request: NextRequest) {
-  // Must mutate supabaseResponse in the cookie setter below — don't use a const.
-  let supabaseResponse = NextResponse.next({ request });
+  const { pathname: pathnameForRate } = request.nextUrl;
 
-  // ── Optional site-wide access gate ────────────────────────────
-  // Set SITE_ACCESS_TOKEN in env when the deployment is public-tunneled
-  // for a pilot. Anyone without the token — including AI crawlers, URL
-  // guessers, and bots — sees a plain 404 on every route, so the login
-  // form itself is not enumerable. Share the bootstrap URL with real
-  // users:  https://<host>/?access=<token>  → cookie is set, they can
-  // then reach /login normally. Bearer-authed endpoints (cron, sync,
-  // webhooks, signed status links) are exempt so the Tally connector
-  // and webhook providers keep working.
-  const accessToken = process.env.SITE_ACCESS_TOKEN;
-  if (accessToken) {
-    const { pathname } = request.nextUrl;
-    const BEARER_BYPASS = [
-      "/api/cron/",
-      "/api/webhooks/",
-      "/api/sync/",
-      "/status/",
-      "/_next/",
-      "/favicon",
-      "/robots.txt",
-    ];
-    const bypass = BEARER_BYPASS.some((p) => pathname.startsWith(p));
-    if (!bypass) {
-      const provided = request.nextUrl.searchParams.get("access");
-      const cookieVal = request.cookies.get(ACCESS_COOKIE)?.value ?? "";
-      const hasCookie = cookieVal && safeEqual(cookieVal, accessToken);
-      const hasQuery = provided && safeEqual(provided, accessToken);
-      if (hasQuery) {
-        // Bootstrap: mint the cookie and strip ?access from the URL so it
-        // doesn't leak via referrer / logs / shoulder-surfing.
-        const clean = new URL(request.url);
-        clean.searchParams.delete("access");
-        const res = NextResponse.redirect(clean);
-        res.cookies.set(ACCESS_COOKIE, accessToken, {
-          httpOnly: true,
-          secure: true,
-          sameSite: "lax",
-          path: "/",
-          maxAge: 60 * 60 * 24 * 30, // 30 days
-        });
-        return res;
-      }
-      if (!hasCookie) {
-        // Plain 404 — not 401/403 — so the site is indistinguishable from
-        // a dead host to anyone who doesn't already know the token.
-        return new NextResponse("Not found", { status: 404 });
-      }
+  // Rate limit /login and every /api/auth/* endpoint per IP per
+  // minute. Bearer-authed and cron endpoints skip this — they
+  // authenticate on their own and are not scan targets in the
+  // same way. See RATE_LIMIT above.
+  const isRateGated =
+    pathnameForRate === "/login" ||
+    pathnameForRate.startsWith("/api/auth/");
+  if (isRateGated) {
+    const bucket = `${clientIp(request)}::${
+      pathnameForRate === "/login" ? "login" : "auth"
+    }`;
+    if (overRateLimit(bucket)) {
+      // 429 with Retry-After so a well-behaved client backs off.
+      return new NextResponse("Too many requests", {
+        status: 429,
+        headers: {
+          "retry-after": String(Math.ceil(RATE_WINDOW_MS / 1000)),
+          "cache-control": "no-store",
+        },
+      });
     }
   }
+
+  // Per-request nonce. Passed to server components via a request
+  // header so app/layout.tsx can read headers().get("x-nonce") and
+  // attach it to any inline <script>. Next.js also picks it up
+  // automatically for its own hydration script when the CSP
+  // includes `nonce-<value>` + `strict-dynamic`.
+  const nonce = makeNonce();
+
+  // Rewrite the request with the nonce header so server components
+  // downstream see it via headers(). This shape mirrors Next's
+  // recommended CSP nonce pattern.
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-nonce", nonce);
+
+  // Must mutate supabaseResponse in the cookie setter below — don't use a const.
+  let supabaseResponse = NextResponse.next({
+    request: { headers: requestHeaders },
+  });
+
+  // Site-wide access gate — REMOVED (SY7). Was a single shared
+  // SITE_ACCESS_TOKEN cookie with no per-person revocation. Replaced
+  // by Vercel deployment protection (Vercel Auth / password protection
+  // at the platform layer). See SECURITY.md for the reasoning.
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -109,7 +159,9 @@ export async function middleware(request: NextRequest) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           );
-          supabaseResponse = NextResponse.next({ request });
+          supabaseResponse = NextResponse.next({
+            request: { headers: requestHeaders },
+          });
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, options)
           );
@@ -126,6 +178,25 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
+  // Absolute session floor (SY7). Independent of Supabase's refresh
+  // TTL — even a daily-active user gets bounced after 90 days.
+  // Stamp lives in an httpOnly cookie set on first successful
+  // login; we compare on every request and force sign-out if past
+  // the cap. The cookie is opaque; a client cannot extend it.
+  const ABSOLUTE_MAX_MS = 90 * 24 * 60 * 60 * 1000;
+  if (user) {
+    const authSinceCookie = request.cookies.get("syncit_auth_since")?.value;
+    const authSince = authSinceCookie ? Number(authSinceCookie) : NaN;
+    if (Number.isFinite(authSince) && Date.now() - authSince > ABSOLUTE_MAX_MS) {
+      await supabase.auth.signOut();
+      const url = new URL("/login", request.url);
+      url.searchParams.set("callbackUrl", pathname);
+      const bounce = NextResponse.redirect(url);
+      bounce.cookies.delete("syncit_auth_since");
+      return bounce;
+    }
+  }
+
   // Redirect unauthenticated users to /login with callbackUrl preserved.
   if (!user && !isPublic(pathname)) {
     const loginUrl = new URL("/login", request.url);
@@ -138,6 +209,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
+  // Also mirror the nonce onto the response header so downstream
+  // instrumentation (e.g. Vercel logs) can correlate a specific
+  // violation report back to the request that emitted the page.
+  supabaseResponse.headers.set("x-nonce", nonce);
+
   // ── Security headers ──────────────────────────────────────────
   supabaseResponse.headers.set("X-Frame-Options", "DENY");
   supabaseResponse.headers.set("X-Content-Type-Options", "nosniff");
@@ -146,7 +222,7 @@ export async function middleware(request: NextRequest) {
   // see this per-response directive.
   supabaseResponse.headers.set(
     "X-Robots-Tag",
-    "noindex, nofollow, noarchive, nosnippet, noimageindex",
+    "noindex, nofollow, noarchive, nosnippet, noimageindex, noai, noimageai",
   );
   supabaseResponse.headers.set(
     "Referrer-Policy",
@@ -160,17 +236,41 @@ export async function middleware(request: NextRequest) {
     "Strict-Transport-Security",
     "max-age=63072000; includeSubDomains; preload"
   );
-  // CSP — 'unsafe-eval' is only needed by Next.js in dev (React fast-
-  // refresh uses eval); production builds don't. 'unsafe-inline' on
-  // script-src stays for now because the App Router still emits an
-  // inline hydration <script>; moving to a per-request nonce needs
-  // a coordinated _document shim + strict-dynamic and is queued as a
-  // follow-up. Both 'unsafe-*' on style-src are Tailwind's inline
-  // style prop pattern — not attacker-reachable on their own.
+
+  // Cache-Control (SY8). Every request that reaches middleware is
+  // either authenticated (has a Supabase session) or one of the
+  // few genuinely public surfaces. Both cases refuse a shared
+  // cache — the authenticated one because a proxy caching an
+  // order or invoice HTML page would cross-serve it; the public
+  // ones because they're status pages with signed URLs whose
+  // freshness must be honoured. Everything static (fonts, CSS,
+  // Next chunks) is served from /_next/ which the matcher
+  // excludes, so those keep their long-lived caches.
+  supabaseResponse.headers.set(
+    "Cache-Control",
+    "private, no-store, max-age=0, must-revalidate",
+  );
+
+  // CSP — SY7 rewrite.
+  //
+  //   * script-src drops 'unsafe-inline'. Every inline script that
+  //     the App Router emits (hydration bootstrap, next/font style
+  //     inlining, next/script) carries the request nonce via Next's
+  //     built-in nonce inheritance. `strict-dynamic` lets scripts
+  //     loaded by a nonced script inherit trust — this covers
+  //     third-party bundles Next split-loads.
+  //   * 'unsafe-eval' remains ONLY in dev (React fast-refresh); the
+  //     production build never needs it.
+  //   * style-src still permits 'unsafe-inline' — Tailwind emits
+  //     inline styles on the html element and there is no XSS
+  //     surface via style alone.
+  //   * report-uri points at our /api/csp-report route which
+  //     writes-through to Sentry / server logs.
   const isProd = process.env.NODE_ENV === "production";
   const scriptSrc = isProd
-    ? "script-src 'self' 'unsafe-inline'"
-    : "script-src 'self' 'unsafe-inline' 'unsafe-eval'";
+    ? `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`
+    : `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-eval'`;
+
   supabaseResponse.headers.set(
     "Content-Security-Policy",
     [
@@ -181,7 +281,18 @@ export async function middleware(request: NextRequest) {
       "font-src 'self' data:",
       `connect-src 'self' ${process.env.NEXT_PUBLIC_SUPABASE_URL} wss://*.supabase.co`,
       "frame-ancestors 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+      "object-src 'none'",
+      "report-uri /api/csp-report",
+      // Chrome ignores report-uri when report-to is present, but
+      // both are cheap to include and Firefox needs report-uri.
+      "report-to csp-endpoint",
     ].join("; ")
+  );
+  supabaseResponse.headers.set(
+    "Reporting-Endpoints",
+    'csp-endpoint="/api/csp-report"',
   );
 
   // IMPORTANT: must return supabaseResponse (not a new NextResponse) so the

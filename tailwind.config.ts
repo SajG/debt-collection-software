@@ -1,4 +1,10 @@
 import type { Config } from "tailwindcss";
+// Generated from packages/tokens/tokens.json. See packages/tokens/generate.mjs.
+// Adds a `syncit` namespace (bg-syncit-bond, p-syncit-md, min-h-tap, …)
+// without touching the existing shadcn HSL variables.
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore — .mjs file, ambient types not needed.
+import { syncitTokens } from "./packages/tokens/tailwind.tokens.mjs";
 
 const config: Config = {
   darkMode: ["class"],
@@ -49,12 +55,35 @@ const config: Config = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        // Syncit brand ramp — usable as bg-syncit-bond, text-syncit-ink, ...
+        syncit: syncitTokens.colors,
+      },
+      spacing: {
+        // Prefixed p-syncit-md, m-syncit-lg, gap-syncit-sm, ...
+        ...Object.fromEntries(
+          Object.entries(syncitTokens.spacing).map(([k, v]) => [
+            `syncit-${k}`,
+            v,
+          ]),
+        ),
       },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        // Syncit-namespaced so shadcn's radius vars are untouched.
+        ...Object.fromEntries(
+          Object.entries(syncitTokens.radius).map(([k, v]) => [
+            `syncit-${k}`,
+            v,
+          ]),
+        ),
       },
+      fontSize: syncitTokens.fontSize as unknown as Record<
+        string,
+        [string, { lineHeight: string }]
+      >,
+      minHeight: syncitTokens.minHeight,
       keyframes: {
         "accordion-down": {
           from: { height: "0" },

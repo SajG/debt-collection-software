@@ -263,10 +263,10 @@ function bodyFor(p: EventPayload): string {
 function deepLinkFor(p: EventPayload): string {
   const id =
     "salesOrderId" in p ? p.salesOrderId : "";
-  // The mobile app registers `synworks://` (or the Expo scheme in dev).
+  // The mobile app registers `syncit://` (or the Expo scheme in dev).
   // Deep-link into the factory route for factory users, staff route for
   // everyone else — routing on the mobile side is idempotent.
-  return `synworks://orders/${id}`;
+  return `syncit://orders/${id}`;
 }
 
 type ExpoMessage = {

@@ -1,8 +1,8 @@
 {
-  "name": "synworks-tally-connector",
+  "name": "syncit-tally-connector",
   "version": "0.1.0",
   "private": true,
-  "description": "Windows Service + tray app that bridges Tally XML/HTTP (localhost:9000) to the SynWorks cloud.",
+  "description": "Windows Service + tray app that bridges Tally XML/HTTP (localhost:9000) to the Syncit cloud.",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
@@ -20,8 +20,8 @@
     "electron-builder": "^25.1.0"
   },
   "build": {
-    "appId": "com.synworks.connector",
-    "productName": "SynWorks Tally Connector",
+    "appId": "com.syncit.connector",
+    "productName": "Syncit Tally Connector",
     "directories": {
       "output": "dist",
       "buildResources": "assets"
@@ -42,7 +42,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": false,
       "createStartMenuShortcut": true,
-      "shortcutName": "SynWorks Tally Connector",
+      "shortcutName": "Syncit Tally Connector",
       "include": "installer.nsh"
     }
   }

@@ -1,16 +1,27 @@
+import type { LoginAttemptFactor } from "@prisma/client";
 import { db } from "@/lib/db";
 
 const WINDOW_MINUTES = 15;
 const MAX_FAILED_ATTEMPTS = 5;
 
+/**
+ * Rate-limit login attempts per (email, factor). Splitting by factor
+ * means a bad password does not burn the MFA-code budget, and a
+ * fumbled TOTP does not lock the password path.
+ *
+ * Backwards-compatible: `factor` defaults to PASSWORD, so all existing
+ * call sites keep their previous semantics.
+ */
 export async function checkLoginRateLimit(
-  email: string
+  email: string,
+  factor: LoginAttemptFactor = "PASSWORD",
 ): Promise<{ limited: boolean; retryAfterMinutes: number }> {
   const windowStart = new Date(Date.now() - WINDOW_MINUTES * 60 * 1000);
 
   const failedCount = await db.loginAttempt.count({
     where: {
       email: email.toLowerCase().trim(),
+      factor,
       successful: false,
       createdAt: { gte: windowStart },
     },
@@ -24,11 +35,13 @@ export async function checkLoginRateLimit(
 
 export async function recordLoginAttempt(
   email: string,
-  successful: boolean
+  successful: boolean,
+  factor: LoginAttemptFactor = "PASSWORD",
 ): Promise<void> {
   await db.loginAttempt.create({
     data: {
       email: email.toLowerCase().trim(),
+      factor,
       successful,
     },
   });

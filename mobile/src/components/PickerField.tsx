@@ -30,6 +30,7 @@ export function PickerField({
   placeholder = "Choose…",
   searchable = false,
   searchPlaceholder = "Search…",
+  recentValues,
 }: {
   label: string;
   value: string | null;
@@ -38,6 +39,11 @@ export function PickerField({
   placeholder?: string;
   searchable?: boolean;
   searchPlaceholder?: string;
+  /** Value ids surfaced in a "Recent" section on top of the list.
+   *  Items not present in `items` are skipped. Order is preserved
+   *  (caller decides — usually most-recent first). Hidden when the
+   *  user is typing a search query so recents don't distract. */
+  recentValues?: readonly string[];
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -56,6 +62,23 @@ export function PickerField({
       return hay.includes(needle);
     });
   }, [items, q, searchable]);
+
+  const recentItems = useMemo(() => {
+    if (!recentValues || recentValues.length === 0) return [];
+    if (q.trim()) return []; // hide recents while typing
+    const byValue = new Map(items.map((i) => [i.value, i]));
+    const seen = new Set<string>();
+    const out: PickerItem[] = [];
+    for (const v of recentValues) {
+      const it = byValue.get(v);
+      if (it && !seen.has(v)) {
+        out.push(it);
+        seen.add(v);
+      }
+      if (out.length >= 5) break;
+    }
+    return out;
+  }, [recentValues, items, q]);
 
   return (
     <>
@@ -127,6 +150,56 @@ export function PickerField({
             data={filtered}
             keyExtractor={(i) => i.value}
             keyboardShouldPersistTaps="handled"
+            ListHeaderComponent={
+              recentItems.length > 0 ? (
+                <View>
+                  <Text style={styles.sectionLabel}>Recent</Text>
+                  {recentItems.map((item) => {
+                    const active = item.value === value;
+                    return (
+                      <Pressable
+                        key={`recent-${item.value}`}
+                        onPress={() => {
+                          onChange(item.value);
+                          setOpen(false);
+                        }}
+                        style={({ pressed }) => [
+                          styles.row,
+                          active && styles.rowActive,
+                          pressed && { opacity: 0.7 },
+                        ]}
+                        accessibilityRole="radio"
+                        accessibilityState={{ selected: active }}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={[
+                              styles.rowLabel,
+                              active && styles.rowLabelActive,
+                            ]}
+                          >
+                            {item.label}
+                          </Text>
+                          {item.sublabel ? (
+                            <Text
+                              style={[
+                                styles.rowSub,
+                                active && styles.rowSubActive,
+                              ]}
+                            >
+                              {item.sublabel}
+                            </Text>
+                          ) : null}
+                        </View>
+                        {active ? <Text style={styles.check}>✓</Text> : null}
+                      </Pressable>
+                    );
+                  })}
+                  <View style={styles.divider} />
+                  <Text style={styles.sectionLabel}>All</Text>
+                </View>
+              ) : null
+            }
             renderItem={({ item }) => {
               const active = item.value === value;
               return (
@@ -292,6 +365,20 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: theme.colors.border,
     marginLeft: theme.spacing.md,
+  },
+  sectionLabel: {
+    paddingHorizontal: theme.spacing.md,
+    paddingTop: 12,
+    paddingBottom: 6,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    color: theme.colors.textMuted,
+  },
+  divider: {
+    height: 8,
+    backgroundColor: "transparent",
   },
   empty: {
     padding: theme.spacing.lg,

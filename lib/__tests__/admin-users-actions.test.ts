@@ -44,14 +44,16 @@ function bodies(): { name: string; body: string }[] {
 describe("admin/users/actions.ts — all exported server actions are ADMIN-gated", () => {
   const fns = bodies();
 
-  it("finds at least the four expected server actions", () => {
+  it("finds every expected server action", () => {
     const names = fns.map((f) => f.name).sort();
     expect(names).toEqual(
       [
         "changeRoleAction",
         "createUserAction",
         "deactivateUserAction",
+        "issueEnrollmentCodeAction",
         "reactivateUserAction",
+        "revokeDeviceAction",
       ].sort(),
     );
   });

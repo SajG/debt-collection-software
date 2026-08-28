@@ -4,16 +4,16 @@ import { useAuth } from "@/auth/AuthContext";
 import { t } from "@/lib/i18n";
 import { theme } from "@/theme";
 
-// Single source of truth for post-boot routing. Every user hits this
-// gate on cold start and after sign-in.
+// Single source of truth for post-boot routing.
 //
-// No session         → /(auth)/phone       (real Supabase phone OTP)
+// No session         → /(auth)/enroll   (device enrollment, SY1)
+// Session, locked    → /unlock          (biometric or PIN)
 // Session, no profile→ AuthContext signs the user out defensively
-// FACTORY            → /(factory)          (queue + status advance + docs)
-// STAFF / ADMIN      → /(staff)            (own orders + everything else)
-// Other role         → /unsupported-role
+// FACTORY            → /(factory)
+// STAFF              → /(staff)
+// ADMIN              → /(admin)
 export default function IndexGate() {
-  const { loading, session, profile, role } = useAuth();
+  const { loading, session, profile, role, locked } = useAuth();
 
   if (loading) {
     return (
@@ -24,17 +24,14 @@ export default function IndexGate() {
     );
   }
 
-  if (!session) return <Redirect href="/(auth)/phone" />;
+  if (!session) return <Redirect href="/(auth)/enroll" />;
+  if (locked) return <Redirect href="/unlock" />;
   if (!profile) return <Redirect href="/no-profile" />;
 
   switch (role) {
     case "FACTORY":
       return <Redirect href="/(factory)" />;
     case "ADMIN":
-      // ADMIN lands in the admin command centre. From there they can
-      // switch into /(staff) to place their own orders — both admins
-      // in the roster do — via the "Salesperson view" link in the
-      // (admin)/_layout header.
       return <Redirect href="/(admin)" />;
     case "STAFF":
       return <Redirect href="/(staff)" />;

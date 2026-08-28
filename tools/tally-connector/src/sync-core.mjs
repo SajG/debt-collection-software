@@ -51,10 +51,10 @@ function value(block, tag) {
 }
 
 const LEDGERS_REQUEST = `<ENVELOPE>
-  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>SynWorksLedgers</ID></HEADER>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>SyncitLedgers</ID></HEADER>
   <BODY><DESC>
     <TDL><TDLMESSAGE>
-      <COLLECTION NAME="SynWorksLedgers" ISMODIFY="No">
+      <COLLECTION NAME="SyncitLedgers" ISMODIFY="No">
         <TYPE>Ledger</TYPE>
         <CHILDOF>Sundry Debtors</CHILDOF>
         <BELOWCHILDOF>Yes</BELOWCHILDOF>
@@ -87,15 +87,15 @@ function buildReceiptsRequest({ from, to }) {
   // client-side because Tally's collection filters can't pull the
   // nested list cleanly.
   return `<ENVELOPE>
-  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>SynWorksReceipts</ID></HEADER>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>SyncitReceipts</ID></HEADER>
   <BODY><DESC>
     ${staticVars}
     <TDL><TDLMESSAGE>
-      <COLLECTION NAME="SynWorksReceipts" ISMODIFY="No" FETCH="AllLedgerEntries.*, LedgerEntries.*, BillAllocations.*">
+      <COLLECTION NAME="SyncitReceipts" ISMODIFY="No" FETCH="AllLedgerEntries.*, LedgerEntries.*, BillAllocations.*">
         <TYPE>Voucher</TYPE>
-        <FILTERS>SynWorksIsReceipt</FILTERS>
+        <FILTERS>SyncitIsReceipt</FILTERS>
       </COLLECTION>
-      <SYSTEM TYPE="Formulae" NAME="SynWorksIsReceipt">$$IsReceipt:$VoucherTypeName</SYSTEM>
+      <SYSTEM TYPE="Formulae" NAME="SyncitIsReceipt">$$IsReceipt:$VoucherTypeName</SYSTEM>
     </TDLMESSAGE></TDL>
   </DESC></BODY>
 </ENVELOPE>`;
@@ -121,13 +121,13 @@ function buildVouchersRequest({ from, to }) {
     </STATICVARIABLES>`
       : "";
   return `<ENVELOPE>
-  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>SynWorks</ID></HEADER>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>Syncit</ID></HEADER>
   <BODY><DESC>
     ${staticVars}
     <TDL><TDLMESSAGE>
-      <COLLECTION NAME="SynWorks" ISMODIFY="No">
+      <COLLECTION NAME="Syncit" ISMODIFY="No">
         <TYPE>Voucher</TYPE>
-        <FILTERS>SynWorksIsSales</FILTERS>
+        <FILTERS>SyncitIsSales</FILTERS>
         <NATIVEMETHOD>DATE</NATIVEMETHOD>
         <NATIVEMETHOD>VOUCHERNUMBER</NATIVEMETHOD>
         <NATIVEMETHOD>PARTYLEDGERNAME</NATIVEMETHOD>
@@ -136,17 +136,17 @@ function buildVouchersRequest({ from, to }) {
         <NATIVEMETHOD>CATEGORY</NATIVEMETHOD>
         <NATIVEMETHOD>COSTCENTREALLOCATIONS</NATIVEMETHOD>
       </COLLECTION>
-      <SYSTEM TYPE="Formulae" NAME="SynWorksIsSales">$$IsSales:$VoucherTypeName</SYSTEM>
+      <SYSTEM TYPE="Formulae" NAME="SyncitIsSales">$$IsSales:$VoucherTypeName</SYSTEM>
     </TDLMESSAGE></TDL>
   </DESC></BODY>
 </ENVELOPE>`;
 }
 
 const STOCKITEMS_REQUEST = `<ENVELOPE>
-  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>SynWorksStockItems</ID></HEADER>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>SyncitStockItems</ID></HEADER>
   <BODY><DESC>
     <TDL><TDLMESSAGE>
-      <COLLECTION NAME="SynWorksStockItems" ISMODIFY="No">
+      <COLLECTION NAME="SyncitStockItems" ISMODIFY="No">
         <TYPE>StockItem</TYPE>
         <NATIVEMETHOD>NAME</NATIVEMETHOD>
         <NATIVEMETHOD>PARENT</NATIVEMETHOD>
@@ -168,7 +168,7 @@ async function tallyRequest(host, port, xml) {
   return res.text();
 }
 
-async function resolveWindow({ synworksUrl, secret, full, from, to, lookback, log }) {
+async function resolveWindow({ syncitUrl, secret, full, from, to, lookback, log }) {
   const overrideTo = to ? new Date(to) : null;
   const overrideFrom = from ? new Date(from) : null;
   const endTo = overrideTo ?? new Date();
@@ -180,7 +180,7 @@ async function resolveWindow({ synworksUrl, secret, full, from, to, lookback, lo
   if (overrideFrom) return { from: overrideFrom, to: endTo };
 
   try {
-    const res = await fetch(`${synworksUrl}/api/sync/tally/state`, {
+    const res = await fetch(`${syncitUrl}/api/sync/tally/state`, {
       headers: { Authorization: `Bearer ${secret}` },
     });
     if (!res.ok) {
@@ -201,14 +201,14 @@ async function resolveWindow({ synworksUrl, secret, full, from, to, lookback, lo
 
 /**
  * Run one sync pass. Returns a summary object; throws on hard failure.
- * config = { tallyHost, tallyPort, synworksUrl, secret, full?, from?, to?, lookback? }
+ * config = { tallyHost, tallyPort, syncitUrl, secret, full?, from?, to?, lookback? }
  * opts   = { log? }  — log defaults to console.log
  */
 export async function runSync(config, opts = {}) {
   const {
     tallyHost = "localhost",
     tallyPort = 9000,
-    synworksUrl,
+    syncitUrl,
     secret,
     full = false,
     from = null,
@@ -216,12 +216,12 @@ export async function runSync(config, opts = {}) {
     lookback = 3,
   } = config;
   const log = opts.log ?? ((m) => console.log(m));
-  if (!synworksUrl || !secret) {
-    throw new Error("synworksUrl and secret are required");
+  if (!syncitUrl || !secret) {
+    throw new Error("syncitUrl and secret are required");
   }
 
   const started = Date.now();
-  const window = await resolveWindow({ synworksUrl, secret, full, from, to, lookback, log });
+  const window = await resolveWindow({ syncitUrl, secret, full, from, to, lookback, log });
   if (window.from) {
     log(
       `Window: ${window.from.toISOString().slice(0, 10)} → ${window.to.toISOString().slice(0, 10)}`,
@@ -375,8 +375,8 @@ export async function runSync(config, opts = {}) {
     .filter((s) => s.name && s.closingQty !== "" && s.tallyRef);
   log(`  ${stockItems.length} stock items`);
 
-  log(`Pushing to ${synworksUrl}/api/sync/tally…`);
-  const res = await fetch(`${synworksUrl}/api/sync/tally`, {
+  log(`Pushing to ${syncitUrl}/api/sync/tally…`);
+  const res = await fetch(`${syncitUrl}/api/sync/tally`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -391,7 +391,7 @@ export async function runSync(config, opts = {}) {
   log("Reconciling new-customer orders…");
   let reconcile = null;
   try {
-    const rec = await fetch(`${synworksUrl}/api/cron/reconcile-orders`, {
+    const rec = await fetch(`${syncitUrl}/api/cron/reconcile-orders`, {
       headers: { Authorization: `Bearer ${secret}` },
     });
     reconcile = await rec.json();

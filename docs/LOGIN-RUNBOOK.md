@@ -1,8 +1,72 @@
 # Mobile login runbook
 
-Diagnose "I can't log in" in 60 seconds. The chain has seven links; each one has a specific way of breaking and a specific symptom the user sees.
+**SY1 status (2026-08-27):** SMS-OTP is retired. Sign-in is admin-issued
+enrollment codes + biometric/PIN unlock. The historical SMS chain is
+preserved further down as reference.
 
-## The chain
+## The current chain (SY1)
+
+```
+1. Admin opens /admin/users → "Issue code" for the target person.
+   Server action → RPC issue_enrollment_code(profile_id).
+   Returns an 8-char code shown once, expires in 30 minutes.
+        │
+        ▼
+2. User opens PayTrack → mobile/app/(auth)/enroll.tsx
+   Types their 10-digit phone + the code.
+        │
+        ▼
+3. Client POSTs /api/auth/enroll { phone, code, device }.
+   Server route calls RPC redeem_enrollment_code — does rate-limit
+   (reuses check_phone_otp_rate_limit), hash compare, expiry /
+   consumption / phone-match / profile.isActive checks, revokes any
+   prior un-revoked Device for this profile, inserts a fresh Device
+   row, marks the code consumed, writes UserAuditLog.
+        │
+        ▼
+4. Server calls admin.updateUserById to attach the synthetic email
+   <profileId>@device.paytrack.local (idempotent, undeliverable),
+   then admin.signOut(userId, "global") so any surviving JWT from
+   the revoked-in-step-3 device dies, then admin.generateLink
+   ({ type: "magiclink", email }). Returns hashed_token to client.
+        │
+        ▼
+5. Client calls supabase.auth.verifyOtp({ email, token, type:
+   "magiclink" }) → session created + persisted in SecureStore.
+        │
+        ▼
+6. First-run only: /set-up-lock — user picks biometric or 6-digit PIN.
+   PIN stored as salted SHA-256 in SecureStore; biometric held by OS.
+        │
+        ▼
+7. Every cold start / >5-min background resume: /unlock — biometric
+   or PIN. AuthContext.markUnlocked() flips `locked`, root gate
+   re-routes.
+        │
+        ▼
+8. app/index.tsx → /(admin) | /(factory) | /(staff) by role.
+```
+
+## Common SY1 failures
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| "Enrollment failed" | Wrong code / expired / used / phone mismatch / profile deactivated. Wire message is generic — real reason in Postgres logs. | Admin issues a new code. |
+| "Too many wrong attempts" | 5-fail/15-min freeze on that phone. | Wait 15 min. |
+| Signed in yesterday, today can't unlock | 7-day idle timeout wiped local session. | Re-enrol (new code). |
+| Biometric doesn't prompt | `isBiometricAvailable()` = false — no biometric enrolled on the OS. | Set one up in phone Settings, or sign out and pick PIN. |
+| PIN wiped after 5 wrong tries | `MAX_PIN_ATTEMPTS` reached — AuthContext force-signed-out. | Admin issues a new code. |
+| Second phone kicked the first off | One-active-device-per-user (documented in migration 20260827180000_device_enrollment). | User picks which phone. |
+
+## Revoking a lost/stolen device
+
+Admin → /admin/devices → the row → Revoke. Type the owner's name to
+confirm. Server calls `revoke_device` RPC (sets `revokedAt`) + admin
+`signOut(userId, "global")` so any live JWT dies on next request.
+Because SY1 is one-active-device-per-user, this also boots any other
+active session the user had — re-enrol as needed.
+
+## Historical SMS-OTP chain (removed 2026-08-27)
 
 ```
 1. mobile/app/(auth)/phone.tsx        (user types 10-digit number)

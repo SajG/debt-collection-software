@@ -162,6 +162,109 @@ export function EmptyRow({ colSpan, message }: { colSpan: number; message: strin
   );
 }
 
+/**
+ * Empty-state block for lists and pages. Every empty state names a
+ * specific next action — never a bare "No data". Pass a body that
+ * reads to the user as "here is why the list is empty AND what to
+ * do next" and, when there is a next step, a `cta` link.
+ *
+ *   <EmptyState
+ *     glyph="◔"
+ *     title="No orders match this filter"
+ *     body="Clear filters to see everything, or place a new order."
+ *     cta={{ href: "/orders/new", label: "Place order" }}
+ *   />
+ */
+export function EmptyState({
+  glyph,
+  title,
+  body,
+  cta,
+  secondary,
+  className,
+}: {
+  glyph?: string;
+  title: string;
+  body?: string;
+  cta?: { href: string; label: string };
+  secondary?: { href: string; label: string };
+  className?: string;
+}) {
+  return (
+    <div
+      className={`flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-card px-6 py-14 text-center${className ? ` ${className}` : ""}`}
+    >
+      {glyph ? (
+        <div
+          aria-hidden
+          className="text-4xl leading-none text-muted-foreground"
+        >
+          {glyph}
+        </div>
+      ) : null}
+      <h3 className="text-base font-semibold text-foreground">{title}</h3>
+      {body ? (
+        <p className="max-w-md text-sm text-muted-foreground">{body}</p>
+      ) : null}
+      {cta || secondary ? (
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+          {cta ? (
+            <LinkButton href={cta.href} variant="primary">
+              {cta.label}
+            </LinkButton>
+          ) : null}
+          {secondary ? (
+            <LinkButton href={secondary.href} variant="secondary">
+              {secondary.label}
+            </LinkButton>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Column-aware skeleton row. Pass a `widths` array whose length
+ * matches the real thead so the page does not reflow when data
+ * arrives.
+ *
+ *   <TableSkeletonBody colCount={5} rows={8}
+ *     widths={["45%", "20%", "15%", "12%", "8%"]} />
+ */
+export function TableSkeletonBody({
+  colCount,
+  rows = 8,
+  widths,
+}: {
+  colCount: number;
+  rows?: number;
+  widths?: readonly string[];
+}) {
+  const resolved = Array.from({ length: colCount }, (_, i) =>
+    widths?.[i] ?? `${Math.round(100 / colCount)}%`,
+  );
+  return (
+    <tbody aria-busy="true" aria-label="Loading" className="animate-pulse">
+      {Array.from({ length: rows }).map((_, r) => (
+        <tr key={r}>
+          {resolved.map((w, c) => (
+            <td
+              key={c}
+              className="px-3 py-3 sm:px-4 sm:py-3.5 border-b border-border/60"
+            >
+              <div
+                className="h-4 rounded bg-muted/70"
+                style={{ width: w }}
+              />
+            </td>
+          ))}
+        </tr>
+      ))}
+    </tbody>
+  );
+}
+
 export function Field({
   label,
   children,

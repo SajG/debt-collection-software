@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 300" width="960" height="300" role="img" aria-label="Syncit">
+  <rect width="960" height="300" fill="#093D30"/>
+  <g transform="translate(40,26) scale(0.484)">
+    <g fill="none" stroke-width="40">
+      <circle cx="206" cy="206" r="84" stroke="#3DDC97"/>
+      <circle cx="306" cy="306" r="84" stroke="#FFFFFF"/>
+      <path d="M 264.7 266.1 A 84 84 0 0 1 177.7 285.1" stroke="#3DDC97"/>
+    </g>
+  </g>
+  <text x="330" y="188" font-family="Inter Tight, Inter, Segoe UI, system-ui, sans-serif"
+        font-size="150" font-weight="600" letter-spacing="-6" fill="#FFFFFF">Syncit</text>
+</svg>

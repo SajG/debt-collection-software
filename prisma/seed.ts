@@ -247,7 +247,7 @@ async function ensureSalesperson() {
   return db.profile.create({
     data: {
       id: randomUUID(),
-      businessName: "SynWorks Demo",
+      businessName: "Syncit Demo",
       ownerName: "Demo Salesperson",
       phone: "9999999999",
       role: "STAFF",

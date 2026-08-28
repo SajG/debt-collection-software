@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "SynWorks — Accounts Receivable for MSME Distributors",
+  title: "Syncit — Accounts Receivable for MSME Distributors",
   description:
     "Track outstanding invoices, manage overdue customers, and send follow-ups — without the chaos of WhatsApp threads and phone calls. Built for Indian MSME distributors.",
 };
@@ -82,7 +82,7 @@ function SiteNav() {
             className="font-display font-semibold text-lg tracking-tight"
             style={{ color: C.ink }}
           >
-            SynWorks
+            Syncit
           </span>
         </Link>
 
@@ -186,7 +186,7 @@ function HeroSection() {
               style={{ color: C.ink2, animationDelay: "0.18s" }}
             >
               Stop managing credit sales in Excel and chasing thirty customers
-              one WhatsApp at a time. SynWorks shows you exactly who&apos;s
+              one WhatsApp at a time. Syncit shows you exactly who&apos;s
               overdue, drafts your follow-up message, and logs every
               promise — so nothing falls through the cracks.
             </p>
@@ -283,7 +283,7 @@ function DashboardMockup() {
           />
         ))}
         <span className="ml-auto text-xs" style={{ color: "rgba(255,255,255,0.65)" }}>
-          SynWorks Dashboard
+          Syncit Dashboard
         </span>
       </div>
 
@@ -473,7 +473,7 @@ function HowItWorksSection() {
       num: "01",
       icon: Database,
       title: "Connect your accounting data",
-      body: "Import parties and invoices from Tally, Zoho Books, or upload an Excel file. SynWorks handles the mapping — no manual re-entry.",
+      body: "Import parties and invoices from Tally, Zoho Books, or upload an Excel file. Syncit handles the mapping — no manual re-entry.",
     },
     {
       num: "02",
@@ -485,7 +485,7 @@ function HowItWorksSection() {
       num: "03",
       icon: Zap,
       title: "Send a follow-up in one click",
-      body: "SynWorks drafts a message based on the invoice and the party's history. You review it, edit if needed, and send via WhatsApp or SMS.",
+      body: "Syncit drafts a message based on the invoice and the party's history. You review it, edit if needed, and send via WhatsApp or SMS.",
     },
     {
       num: "04",
@@ -510,7 +510,7 @@ function HowItWorksSection() {
             From chaos to clarity in four steps
           </h2>
           <p className="text-lg max-w-xl mx-auto" style={{ color: C.ink2 }}>
-            SynWorks replaces the spreadsheet + WhatsApp + phone-note combination
+            Syncit replaces the spreadsheet + WhatsApp + phone-note combination
             that most distributors piece together.
           </p>
         </div>
@@ -568,7 +568,7 @@ function TrustSection() {
   const points = [
     {
       title: "No shared database",
-      body: "Your customer names, invoice amounts, and payment history are stored only in a database that belongs to you — completely separate from every other business using SynWorks.",
+      body: "Your customer names, invoice amounts, and payment history are stored only in a database that belongs to you — completely separate from every other business using Syncit.",
     },
     {
       title: "You control the data",
@@ -605,7 +605,7 @@ function TrustSection() {
           className="text-lg max-w-2xl mx-auto mb-12 leading-relaxed"
           style={{ color: "rgba(255,255,255,0.72)" }}
         >
-          SynWorks is deployed separately for each business. Nothing is shared
+          Syncit is deployed separately for each business. Nothing is shared
           with other companies using this product. This is the core architectural
           difference from most SaaS tools — and it&apos;s not a marketing claim,
           it&apos;s how the infrastructure works.
@@ -745,7 +745,7 @@ function SiteFooter() {
                 ₹
               </div>
               <span className="font-display font-semibold text-lg text-white">
-                SynWorks
+                Syncit
               </span>
             </div>
             <p className="text-sm leading-relaxed" style={{ color: "#71717A" }}>
@@ -812,7 +812,7 @@ function SiteFooter() {
           style={{ borderColor: "#2A2A2E" }}
         >
           <p className="text-xs" style={{ color: "#52525B" }}>
-            © {year} SynWorks. All rights reserved.
+            © {year} Syncit. All rights reserved.
           </p>
           <p className="text-xs" style={{ color: "#52525B" }}>
             Each customer deployment is fully isolated. No shared data.

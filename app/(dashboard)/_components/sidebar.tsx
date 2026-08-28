@@ -95,6 +95,12 @@ const NAV: NavItem[] = [
     roles: ["ADMIN"],
   },
   {
+    href: "/admin/devices",
+    label: "Devices",
+    icon: PackageSearch,
+    roles: ["ADMIN"],
+  },
+  {
     href: "/admin/unassigned",
     label: "Unassigned",
     icon: PackageSearch,
@@ -137,6 +143,12 @@ const NAV: NavItem[] = [
     roles: ["ADMIN"],
   },
   { href: "/settings", label: "Settings", icon: Settings, roles: ["ADMIN"] },
+  {
+    href: "/settings/security",
+    label: "Security",
+    icon: Settings,
+    roles: ["ADMIN", "STAFF", "FACTORY"],
+  },
 ];
 
 const DARK = "#093D30";
@@ -182,7 +194,7 @@ export function Sidebar({
       <div className="flex h-14 items-center justify-center border-b border-white/10 md:justify-start md:px-5">
         <span className="text-lg font-bold tracking-tight text-white font-display">
           <span className="md:hidden">P</span>
-          <span className="hidden md:inline">SynWorks</span>
+          <span className="hidden md:inline">Syncit</span>
         </span>
       </div>
 

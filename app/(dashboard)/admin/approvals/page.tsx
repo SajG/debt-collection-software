@@ -3,8 +3,9 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { requireProfile } from "@/lib/authz";
 import { formatINR } from "@/lib/format";
-import { PageHeader, Card, Badge } from "../../_components/ui";
+import { PageHeader, Card, Badge, EmptyState } from "../../_components/ui";
 import { ApprovalActions } from "./approval-actions";
+import { SelectableApprovalsList } from "./selectable-list";
 
 export const dynamic = "force-dynamic";
 
@@ -62,16 +63,15 @@ export default async function ApprovalsPage() {
       />
 
       {orders.length === 0 ? (
-        <Card title="Nothing waiting">
-          <p className="text-sm text-muted-foreground">
-            All orders are either flowing through the factory or already
-            terminal. Set BusinessSettings.orderApprovalMode = ALL if
-            you want to review every routine order too.
-          </p>
-        </Card>
+        <EmptyState
+          glyph="✓"
+          title="Nothing waiting on your approval"
+          body="Every order is either flowing through the factory or already terminal. Set orderApprovalMode = ALL in Settings if you want to review every routine order too."
+          secondary={{ href: "/orders", label: "See all orders" }}
+        />
       ) : (
-        <div className="space-y-4">
-          {orders.map((o) => {
+        <SelectableApprovalsList
+          rows={orders.map((o) => {
             const isNewCustomer = o.partyId == null && !!o.newCustomerName;
             const isOverLimit = o.creditCheckPassed === false;
             const isBelowFloor = o.needsRateApproval === true;
@@ -110,9 +110,10 @@ export default async function ApprovalsPage() {
                 tone: "amber",
               });
             }
-            return (
+            return {
+              id: o.id,
+              content: (
               <Card
-                key={o.id}
                 title={`${o.orderNumber} · ${o.party?.name ?? o.newCustomerName ?? "—"}`}
               >
                 <div className="mb-3 grid gap-3 text-sm sm:grid-cols-4">
@@ -190,9 +191,10 @@ export default async function ApprovalsPage() {
                 </p>
                 <ApprovalActions orderId={o.id} />
               </Card>
-            );
+              ),
+            };
           })}
-        </div>
+        />
       )}
     </div>
   );

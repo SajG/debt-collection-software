@@ -1,4 +1,4 @@
-# SynWorks — AR & Payment Follow-up for MSME Distributors
+# Syncit — AR & Payment Follow-up for MSME Distributors
 
 A B2B accounts-receivable tool for Indian MSME distributors who sell goods on credit. Tracks buyers, outstanding invoices, payment history, and drives follow-up workflows.
 

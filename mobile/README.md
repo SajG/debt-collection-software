@@ -1,7 +1,7 @@
-# SynWorks — mobile app
+# Syncit — mobile app
 
 React Native (Expo, TypeScript) companion app for adhesives-industry
-salespeople. Talks to the same Supabase project as the SynWorks web app;
+salespeople. Talks to the same Supabase project as the Syncit web app;
 row-level security scopes each user to their own orders.
 
 ## Design principles (enforced across every screen)

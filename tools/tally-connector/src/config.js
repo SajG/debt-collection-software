@@ -1,4 +1,4 @@
-// Shared config store. Lives at %ProgramData%\SynWorks\config.json on Windows
+// Shared config store. Lives at %ProgramData%\Syncit\config.json on Windows
 // so both the Windows Service (LocalSystem) and the tray (user session) can
 // read it. Falls back to a per-user path elsewhere for dev on macOS/Linux.
 
@@ -9,9 +9,9 @@ const os = require("node:os");
 function dataDir() {
   if (process.platform === "win32") {
     const base = process.env.ProgramData || "C:\\ProgramData";
-    return path.join(base, "SynWorks");
+    return path.join(base, "Syncit");
   }
-  return path.join(os.homedir(), ".synworks-connector");
+  return path.join(os.homedir(), ".syncit-connector");
 }
 
 const CONFIG_PATH = path.join(dataDir(), "config.json");
@@ -40,7 +40,7 @@ function defaults() {
   return {
     tallyHost: "localhost",
     tallyPort: 9000,
-    synworksUrl: "",
+    syncitUrl: "",
     secret: "",
     // How often the service auto-syncs, in minutes. 0 = disabled (manual only).
     intervalMinutes: 15,

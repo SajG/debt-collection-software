@@ -14,7 +14,7 @@ import { OrderCard } from "@/components/OrderCard";
 import { TextField } from "@/components/TextField";
 import { EmptyState } from "@/components/EmptyState";
 import { OrderCardSkeletonList } from "@/components/Skeleton";
-import { QueueSummary } from "@/components/QueueSummary";
+import { SyncPill } from "@/components/SyncPill";
 import { confirm } from "@/components/Confirm";
 import { useAuth } from "@/auth/AuthContext";
 import {
@@ -111,7 +111,7 @@ export default function FactoryHome() {
       </View>
 
       <View style={styles.controls}>
-        <QueueSummary />
+        <SyncPill />
         <TextField
           label={t("factory.search")}
           placeholder={t("factory.search.placeholder")}

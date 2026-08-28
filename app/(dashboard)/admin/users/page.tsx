@@ -70,6 +70,46 @@ export default async function UsersAdminPage({
     lastSignIn.set(u.id, u.last_sign_in_at ? new Date(u.last_sign_in_at) : null);
   }
 
+  // MFA enrolment per ADMIN. Only admins are required to have TOTP;
+  // for STAFF / FACTORY we display "—". listFactors is per-user, so
+  // this is N calls where N is the number of admins (<10 in practice).
+  const adminMfaStatus = new Map<string, "verified" | "unverified" | "none">();
+  const adminIds = profiles
+    .filter((p) => p.role === "ADMIN")
+    .map((p) => p.id);
+  await Promise.all(
+    adminIds.map(async (uid) => {
+      try {
+        // admin.mfa.listFactors was added in @supabase/supabase-js
+        // v2.35. Cast because the ambient types in this repo may pre-
+        // date it, but the method exists at runtime.
+        const client = supabase.auth.admin as unknown as {
+          mfa: {
+            listFactors: (
+              args: { userId: string },
+            ) => Promise<{
+              data: { factors: { factor_type: string; status: string }[] } | null;
+              error: unknown;
+            }>;
+          };
+        };
+        const { data } = await client.mfa.listFactors({ userId: uid });
+        const totps = (data?.factors ?? []).filter(
+          (f) => f.factor_type === "totp",
+        );
+        if (totps.some((f) => f.status === "verified")) {
+          adminMfaStatus.set(uid, "verified");
+        } else if (totps.length > 0) {
+          adminMfaStatus.set(uid, "unverified");
+        } else {
+          adminMfaStatus.set(uid, "none");
+        }
+      } catch {
+        adminMfaStatus.set(uid, "none");
+      }
+    }),
+  );
+
   const activeAdminCount = profiles.filter(
     (p) => p.role === "ADMIN" && p.isActive,
   ).length;
@@ -129,6 +169,7 @@ export default async function UsersAdminPage({
                 <th className="py-2 pr-3">Name</th>
                 <th className="py-2 pr-3">Phone</th>
                 <th className="py-2 pr-3">Role</th>
+                <th className="py-2 pr-3">MFA</th>
                 <th className="py-2 pr-3">Status</th>
                 <th className="py-2 pr-3">Last login</th>
                 <th className="py-2 pr-3 text-right">Orders</th>
@@ -152,6 +193,22 @@ export default async function UsersAdminPage({
                   <td className="py-2 pr-3 font-mono">+91 {p.phone ?? "—"}</td>
                   <td className="py-2 pr-3">{p.role}</td>
                   <td className="py-2 pr-3">
+                    {p.role !== "ADMIN" ? (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    ) : adminMfaStatus.get(p.id) === "verified" ? (
+                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                        TOTP
+                      </span>
+                    ) : (
+                      <span
+                        className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800"
+                        title="Admin cannot reach the dashboard until TOTP is enrolled."
+                      >
+                        Not set
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-2 pr-3">
                     {p.isActive ? (
                       <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
                         Active
@@ -169,20 +226,15 @@ export default async function UsersAdminPage({
                     {p._count.salesOrders}
                   </td>
                   <td className="py-2 pr-3 text-right">
-                    {p.id === profile.id ? (
-                      <span className="text-xs text-muted-foreground">
-                        own account
-                      </span>
-                    ) : (
-                      <UserRowActions
-                        profile={{
-                          id: p.id,
-                          ownerName: p.ownerName,
-                          role: p.role,
-                          isActive: p.isActive,
-                        }}
-                      />
-                    )}
+                    <UserRowActions
+                      profile={{
+                        id: p.id,
+                        ownerName: p.ownerName,
+                        role: p.role,
+                        isActive: p.isActive,
+                      }}
+                      isSelf={p.id === profile.id}
+                    />
                   </td>
                 </tr>
               ))}

@@ -16,8 +16,9 @@ import {
   Table,
   Th,
   Td,
-  EmptyRow,
+  EmptyState,
 } from "../_components/ui";
+import { KeyboardNavCatcher } from "../_components/keyboard-nav-catcher";
 
 type StatusFilter = "open" | "all" | OrderStatus;
 
@@ -155,12 +156,21 @@ export default async function OrdersPage({
         </thead>
         <tbody>
           {orders.length === 0 ? (
-            <EmptyRow
-              colSpan={profile.role === "STAFF" ? 7 : 8}
-              message="No orders yet — tap + New order to place one."
-            />
+            <tr>
+              <td
+                colSpan={profile.role === "STAFF" ? 7 : 8}
+                className="px-4 py-12"
+              >
+                <EmptyState
+                  glyph="◔"
+                  title="No orders match this view"
+                  body="Clear filters to see everything, or place a new order."
+                  cta={{ href: "/orders/new", label: "Place order" }}
+                />
+              </td>
+            </tr>
           ) : (
-            orders.map((o) => {
+            orders.map((o, rowIndex) => {
               const urgency = deliveryUrgency(o.expectedDeliveryDate);
               const deliveryCls =
                 urgency === "overdue"
@@ -169,7 +179,12 @@ export default async function OrdersPage({
                     ? "text-amber-700 font-semibold"
                     : "text-foreground";
               return (
-                <tr key={o.id} className="hover:bg-muted/30">
+                <tr
+                  key={o.id}
+                  className="hover:bg-muted/30"
+                  data-kbnav-index={rowIndex}
+                  data-kbnav-href={`/orders/${o.id}`}
+                >
                   <Td>
                     <Link
                       href={`/orders/${o.id}`}
@@ -241,6 +256,7 @@ export default async function OrdersPage({
           )}
         </tbody>
       </Table>
+      <KeyboardNavCatcher rowCount={orders.length} />
     </div>
   );
 }

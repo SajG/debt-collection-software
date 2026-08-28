@@ -56,7 +56,7 @@ async function buildMenu() {
   let cfgConfigured = false;
   try {
     const { body } = await svc("GET", "/status");
-    cfgConfigured = Boolean(body.config?.synworksUrl && body.config?.secret);
+    cfgConfigured = Boolean(body.config?.syncitUrl && body.config?.secret);
     statusLabel = body.running
       ? "Syncing now…"
       : cfgConfigured
@@ -73,7 +73,7 @@ async function buildMenu() {
   }
 
   return Menu.buildFromTemplate([
-    { label: "SynWorks Tally Connector", enabled: false },
+    { label: "Syncit Tally Connector", enabled: false },
     { type: "separator" },
     { label: statusLabel, enabled: false },
     { label: lastLabel, enabled: false },
@@ -117,19 +117,19 @@ async function refreshTray() {
   try {
     const { body } = await svc("GET", "/status");
     const tip = body.state?.lastError
-      ? `SynWorks — last sync failed`
+      ? `Syncit — last sync failed`
       : body.running
-        ? `SynWorks — syncing`
-        : `SynWorks — idle`;
+        ? `Syncit — syncing`
+        : `Syncit — idle`;
     tray.setToolTip(tip);
   } catch {
-    tray.setToolTip("SynWorks — service unreachable");
+    tray.setToolTip("Syncit — service unreachable");
   }
 }
 
 function notify(message) {
   if (Notification.isSupported()) {
-    new Notification({ title: "SynWorks Connector", body: message }).show();
+    new Notification({ title: "Syncit Connector", body: message }).show();
   }
 }
 
@@ -146,7 +146,7 @@ function openSettings() {
     resizable: false,
     minimizable: false,
     maximizable: false,
-    title: "SynWorks Connector — Settings",
+    title: "Syncit Connector — Settings",
     icon: path.join(__dirname, "..", "assets", "icon.ico"),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),

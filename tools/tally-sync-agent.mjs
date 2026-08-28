@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SynWorks Tally sync agent (CLI). Thin wrapper around sync-core.mjs.
+// Syncit Tally sync agent (CLI). Thin wrapper around sync-core.mjs.
 //
 // Prerequisites (once, in Tally):
 //   Gateway of Tally → F12 Configure → Advanced → "Allow ODBC/HTTP" = Yes
@@ -7,7 +7,7 @@
 //
 // Usage:
 //   TALLY_HOST=localhost TALLY_PORT=9000 \
-//   SYNWORKS_URL=https://your-deployment.example \
+//   SYNCIT_URL=https://your-deployment.example \
 //   TALLY_SYNC_SECRET=<same value as the deployment env> \
 //   node tally-sync-agent.mjs [--full] [--from=YYYY-MM-DD] [--to=YYYY-MM-DD] [--lookback=N]
 //
@@ -27,7 +27,7 @@ for (const arg of process.argv.slice(2)) {
 const config = {
   tallyHost: process.env.TALLY_HOST || "localhost",
   tallyPort: Number(process.env.TALLY_PORT || 9000),
-  synworksUrl: process.env.SYNWORKS_URL,
+  syncitUrl: process.env.SYNCIT_URL,
   secret: process.env.TALLY_SYNC_SECRET,
   full: Boolean(flags.get("full")),
   from: flags.get("from") ?? null,
@@ -35,8 +35,8 @@ const config = {
   lookback: Number(flags.get("lookback") ?? 3),
 };
 
-if (!config.synworksUrl || !config.secret) {
-  console.error("Set SYNWORKS_URL and TALLY_SYNC_SECRET environment variables.");
+if (!config.syncitUrl || !config.secret) {
+  console.error("Set SYNCIT_URL and TALLY_SYNC_SECRET environment variables.");
   process.exit(1);
 }
 

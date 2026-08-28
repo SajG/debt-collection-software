@@ -6,8 +6,15 @@ import type { Role, UserAuditAction } from "@prisma/client";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/authz";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient as createSsrClient } from "@/lib/supabase/server";
 
 export type ActionResult = { ok: true; profileId?: string } | { error: string };
+
+export type IssueCodeResult =
+  | { ok: true; code: string; expiresAt: string }
+  | { error: string };
+
+export type RevokeDeviceResult = { ok: true } | { error: string };
 
 const roleEnum = z.enum(["ADMIN", "STAFF", "FACTORY"]);
 
@@ -21,7 +28,7 @@ const createSchema = z.object({
     .trim()
     .min(2, "Enter the business name")
     .max(120)
-    .default("SynWorks"),
+    .default("Syncit"),
   phone: z.string().trim().regex(phoneRegex, "Enter a 10-digit Indian mobile"),
   role: roleEnum,
 });
@@ -221,6 +228,76 @@ export async function reactivateUserAction(input: {
   });
 
   revalidatePath("/admin/users");
+  return { ok: true };
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Device enrollment (SY1)
+// ─────────────────────────────────────────────────────────────────
+
+// Admin generates a one-time 8-char enrollment code for `profileId`.
+// The plaintext code is returned exactly once here; the DB stores
+// only its SHA-256 hash. Do not log it, do not persist client-side,
+// do not put it in a URL. Show, copy, discard.
+export async function issueEnrollmentCodeAction(input: {
+  profileId: string;
+}): Promise<IssueCodeResult> {
+  await requireAdmin();
+  // Use the SSR (cookie-scoped) client, not the service-role admin
+  // client. The RPC checks `auth.uid()` to enforce ADMIN-only + to
+  // stamp the issuer in the audit log. service_role has no
+  // auth.uid() so the RPC raised "Not authenticated" — see the
+  // header of prisma/migrations/20260827180000_device_enrollment.
+  const supabase = createSsrClient();
+  const { data, error } = await supabase.rpc("issue_enrollment_code", {
+    p_profile_id: input.profileId,
+  });
+  if (error || typeof data !== "string" || data.length !== 8) {
+    return {
+      error: error?.message ?? "Could not issue an enrollment code.",
+    };
+  }
+  const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+  revalidatePath("/admin/users");
+  revalidatePath("/admin/devices");
+  return { ok: true, code: data, expiresAt };
+}
+
+// Revoke a specific device: sets Device.revokedAt and — because of
+// the one-active-device-per-user simplification — kicks the user off
+// all sessions globally so the revoked device's JWT loses access on
+// its very next request.
+export async function revokeDeviceAction(input: {
+  deviceId: string;
+}): Promise<RevokeDeviceResult> {
+  await requireAdmin();
+  // Split: the RPC needs the caller's auth.uid() (SSR client) to
+  // enforce ADMIN + stamp the audit row; the global signOut needs
+  // service_role. Two clients, one action.
+  const ssr = createSsrClient();
+  const admin = createAdminClient();
+
+  const device = await db.device.findUnique({
+    where: { id: input.deviceId },
+    select: { id: true, profileId: true, revokedAt: true },
+  });
+  if (!device) return { error: "Device not found." };
+  if (device.revokedAt) {
+    return { ok: true }; // idempotent
+  }
+
+  const { error: rpcErr } = await ssr.rpc("revoke_device", {
+    p_device_id: input.deviceId,
+  });
+  if (rpcErr) return { error: rpcErr.message };
+
+  // Kill any live JWT for the owner. See the migration header for
+  // why revocation cascades to all sessions today.
+  await admin.auth.admin
+    .signOut(device.profileId, "global")
+    .catch(() => undefined);
+
+  revalidatePath("/admin/devices");
   return { ok: true };
 }
 

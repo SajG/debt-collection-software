@@ -1,0 +1,64 @@
+# gitleaks config for Syncit.
+#
+# Base ruleset (`useDefault = true`) covers AWS keys, GCP service
+# accounts, private RSA blocks, JWTs, generic high-entropy strings,
+# and the usual PAT shapes. On top of that we add named rules for
+# the env vars this repo touches, so a paste of a real key into a
+# `.md`, `.ts`, or config file is caught even when the surrounding
+# characters don't look "keylike" to the default detectors.
+
+title = "Syncit gitleaks config"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "syncit-supabase-service-key-assignment"
+description = "Supabase service_role JWT assigned to SUPABASE_SERVICE_ROLE_KEY"
+regex = '''SUPABASE_SERVICE_ROLE_KEY\s*[:=]\s*["']?eyJ[\w-]+\.[\w-]+\.[\w-]+'''
+tags = ["supabase", "high"]
+
+[[rules]]
+id = "syncit-tally-sync-secret"
+description = "TALLY_SYNC_SECRET assigned to a real value"
+regex = '''TALLY_SYNC_SECRET\s*[:=]\s*["']?[A-Za-z0-9+/=_-]{20,}'''
+tags = ["tally", "high"]
+
+[[rules]]
+id = "syncit-cron-secret"
+description = "CRON_SECRET assigned to a real value"
+regex = '''CRON_SECRET\s*[:=]\s*["']?[A-Za-z0-9+/=_-]{20,}'''
+tags = ["cron", "high"]
+
+[[rules]]
+id = "syncit-notify-shared-secret"
+description = "NOTIFY_SHARED_SECRET assigned to a real value"
+regex = '''NOTIFY_SHARED_SECRET\s*[:=]\s*["']?[A-Za-z0-9+/=_-]{20,}'''
+tags = ["notify", "high"]
+
+[[rules]]
+id = "syncit-whatsapp-app-secret"
+description = "WHATSAPP_APP_SECRET assigned to a real value"
+regex = '''WHATSAPP_APP_SECRET\s*[:=]\s*["']?[a-f0-9]{20,}'''
+tags = ["whatsapp", "high"]
+
+# ────────────────────────────────────────────────────────────────────
+# Allowlist — things that LOOK like secrets but aren't. Add with a
+# reason; never delete without checking the file.
+# ────────────────────────────────────────────────────────────────────
+
+[allowlist]
+description = "Global allowlist"
+paths = [
+  # Prisma migrations reference secret NAMES in comments (never values).
+  "prisma/migrations/",
+  # Historical audit note references the old backdoor emails — the
+  # credentials themselves were rotated in SY0. The strings that
+  # remain are documentation of a past incident.
+  "SECURITY.md",
+  # gitleaks config references its own rule patterns.
+  ".gitleaks.toml",
+  # Rotation runbook references env var names verbatim.
+  "scripts/rotate-compromised-passwords.ts",
+]
+commits = []

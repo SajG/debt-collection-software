@@ -54,8 +54,8 @@ type Fixture = {
 describe.runIf(required)("RLS — STAFF isolation via direct Supabase client", () => {
   const password = `RlsTest_${Date.now()}!Aa1`;
   const stamp = Date.now();
-  const emailA = `rls-staff-a-${stamp}@synworks.test`;
-  const emailB = `rls-staff-b-${stamp}@synworks.test`;
+  const emailA = `rls-staff-a-${stamp}@syncit.test`;
+  const emailB = `rls-staff-b-${stamp}@syncit.test`;
 
   let admin: SupabaseClient;
   let db: PrismaClient;

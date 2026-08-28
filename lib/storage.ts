@@ -1,12 +1,29 @@
-// SERVER-ONLY — Supabase Storage helpers for the private company-logo
-// bucket. Logos are uploaded via an admin-only server action and read
-// through short-lived signed URLs (settings preview + PDF rendering);
-// the bucket is never public.
+// SERVER-ONLY — Supabase Storage helpers for private buckets.
+//
+// Every upload goes through `hardenUpload` (lib/uploads/hardening.ts)
+// so the persisted bytes are guaranteed:
+//   * magic-byte-verified (allowlist: PDF, JPEG, PNG only)
+//   * size-capped server-side (not just in the picker)
+//   * EXIF-stripped for images
+//   * re-encoded through sharp for images (polyglot defence)
+//
+// Every readback URL is served with `Content-Disposition: attachment`
+// (via Supabase's `download` option on createSignedUrl) so a
+// malicious SVG or HTML mislabelled as an image cannot execute in
+// the origin — the browser downloads instead of rendering.
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  hardenUpload,
+  safeStorageName,
+  type AllowedKind,
+} from "@/lib/uploads/hardening";
 
 export const LOGO_BUCKET = "company-logos";
 export const LOGO_MAX_BYTES = 2 * 1024 * 1024; // 2MB
+// Historical export — server no longer trusts the caller's Content-Type,
+// but existing pages import these arrays for their picker's `accept`
+// attribute. Kept intact.
 export const LOGO_ALLOWED_TYPES: Record<string, string> = {
   "image/png": "png",
   "image/jpeg": "jpg",
@@ -17,39 +34,53 @@ export const LOGO_ALLOWED_TYPES: Record<string, string> = {
  *  preview or the server-side PDF renderer, never stored. */
 const SIGNED_URL_EXPIRY_SECONDS = 300;
 
-async function ensureLogoBucket() {
+async function ensureBucket(name: string, maxBytes: number, mimeAllowlist: string[]) {
   const supabase = createAdminClient();
-  const { data } = await supabase.storage.getBucket(LOGO_BUCKET);
-  if (!data) {
-    const { error } = await supabase.storage.createBucket(LOGO_BUCKET, {
-      public: false,
-      fileSizeLimit: LOGO_MAX_BYTES,
-      allowedMimeTypes: Object.keys(LOGO_ALLOWED_TYPES),
-    });
-    // Racing creation from two requests is fine — one wins, both proceed.
-    if (error && !error.message.toLowerCase().includes("already exists")) {
-      throw new Error(`Could not create logo bucket: ${error.message}`);
-    }
+  const { data } = await supabase.storage.getBucket(name);
+  if (data) return;
+  const { error } = await supabase.storage.createBucket(name, {
+    public: false,
+    fileSizeLimit: maxBytes,
+    allowedMimeTypes: mimeAllowlist,
+  });
+  if (error && !error.message.toLowerCase().includes("already exists")) {
+    throw new Error(`Could not create ${name} bucket: ${error.message}`);
   }
 }
 
+// ─────────────────────────────────────────────────────────────────
+// Company logo (admin-only, uploaded once per settings save)
+// ─────────────────────────────────────────────────────────────────
+
 export async function uploadCompanyLogo(
   file: { bytes: Buffer; contentType: string },
-  previousPath: string | null
+  previousPath: string | null,
 ): Promise<{ path: string } | { error: string }> {
-  const ext = LOGO_ALLOWED_TYPES[file.contentType];
-  if (!ext) return { error: "Logo must be a PNG, JPG, or SVG file." };
-  if (file.bytes.length > LOGO_MAX_BYTES) {
-    return { error: "Logo must be 2MB or smaller." };
-  }
+  // SVG deliberately excluded here — hardening cannot re-encode
+  // SVG safely (it is an XML script surface). If a distributor
+  // needs a vector logo, they should provide a PNG export at
+  // 512x512. Documented in SECURITY.md.
+  const hardened = await hardenUpload({
+    bytes: file.bytes,
+    maxBytes: LOGO_MAX_BYTES,
+    allow: ["jpeg", "png"],
+    maxDimension: 1024,
+  });
+  if (!hardened.ok) return { error: hardened.error };
 
-  await ensureLogoBucket();
+  await ensureBucket(LOGO_BUCKET, LOGO_MAX_BYTES, [
+    "image/png",
+    "image/jpeg",
+  ]);
   const supabase = createAdminClient();
-  const path = `logo-${Date.now()}.${ext}`;
+  const path = `logo-${Date.now()}.${hardened.ext}`;
 
   const { error } = await supabase.storage
     .from(LOGO_BUCKET)
-    .upload(path, file.bytes, { contentType: file.contentType, upsert: false });
+    .upload(path, hardened.bytes, {
+      contentType: hardened.contentType,
+      upsert: false,
+    });
   if (error) return { error: `Logo upload failed: ${error.message}` };
 
   if (previousPath && previousPath !== path) {
@@ -62,15 +93,19 @@ export async function getLogoSignedUrl(path: string): Promise<string | null> {
   const supabase = createAdminClient();
   const { data, error } = await supabase.storage
     .from(LOGO_BUCKET)
-    .createSignedUrl(path, SIGNED_URL_EXPIRY_SECONDS);
+    .createSignedUrl(path, SIGNED_URL_EXPIRY_SECONDS, {
+      // Force download — the logo is rendered via <img src>, which
+      // still respects the URL response. Attachment disposition
+      // means even a mislabelled SVG cannot execute in this origin.
+      download: extractFilename(path),
+    });
   if (error || !data) return null;
   return data.signedUrl;
 }
 
-/** Raw logo bytes for server-side PDF rendering (no URL fetch from the
- *  renderer; SVG is unsupported by react-pdf Image and is skipped). */
+/** Raw logo bytes for server-side PDF rendering. */
 export async function downloadLogoBytes(
-  path: string
+  path: string,
 ): Promise<{ bytes: Buffer; contentType: string } | null> {
   if (path.endsWith(".svg")) return null;
   const supabase = createAdminClient();
@@ -83,7 +118,7 @@ export async function downloadLogoBytes(
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Order documents (invoice / lorry receipt scans) — private bucket
+// Order documents (invoice / lorry receipt scans)
 // ─────────────────────────────────────────────────────────────────
 
 export const ORDER_DOC_BUCKET = "order-documents";
@@ -92,123 +127,117 @@ export const ORDER_DOC_ALLOWED_TYPES: Record<string, string> = {
   "application/pdf": "pdf",
   "image/png": "png",
   "image/jpeg": "jpg",
-  "image/webp": "webp",
 };
 
-async function ensureOrderDocBucket() {
-  const supabase = createAdminClient();
-  const { data } = await supabase.storage.getBucket(ORDER_DOC_BUCKET);
-  if (!data) {
-    const { error } = await supabase.storage.createBucket(ORDER_DOC_BUCKET, {
-      public: false,
-      fileSizeLimit: ORDER_DOC_MAX_BYTES,
-      allowedMimeTypes: Object.keys(ORDER_DOC_ALLOWED_TYPES),
-    });
-    if (error && !error.message.toLowerCase().includes("already exists")) {
-      throw new Error(`Could not create order-documents bucket: ${error.message}`);
-    }
-  }
-}
+const ORDER_DOC_KINDS: readonly AllowedKind[] = ["pdf", "jpeg", "png"];
 
 export async function uploadOrderDocument(
   salesOrderId: string,
-  file: { bytes: Buffer; contentType: string; fileName?: string }
+  file: { bytes: Buffer; contentType: string; fileName?: string },
 ): Promise<{ path: string } | { error: string }> {
-  const ext = ORDER_DOC_ALLOWED_TYPES[file.contentType];
-  if (!ext) return { error: "File must be a PDF, PNG, JPG, or WebP." };
-  if (file.bytes.length > ORDER_DOC_MAX_BYTES) {
-    return { error: "File must be 10MB or smaller." };
-  }
+  const hardened = await hardenUpload({
+    bytes: file.bytes,
+    maxBytes: ORDER_DOC_MAX_BYTES,
+    allow: ORDER_DOC_KINDS,
+  });
+  if (!hardened.ok) return { error: hardened.error };
 
-  await ensureOrderDocBucket();
+  await ensureBucket(
+    ORDER_DOC_BUCKET,
+    ORDER_DOC_MAX_BYTES,
+    Object.keys(ORDER_DOC_ALLOWED_TYPES),
+  );
   const supabase = createAdminClient();
-  const safeName = (file.fileName || `doc.${ext}`)
-    .replace(/[^a-zA-Z0-9._-]/g, "_")
-    .slice(0, 80);
-  const path = `${salesOrderId}/${Date.now()}-${safeName}`;
+  const path = `${salesOrderId}/${Date.now()}-${safeStorageName(file.fileName, hardened.ext)}`;
 
   const { error } = await supabase.storage
     .from(ORDER_DOC_BUCKET)
-    .upload(path, file.bytes, { contentType: file.contentType, upsert: false });
+    .upload(path, hardened.bytes, {
+      contentType: hardened.contentType,
+      upsert: false,
+    });
   if (error) return { error: `Upload failed: ${error.message}` };
   return { path };
 }
 
 export async function getOrderDocumentSignedUrl(
-  path: string
+  path: string,
 ): Promise<string | null> {
   const supabase = createAdminClient();
   const { data, error } = await supabase.storage
     .from(ORDER_DOC_BUCKET)
-    .createSignedUrl(path, SIGNED_URL_EXPIRY_SECONDS);
+    .createSignedUrl(path, SIGNED_URL_EXPIRY_SECONDS, {
+      download: extractFilename(path),
+    });
   if (error || !data) return null;
   return data.signedUrl;
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Payment proofs (bank / UPI / cheque photos) — private bucket
-// Separate from order-documents so retention + access rules can
-// diverge later (bank recon evidence often has its own audit window).
+// Payment proofs (bank / UPI / cheque photos)
 // ─────────────────────────────────────────────────────────────────
 
 export const PAYMENT_DOC_BUCKET = "payment-proofs";
 export const PAYMENT_DOC_MAX_BYTES = 10 * 1024 * 1024; // 10MB
+// Kept for picker `accept` — HEIC / WEBP no longer accepted end-to-end
+// because sharp cannot re-encode HEIC on every deployment (libheif is
+// optional) and WEBP as a source adds a second decoder surface. Mobile
+// converts to JPEG before upload; almost every phone already does.
 export const PAYMENT_DOC_ALLOWED_TYPES: Record<string, string> = {
   "application/pdf": "pdf",
   "image/png": "png",
   "image/jpeg": "jpg",
-  "image/webp": "webp",
-  "image/heic": "heic", // iPhone default — accept, some browsers still send it
 };
 
-async function ensurePaymentDocBucket() {
-  const supabase = createAdminClient();
-  const { data } = await supabase.storage.getBucket(PAYMENT_DOC_BUCKET);
-  if (!data) {
-    const { error } = await supabase.storage.createBucket(PAYMENT_DOC_BUCKET, {
-      public: false,
-      fileSizeLimit: PAYMENT_DOC_MAX_BYTES,
-      allowedMimeTypes: Object.keys(PAYMENT_DOC_ALLOWED_TYPES),
-    });
-    if (error && !error.message.toLowerCase().includes("already exists")) {
-      throw new Error(`Could not create payment-proofs bucket: ${error.message}`);
-    }
-  }
-}
+const PAYMENT_DOC_KINDS: readonly AllowedKind[] = ["pdf", "jpeg", "png"];
 
 export async function uploadPaymentDocument(
   paymentId: string,
-  file: { bytes: Buffer; contentType: string; fileName?: string }
+  file: { bytes: Buffer; contentType: string; fileName?: string },
 ): Promise<{ path: string } | { error: string }> {
-  const ext = PAYMENT_DOC_ALLOWED_TYPES[file.contentType];
-  if (!ext) {
-    return { error: "File must be a PDF, PNG, JPG, WebP, or HEIC image." };
-  }
-  if (file.bytes.length > PAYMENT_DOC_MAX_BYTES) {
-    return { error: "File must be 10MB or smaller." };
-  }
+  const hardened = await hardenUpload({
+    bytes: file.bytes,
+    maxBytes: PAYMENT_DOC_MAX_BYTES,
+    allow: PAYMENT_DOC_KINDS,
+  });
+  if (!hardened.ok) return { error: hardened.error };
 
-  await ensurePaymentDocBucket();
+  await ensureBucket(
+    PAYMENT_DOC_BUCKET,
+    PAYMENT_DOC_MAX_BYTES,
+    Object.keys(PAYMENT_DOC_ALLOWED_TYPES),
+  );
   const supabase = createAdminClient();
-  const safeName = (file.fileName || `proof.${ext}`)
-    .replace(/[^a-zA-Z0-9._-]/g, "_")
-    .slice(0, 80);
-  const path = `${paymentId}/${Date.now()}-${safeName}`;
+  const path = `${paymentId}/${Date.now()}-${safeStorageName(file.fileName, hardened.ext)}`;
 
   const { error } = await supabase.storage
     .from(PAYMENT_DOC_BUCKET)
-    .upload(path, file.bytes, { contentType: file.contentType, upsert: false });
+    .upload(path, hardened.bytes, {
+      contentType: hardened.contentType,
+      upsert: false,
+    });
   if (error) return { error: `Upload failed: ${error.message}` };
   return { path };
 }
 
 export async function getPaymentDocumentSignedUrl(
-  path: string
+  path: string,
 ): Promise<string | null> {
   const supabase = createAdminClient();
   const { data, error } = await supabase.storage
     .from(PAYMENT_DOC_BUCKET)
-    .createSignedUrl(path, SIGNED_URL_EXPIRY_SECONDS);
+    .createSignedUrl(path, SIGNED_URL_EXPIRY_SECONDS, {
+      download: extractFilename(path),
+    });
   if (error || !data) return null;
   return data.signedUrl;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────
+
+function extractFilename(path: string): string {
+  const slash = path.lastIndexOf("/");
+  return slash >= 0 ? path.slice(slash + 1) : path;
 }

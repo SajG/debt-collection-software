@@ -15,6 +15,7 @@ import {
   statusTone,
   inputCls,
 } from "../_components/ui";
+import { KeyboardNavCatcher } from "../_components/keyboard-nav-catcher";
 
 export default async function PartiesPage({
   searchParams,
@@ -105,8 +106,13 @@ export default async function PartiesPage({
               }
             />
           ) : (
-            parties.map((p) => (
-              <tr key={p.id} className="hover:bg-muted/30">
+            parties.map((p, rowIndex) => (
+              <tr
+                key={p.id}
+                className="hover:bg-muted/30"
+                data-kbnav-index={rowIndex}
+                data-kbnav-href={`/parties/${p.id}`}
+              >
                 <Td>
                   <Link
                     href={`/parties/${p.id}`}
@@ -153,6 +159,7 @@ export default async function PartiesPage({
           )}
         </tbody>
       </Table>
+      <KeyboardNavCatcher rowCount={parties.length} />
 
       <Pagination
         pathname="/parties"

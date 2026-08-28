@@ -14,7 +14,20 @@ import { ORDER_STATUS_LABELS, DOCUMENT_TYPE_LABELS } from "@/lib/orders/status";
 // orderId exists.
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Order status — SynWorks" };
+// Even though middleware sets X-Robots-Tag: noindex globally, spell
+// it out in metadata too — an HTML-layer noindex is what Google's
+// tooling checks first, and a signed status link that ever escapes
+// via referrer must be doubly refused by every well-behaved crawler.
+export const metadata = {
+  title: "Order status — Syncit",
+  robots: {
+    index: false,
+    follow: false,
+    noarchive: true,
+    nosnippet: true,
+    noimageindex: true,
+  },
+};
 
 const CUSTOMER_VISIBLE_DOC_TYPES = new Set(["LORRY_RECEIPT", "INVOICE"]);
 

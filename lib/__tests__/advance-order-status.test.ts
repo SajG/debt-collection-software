@@ -65,8 +65,8 @@ async function makeUser(admin: SupabaseClient, email: string, password: string) 
 describe.runIf(required)("advance_order_status — transition + atomicity", () => {
   const stamp = Date.now();
   const password = `Adv_${stamp}!Aa1`;
-  const emailFactory = `adv-factory-${stamp}@synworks.test`;
-  const emailStaff = `adv-staff-${stamp}@synworks.test`;
+  const emailFactory = `adv-factory-${stamp}@syncit.test`;
+  const emailStaff = `adv-staff-${stamp}@syncit.test`;
 
   let admin!: SupabaseClient;
   let db!: PrismaClient;

@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { db } from "@/lib/db";
 import { isTallyEnabled } from "@/lib/settings";
 import { Sidebar } from "./_components/sidebar";
+import { CommandPalette } from "./_components/command-palette";
 
 const lora = Lora({
   subsets: ["latin"],
@@ -67,6 +68,7 @@ export default async function DashboardLayout({
       <div className="flex flex-1 flex-col overflow-hidden">
         <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
+      <CommandPalette />
     </div>
   );
 }

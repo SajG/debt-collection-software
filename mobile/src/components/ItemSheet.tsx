@@ -15,6 +15,7 @@ import { Segmented } from "@/components/Segmented";
 import { SelectField } from "@/components/SelectField";
 import { PickerField, type PickerItem } from "@/components/PickerField";
 import { useProducts } from "@/lib/queries";
+import { getRecent, recordRecent } from "@/lib/recent-picks";
 import {
   BRAND_LIST,
   COMMON_PACKINGS,
@@ -67,7 +68,13 @@ export function ItemSheet({
   const [privateLabelName, setPrivateLabelName] = useState("");
   // Custom-product state — user picked "Custom / not in catalogue".
   const [customProduct, setCustomProduct] = useState(false);
+  const [recentProductIds, setRecentProductIds] = useState<string[]>([]);
   const products = useProducts();
+
+  useEffect(() => {
+    if (!visible) return;
+    void getRecent("product").then(setRecentProductIds);
+  }, [visible]);
 
   useEffect(() => {
     if (visible) {
@@ -178,6 +185,10 @@ export function ItemSheet({
       customProductName: null,
       brand: prev.brand ?? p.brand ?? null,
     }));
+    // Fire-and-forget recency record. Failure to persist doesn't
+    // block the sheet — the picker still opens on next Add, just
+    // without the bump.
+    void recordRecent("product", p.id);
   }
 
   return (
@@ -237,6 +248,7 @@ export function ItemSheet({
               value={productValue}
               items={productItems}
               onChange={onProductChange}
+              recentValues={recentProductIds}
               placeholder={
                 products.loading && !products.data
                   ? "Loading products…"

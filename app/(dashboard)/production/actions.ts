@@ -883,3 +883,101 @@ export async function rejectOrderAction(input: {
   revalidatePath(`/production/${input.orderId}`);
   return { ok: true };
 }
+
+// ─────────────────────────────────────────────────────────────────
+// Bulk variants for the admin approval queues. Server runs one RPC
+// per order in parallel and reports per-row outcomes so the UI can
+// pop a red badge on any that failed instead of rolling the whole
+// batch back. `revalidatePath` fires once at the end.
+//
+// Capped at BULK_MAX to bound the burst; the admin queue is rarely
+// larger than that on a normal day.
+// ─────────────────────────────────────────────────────────────────
+
+const BULK_MAX = 50;
+
+export type BulkResult = {
+  ok: string[];
+  failed: { id: string; error: string }[];
+};
+
+async function runBulk(
+  ids: string[],
+  runOne: (id: string) => Promise<{ ok: true } | { error: string }>,
+): Promise<BulkResult> {
+  const trimmed = Array.from(new Set(ids.map((s) => s.trim()).filter(Boolean)));
+  if (trimmed.length === 0) return { ok: [], failed: [] };
+  const bounded = trimmed.slice(0, BULK_MAX);
+  const results = await Promise.all(
+    bounded.map(async (id) => {
+      try {
+        const r = await runOne(id);
+        return "error" in r ? { id, error: r.error } : { id, ok: true as const };
+      } catch (e) {
+        return {
+          id,
+          error: e instanceof Error ? e.message : "Unknown error",
+        };
+      }
+    }),
+  );
+  const ok: string[] = [];
+  const failed: { id: string; error: string }[] = [];
+  for (const r of results) {
+    if ("ok" in r) ok.push(r.id);
+    else failed.push({ id: r.id, error: r.error });
+  }
+  return { ok, failed };
+}
+
+export async function bulkApproveOrdersAction(input: {
+  orderIds: string[];
+  note?: string;
+}): Promise<BulkResult> {
+  const { requireAdmin } = await import("@/lib/authz");
+  await requireAdmin();
+  const res = await runBulk(input.orderIds, (id) =>
+    approveOrderAction({ orderId: id, note: input.note }),
+  );
+  revalidatePath("/admin/approvals");
+  revalidatePath("/admin/rate-approvals");
+  return res;
+}
+
+export async function bulkRejectOrdersAction(input: {
+  orderIds: string[];
+  reason: string;
+}): Promise<BulkResult> {
+  const { requireAdmin } = await import("@/lib/authz");
+  await requireAdmin();
+  const reason = input.reason.trim();
+  if (reason.length === 0) {
+    return {
+      ok: [],
+      failed: input.orderIds.map((id) => ({
+        id,
+        error: "Rejection reason is required.",
+      })),
+    };
+  }
+  const res = await runBulk(input.orderIds, (id) =>
+    rejectOrderAction({ orderId: id, reason }),
+  );
+  revalidatePath("/admin/approvals");
+  revalidatePath("/admin/rate-approvals");
+  return res;
+}
+
+export async function bulkApproveRatesAction(input: {
+  orderIds: string[];
+  note?: string;
+}): Promise<BulkResult> {
+  const { requireAdmin } = await import("@/lib/authz");
+  await requireAdmin();
+  const res = await runBulk(input.orderIds, (id) =>
+    approveOrderRateAction({ orderId: id, note: input.note }),
+  );
+  revalidatePath("/admin/rate-approvals");
+  revalidatePath("/admin/approvals");
+  return res;
+}

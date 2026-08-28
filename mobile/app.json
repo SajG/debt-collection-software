@@ -1,11 +1,14 @@
 {
   "expo": {
-    "name": "SynWorks",
-    "slug": "synworks",
+    "name": "Syncit",
+    "slug": "syncit",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "scheme": "synworks",
+    "scheme": [
+      "syncit",
+      "synworks"
+    ],
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
@@ -18,10 +21,10 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.synworks.app"
+      "bundleIdentifier": "com.syncit.app"
     },
     "android": {
-      "package": "com.synworks.app",
+      "package": "com.syncit.app",
       "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -48,8 +51,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "SynWorks needs camera/photo access so you can attach payment proof (bank screenshot, cheque photo) after recording a payment.",
-          "cameraPermission": "SynWorks uses the camera to capture payment proofs and order proofs while you're at the customer site."
+          "photosPermission": "Syncit needs camera/photo access so you can attach payment proof (bank screenshot, cheque photo) after recording a payment.",
+          "cameraPermission": "Syncit uses the camera to capture payment proofs and order proofs while you're at the customer site."
         }
       ],
       [
@@ -59,7 +62,10 @@
           "color": "#093D30",
           "defaultChannel": "default"
         }
-      ]
+      ],
+      "expo-font",
+      "expo-localization",
+      "@sentry/react-native"
     ],
     "notification": {
       "iosDisplayInForeground": true
