@@ -16,6 +16,9 @@ import {
   Factory,
   PackageSearch,
   Truck,
+  Target,
+  TrendingUp,
+  AlertTriangle,
 } from "lucide-react";
 import type { Role } from "@prisma/client";
 
@@ -79,6 +82,24 @@ const NAV: NavItem[] = [
     href: "/actions",
     label: "Follow-ups",
     icon: Phone,
+    roles: ["ADMIN", "STAFF"],
+  },
+  {
+    href: "/recovery",
+    label: "Recovery",
+    icon: TrendingUp,
+    roles: ["ADMIN", "STAFF"],
+  },
+  {
+    href: "/escalations",
+    label: "Escalations",
+    icon: AlertTriangle,
+    roles: ["ADMIN", "STAFF"],
+  },
+  {
+    href: "/targets",
+    label: "Targets",
+    icon: Target,
     roles: ["ADMIN", "STAFF"],
   },
   {
