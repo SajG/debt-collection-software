@@ -89,8 +89,7 @@ describe("middleware — dashboard auth gate", () => {
   beforeEach(() => {
     // Reset rate-limit bucket between tests so hitting the login
     // path many times in one file doesn't trip the limiter.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (globalThis as any).__syncitRate = new Map();
+    (globalThis as unknown as { __syncitRate: Map<unknown, unknown> }).__syncitRate = new Map();
   });
 
   for (const path of DASHBOARD_PATHS) {

@@ -101,7 +101,7 @@ export default async function SecuritySettingsPage({
           <h2 className="text-base font-semibold">Sessions</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             End every active session for your account — this browser, your
-            phone, and any other computer you're signed in on. You'll
+            phone, and any other computer you&apos;re signed in on. You&apos;ll
             need to sign in fresh everywhere after.
           </p>
           <div className="mt-3">

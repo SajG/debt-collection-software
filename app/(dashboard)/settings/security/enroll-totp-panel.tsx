@@ -156,7 +156,7 @@ export function EnrollTotpPanel() {
           onClick={() => setStage({ name: "idle" })}
           className="rounded-md bg-emerald-700 px-3 py-1 text-xs font-semibold text-white"
         >
-          I've saved them
+          I&apos;ve saved them
         </button>
       </div>
     </div>

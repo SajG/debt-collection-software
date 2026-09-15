@@ -45,7 +45,7 @@ export function SignOutEverywhereButton({
     <div className="flex flex-col items-start gap-2">
       <p className="text-xs text-red-800">
         End every session on every device — your phone, other browsers,
-        and any other computer where you're signed in. Type your name to
+        and any other computer where you&apos;re signed in. Type your name to
         confirm.
       </p>
       <div className="flex items-center gap-2">

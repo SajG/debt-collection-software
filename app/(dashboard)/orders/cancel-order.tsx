@@ -46,8 +46,8 @@ export function CancelOrderButton({ orderId }: { orderId: string }) {
               Cancel this order?
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              The factory will see the cancellation immediately. This can't be
-              undone.
+              The factory will see the cancellation immediately. This can&apos;t
+              be undone.
             </p>
             <label className="mt-4 block">
               <span className="mb-1.5 block text-sm font-medium text-foreground">

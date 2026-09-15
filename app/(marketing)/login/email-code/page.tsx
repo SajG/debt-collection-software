@@ -20,7 +20,7 @@ export default function EmailCodePage({
         <div className="mb-8 text-center">
           <h1 className="text-2xl font-bold tracking-tight">Syncit</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Sign in with a code we'll email to you.
+            Sign in with a code we&apos;ll email to you.
           </p>
         </div>
 
