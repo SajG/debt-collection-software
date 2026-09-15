@@ -108,6 +108,20 @@ enum SyncType {
   IMPORT_STOCK_ITEMS
   FULL_IMPORT
   EXPORT_PAYMENTS
+  RECOVERY_CRON
+}
+
+enum EscalationStage {
+  FLAGGED
+  NOTICE
+  FINAL_NOTICE
+  LEGAL
+}
+
+enum EscalationStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
 }
 
 enum SyncStatus {
@@ -268,6 +282,9 @@ model Profile {
   devices              Device[]           @relation("DeviceOwner")
   revokedDevices       Device[]           @relation("DeviceRevoker")
   recoveryCodes        RecoveryCode[]     @relation("RecoveryCodeOwner")
+  recoveryTargets      RecoveryTarget[]   @relation("RecoveryTargetUser")
+  openedEscalations    Escalation[]       @relation("EscalationOpener")
+  escalationEvents     EscalationEvent[]  @relation("EscalationEventActor")
 
   @@index([isActive, role])
 }
@@ -482,6 +499,9 @@ model Party {
   paymentLinks PaymentLink[]
   creditNotes  CreditNote[]
   salesOrders  SalesOrder[]
+
+  escalations    Escalation[]
+  recommendation Recommendation?
 
   @@index([assignedToId])
   @@index([isActive, priority])
@@ -1145,4 +1165,65 @@ model RecoveryCode {
   profile Profile @relation("RecoveryCodeOwner", fields: [profileId], references: [id], onDelete: Cascade)
 
   @@index([profileId, usedAt])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// RECOVERY  (targets, escalation ladder, AI recommendations)
+// See docs/superpowers/specs/2026-07-21-recovery-backend-design.md
+// ─────────────────────────────────────────────────────────────────
+
+model RecoveryTarget {
+  id           String   @id @default(cuid())
+  userId       String   @db.Uuid
+  month        DateTime // canonical label: Date.UTC(y, m, 1) for the IST month
+  targetAmount Decimal  @db.Decimal(12, 2)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user Profile @relation("RecoveryTargetUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, month])
+}
+
+model Escalation {
+  id         String           @id @default(cuid())
+  partyId    String
+  stage      EscalationStage  @default(FLAGGED)
+  status     EscalationStatus @default(OPEN)
+  reason     String
+  openedById String?          @db.Uuid // null = auto-flagged by cron
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  party    Party             @relation(fields: [partyId], references: [id], onDelete: Restrict)
+  openedBy Profile?          @relation("EscalationOpener", fields: [openedById], references: [id])
+  events   EscalationEvent[]
+
+  @@index([status, stage])
+  @@index([partyId])
+}
+
+model EscalationEvent {
+  id           String           @id @default(cuid())
+  escalationId String
+  fromStage    EscalationStage?
+  toStage      EscalationStage
+  note         String
+  byId         String?          @db.Uuid // null = system (cron)
+  createdAt    DateTime         @default(now())
+
+  escalation Escalation @relation(fields: [escalationId], references: [id], onDelete: Cascade)
+  by         Profile?   @relation("EscalationEventActor", fields: [byId], references: [id])
+
+  @@index([escalationId, createdAt])
+}
+
+model Recommendation {
+  id          String   @id @default(cuid())
+  partyId     String   @unique
+  content     Json // { nextAction, urgency, talkingPoints, draftMessage }
+  model       String // "claude-haiku-4-5" | "rules-fallback"
+  generatedAt DateTime @default(now())
+
+  party Party @relation(fields: [partyId], references: [id], onDelete: Cascade)
 }
