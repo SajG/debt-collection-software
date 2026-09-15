@@ -55,3 +55,32 @@ Auth uses the same Supabase project (`NEXT_PUBLIC_SUPABASE_URL`,
 stored secrets such as the WhatsApp API token at rest. Messaging, payment
 links, and the reminder cron have their own keys — all documented in
 `.env.example`.
+
+## Recovery module
+
+Adds `/recovery` (today's chase list), `/escalations` (open ladder), and
+`/targets` (monthly scorecard) pages plus a second cron `/api/cron/recovery`
+scheduled at 11:00 IST (`30 5 * * *` UTC) that:
+
+1. Auto-flags parties matching the escalation rules
+   (`lib/recovery/escalation.ts`).
+2. Refreshes AI recommendations for the top 15 parties by risk score
+   through the Anthropic API (`claude-haiku-4-5`), falling back to
+   deterministic rules when `ANTHROPIC_API_KEY` is unset or the call fails.
+3. Sends per-staff WhatsApp digests + an admin summary via the existing
+   WhatsApp provider (see `lib/messaging/internal.ts` for the gate
+   exception).
+
+Per Supabase project setup:
+
+1. `npm run db:push`
+2. Run `prisma/sql/2026-07-21-escalation-open-unique.sql` once in the
+   Supabase SQL editor (partial unique index — one OPEN escalation per
+   party).
+3. Optionally set `ANTHROPIC_API_KEY` in Vercel env.
+4. Redeploy so `vercel.json` registers the new cron.
+5. Each staff member sends one WhatsApp to the business number to open
+   Meta's 24h service window for free-form digest delivery.
+
+Design spec: `docs/superpowers/specs/2026-07-21-recovery-backend-design.md`.
+Implementation plan: `docs/superpowers/plans/2026-07-21-recovery-backend.md`.
