@@ -218,3 +218,25 @@ export const actionSchema = z.object({
 });
 
 export type ActionInput = z.input<typeof actionSchema>;
+
+export const recoveryTargetSchema = z.object({
+  userId: z.string().uuid("Pick a staff member"),
+  month: z.string().regex(/^\d{4}-\d{2}$/, "Month must be YYYY-MM"),
+  targetAmount: z.coerce
+    .number()
+    .positive("Target must be positive")
+    .max(1_000_000_000, "Target too large"),
+});
+export type RecoveryTargetInput = z.infer<typeof recoveryTargetSchema>;
+
+export const escalationOpenSchema = z.object({
+  partyId: z.string().min(1),
+  reason: z.string().min(3, "Give a reason").max(500),
+});
+export type EscalationOpenInput = z.infer<typeof escalationOpenSchema>;
+
+export const escalationNoteSchema = z.object({
+  escalationId: z.string().min(1),
+  note: z.string().min(3, "Note is required").max(1000),
+});
+export type EscalationNoteInput = z.infer<typeof escalationNoteSchema>;
