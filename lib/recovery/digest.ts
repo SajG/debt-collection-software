@@ -44,7 +44,7 @@ export function renderAdminDigest(
 ): string {
   const rows: string[] = [];
   let total = 0;
-  for (const [staffId, entries] of plan.byStaff) {
+  for (const [staffId, entries] of Array.from(plan.byStaff.entries())) {
     rows.push(`${staffNames.get(staffId) ?? staffId}: ${entries.length}`);
     total += entries.length;
   }
@@ -52,7 +52,7 @@ export function renderAdminDigest(
     rows.push(`Unassigned: ${plan.unassigned.length}`);
     total += plan.unassigned.length;
   }
-  const top = [...plan.unassigned, ...[...plan.byStaff.values()].flat()]
+  const top = [...plan.unassigned, ...Array.from(plan.byStaff.values()).flat()]
     .sort((a, b) => b.outstanding - a.outstanding)
     .slice(0, 3)
     .map((e) => `• ${e.partyName} ${formatINR(e.outstanding)}`);
