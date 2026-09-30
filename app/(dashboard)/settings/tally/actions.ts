@@ -5,11 +5,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/authz";
 import { resolveOrgIdFromProfile } from "@/lib/tenancy";
-import {
-  generatePairingCode,
-  hashSecret,
-  normalizePairingCode,
-} from "@/lib/tally/pairing";
+import { generatePairingCode, hashSecret } from "@/lib/tally/pairing";
 
 // SY27 — Settings → Tally actions.
 //
@@ -72,43 +68,5 @@ export async function revokeConnectorAction(input: {
   return { ok: true };
 }
 
-// Used by a future cron to email the owner when a connector's
-// lastSeenAt is older than 24h on a weekday. Not wired up yet;
-// exported so the SY28 job can import it without duplication.
-export function isStale(lastSeenAt: Date | null, now = new Date()): boolean {
-  if (!lastSeenAt) return false;
-  const day = now.getUTCDay();
-  if (day === 0 || day === 6) return false; // Sat/Sun
-  return now.getTime() - lastSeenAt.getTime() > 24 * 60 * 60 * 1000;
-}
-
-/** Convert a raw connector error string to plain English. Handles the
- *  common Tally failure modes so the admin sees "Tally is closed"
- *  instead of "ECONNREFUSED 127.0.0.1:9000". */
-export function friendlyTallyError(raw: string | null): string | null {
-  if (!raw) return null;
-  const lower = raw.toLowerCase();
-  if (lower.includes("econnrefused") || lower.includes("connection refused")) {
-    return "Tally is not running. Open Tally on this PC and load the company.";
-  }
-  if (
-    lower.includes("port 9000") ||
-    lower.includes("port not enabled") ||
-    lower.includes("odbc")
-  ) {
-    return "Port 9000 is not enabled — in Tally, F12 → Advanced → Allow ODBC/HTTP.";
-  }
-  if (lower.includes("no company") || lower.includes("company not loaded")) {
-    return "No company is loaded in Tally. Select the company you want to sync.";
-  }
-  if (lower.includes("timeout")) {
-    return "Tally didn't respond in time. Try again in a minute.";
-  }
-  return raw.slice(0, 240);
-}
-
-/** Normalise + hash a user-typed pairing code — kept exported so unit
- *  tests can round-trip against generatePairingCode. */
-export function normalizeAndHash(input: string): string {
-  return hashSecret(normalizePairingCode(input));
-}
+// Sync helpers moved to lib/tally/errors.ts — Next.js "use server"
+// files may only export async functions.

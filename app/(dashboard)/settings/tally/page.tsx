@@ -6,7 +6,7 @@ import { resolveOrgIdFromProfile } from "@/lib/tenancy";
 import { PageHeader } from "../../_components/ui";
 import { PairPanel } from "./pair-panel";
 import { ConnectorsList } from "./connectors-list";
-import { friendlyTallyError } from "./actions";
+import { friendlyTallyError } from "@/lib/tally/errors";
 
 export const metadata: Metadata = {
   title: "Tally connection — Syncit",
