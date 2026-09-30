@@ -1,0 +1,113 @@
+name: tally-connector-release
+
+# SY27 — build the Windows connector on windows-latest and attach the
+# NSIS installer + latest.json to a GitHub Release. /download links to
+# the latest release asset via getsyncit.app/download/latest.json.
+#
+# Trigger:
+#   * push of a tag matching `connector-v*` (e.g. connector-v0.2.0)
+#   * manual dispatch (for hotfixes)
+#
+# Code signing is a documented TODO — needs a Windows code-signing
+# certificate. Once purchased, set repo secrets CSC_LINK (base64 of
+# the .pfx) and CSC_KEY_PASSWORD; electron-builder picks them up
+# automatically. See docs/TALLY-CONNECTOR-RELEASE.md.
+
+on:
+  push:
+    tags:
+      - "connector-v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build only, don't publish to Releases"
+        required: false
+        default: "false"
+
+permissions:
+  contents: write   # needs write to create/update a release
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: tools/tally-connector
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: tools/tally-connector/package-lock.json
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Read version from package.json
+        id: pkg
+        shell: bash
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Build NSIS installer
+        run: npm run dist -- --publish never
+        env:
+          # TODO(codesign): wire CSC_LINK + CSC_KEY_PASSWORD once we
+          # have a Windows code-signing certificate.
+          # CSC_LINK: ${{ secrets.CSC_LINK }}
+          # CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Locate installer
+        id: locate
+        shell: bash
+        run: |
+          FILE=$(ls dist/*.exe | head -n 1)
+          echo "path=$FILE" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$FILE")" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(sha256sum "$FILE" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Write latest.json
+        id: latest
+        shell: bash
+        run: |
+          cat > dist/latest.json <<JSON
+          {
+            "version": "${{ steps.pkg.outputs.version }}",
+            "released_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "installer": {
+              "name": "${{ steps.locate.outputs.name }}",
+              "sha256": "${{ steps.locate.outputs.sha256 }}",
+              "url": "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ steps.locate.outputs.name }}"
+            }
+          }
+          JSON
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: syncit-tally-connector-${{ steps.pkg.outputs.version }}
+          path: |
+            tools/tally-connector/dist/*.exe
+            tools/tally-connector/dist/latest.json
+
+      - name: Publish GitHub Release
+        if: ${{ github.event_name == 'push' && github.event.inputs.dry_run != 'true' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Syncit Tally Connector ${{ steps.pkg.outputs.version }}
+          draft: false
+          prerelease: false
+          files: |
+            tools/tally-connector/dist/*.exe
+            tools/tally-connector/dist/latest.json
+          body: |
+            Automated release built on windows-latest.
+
+            **SHA-256**: `${{ steps.locate.outputs.sha256 }}`
+
+            After publishing, https://getsyncit.app/download/latest.json
+            proxies to the `latest.json` attached here (see
+            docs/TALLY-CONNECTOR-RELEASE.md for the redirect setup).

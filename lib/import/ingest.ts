@@ -679,8 +679,8 @@ export async function ingestReceiptRows(
         ? new Prisma.Decimal(0)
         : onAccount.plus(unmatchedAmount);
 
-      // SY21: payment tallyRef is unique per organization now.
-      const organizationId = await getDefaultOrgId();
+      // SY21: payment tallyRef is unique per org. SY27: caller-supplied.
+      const organizationId = await resolveOrgId(opts);
       await db.$transaction(async (tx) => {
         for (const a of allocationsWithInvoice) {
           const ref = `${r.tallyRef}:${a.invoiceNumber}`;
@@ -719,6 +719,7 @@ export async function ingestReceiptRows(
           }
           await tx.payment.create({
             data: {
+              organizationId,
               partyId: party.id,
               invoiceId: a.invoiceId,
               amount: a.amount,
@@ -768,6 +769,7 @@ export async function ingestReceiptRows(
           } else {
             await tx.payment.create({
               data: {
+                organizationId,
                 partyId: party.id,
                 invoiceId: null,
                 amount: residual,

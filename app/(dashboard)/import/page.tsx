@@ -49,6 +49,29 @@ export default async function ImportPage() {
       />
       <ImportClient />
 
+      <div className="mt-8 max-w-3xl">
+        <Card title="Excel templates">
+          <p className="mb-3 text-xs text-muted-foreground">
+            Download a CSV with Tally-export column names, paste your data,
+            re-upload above. Every column past the required ones is optional.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <a
+              href="/api/import/templates/customers"
+              className="rounded-md border border-border bg-white px-3 py-2 text-xs font-semibold hover:bg-muted"
+            >
+              customers.csv
+            </a>
+            <a
+              href="/api/import/templates/outstanding-invoices"
+              className="rounded-md border border-border bg-white px-3 py-2 text-xs font-semibold hover:bg-muted"
+            >
+              outstanding-invoices.csv
+            </a>
+          </div>
+        </Card>
+      </div>
+
       <div className="mt-8 max-w-3xl space-y-6">
         <Card title="Pending customer matches">
           <PendingOrdersResolver pending={pending} />
@@ -66,17 +89,24 @@ export default async function ImportPage() {
         {tallyOn && (
           <Card title="Tally (on-premise)">
             <p className="text-xs text-muted-foreground">
-              Tally runs on your local network, so the cloud cannot reach it
-              directly. Run the bundled sync agent on the machine that runs
-              Tally — it reads Sundry Debtors ledgers and sales vouchers over
-              Tally&apos;s local HTTP port and pushes them here through the
-              same import pipeline. See{" "}
-              <code className="rounded bg-muted px-1 py-0.5">
-                tools/tally-sync-agent.mjs
-              </code>{" "}
-              in the repository for setup (needs the{" "}
-              <code className="rounded bg-muted px-1 py-0.5">TALLY_SYNC_SECRET</code>{" "}
-              deployment env var). Schedule it nightly with Task Scheduler or cron.
+              Tally runs on your local network. Pair the Syncit connector
+              on your Tally PC from{" "}
+              <a
+                className="font-semibold text-primary underline underline-offset-4"
+                href="/settings/tally"
+              >
+                Settings → Tally
+              </a>{" "}
+              — generate an 8-character pairing code, enter it in the
+              connector, and Tally starts syncing every 5 minutes.
+              Download the connector from{" "}
+              <a
+                className="font-semibold text-primary underline underline-offset-4"
+                href="/download#tally"
+              >
+                /download
+              </a>
+              .
             </p>
           </Card>
         )}

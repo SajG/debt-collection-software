@@ -14,7 +14,9 @@ const ALPHA = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 export function generatePairingCode(): string {
   const bytes = randomBytes(8);
   let out = "";
-  for (const b of bytes) out += ALPHA[b % ALPHA.length];
+  for (let i = 0; i < bytes.length; i++) {
+    out += ALPHA[bytes[i] % ALPHA.length];
+  }
   return out;
 }
 

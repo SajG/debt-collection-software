@@ -2,6 +2,10 @@
   "name": "syncit",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "npm@12.1.0",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
