@@ -68,7 +68,15 @@ export default function LoginPage({
           <EmailCodeForm callbackUrl={searchParams.callbackUrl} />
         </div>
 
-        <p className="mt-6 text-center text-sm text-muted-foreground">
+        <p className="mt-6 text-center text-xs text-muted-foreground">
+          <Link
+            href={`/login/password${searchParams.callbackUrl ? `?callbackUrl=${encodeURIComponent(searchParams.callbackUrl)}` : ""}`}
+            className="text-primary underline-offset-4 hover:underline"
+          >
+            Prefer a password? Sign in that way →
+          </Link>
+        </p>
+        <p className="mt-4 text-center text-sm text-muted-foreground">
           New to Syncit?{" "}
           <Link href="/signup" className="text-primary underline-offset-4 hover:underline">
             Start free trial →
