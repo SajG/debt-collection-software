@@ -22,6 +22,7 @@ import {
   getLockKind,
   shouldPromptForUnlock,
 } from "@/auth/device-lock";
+import { markSessionRevoked } from "@/lib/session-revoked";
 
 // Two layers of "am I signed in":
 //
@@ -131,18 +132,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    // Best-effort touch of the device's lastSeenAt so the admin's
-    // devices page reflects reality. Non-blocking; ignore errors.
+    // Device heartbeat + revocation check (SY15.1). touch_device_seen
+    // now returns { ok: boolean } — false when the device row is
+    // missing or revoked. On !ok we sign the user out and clear the
+    // local device id so an old phone learns it was replaced without
+    // waiting for the (up to 1h) JWT to refresh. Non-fatal for
+    // network errors — those are handled by connectivity retries.
     void (async () => {
       const deviceId = await getDeviceId();
       if (!deviceId) return;
       try {
-        await (supabase.rpc as unknown as (
+        const { data: rows } = await (supabase.rpc as unknown as (
           fn: string,
           args: Record<string, unknown>,
-        ) => Promise<unknown>)("touch_device_seen", { p_device_id: deviceId });
+        ) => Promise<{
+          data: { ok: boolean }[] | null;
+          error: { message: string } | null;
+        }>)("touch_device_seen", { p_device_id: deviceId });
+        const ok = rows?.[0]?.ok ?? false;
+        if (!ok) {
+          // This device was revoked. Persist the notice so the
+          // /(auth)/email screen can surface "signed out by your
+          // admin", then sign out immediately + clear local state;
+          // the root gate will route to /(auth)/email.
+          await markSessionRevoked();
+        }
       } catch {
-        /* non-fatal */
+        /* network fault; leave state alone */
       }
     })();
   }, []);

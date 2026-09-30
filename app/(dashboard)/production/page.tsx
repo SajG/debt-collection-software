@@ -5,6 +5,7 @@ import { formatDate, toNumber } from "@/lib/format";
 import {
   customerName,
   deliveryUrgency,
+  isFactoryReadOnlyOrder,
   ORDER_STATUS_LABELS,
 } from "@/lib/orders/status";
 import { PageHeader, Badge, statusTone } from "../_components/ui";
@@ -12,31 +13,27 @@ import { PageHeader, Badge, statusTone } from "../_components/ui";
 export default async function ProductionQueuePage() {
   const profile = await requireFactoryOrAdmin();
 
+  // Audit item 10: FACTORY sees the whole pipeline, PENDING_APPROVAL
+  // and needsRateApproval rows included, so the shop floor is never
+  // blind to what's coming. Read-only styling + a "Waiting for
+  // management approval" badge take the place of the old hide.
+  const isFactory = profile.role === "FACTORY";
   const orders = await db.salesOrder.findMany({
     where: {
       currentStatus: {
-        notIn: [
-          "DISPATCHED",
-          "DELIVERED",
-          "CANCELLED",
-          // P1 — approval queue is a separate screen; rejected is
-          // terminal. Neither belongs on the production queue for
-          // any role.
-          "PENDING_APPROVAL",
-          "REJECTED",
-        ],
+        notIn: isFactory
+          ? ["DISPATCHED", "DELIVERED", "CANCELLED"]
+          : [
+              "DISPATCHED",
+              "DELIVERED",
+              "CANCELLED",
+              // ADMIN keeps a dedicated approval screen (/admin/approvals)
+              // + a rate-approvals queue; the main production queue
+              // hides PENDING / REJECTED so the two views don't overlap.
+              "PENDING_APPROVAL",
+              "REJECTED",
+            ],
       },
-      // F6 — needsRateApproval=true orders are hidden from FACTORY,
-      // shown to ADMIN so they can approve or cancel. The DB-layer
-      // gate (RLS sales_order_select_factory in migration
-      // 20260821160000_factory_rls_needs_rate_approval) already
-      // enforces this for any FACTORY JWT talking to Supabase
-      // directly (mobile). This app-level filter STAYS as defence
-      // in depth: Prisma connects with the schema owner and
-      // BYPASSES RLS, so without this the web console would still
-      // leak below-floor orders to FACTORY users even after the
-      // RLS fix.
-      ...(profile.role === "FACTORY" ? { needsRateApproval: false } : {}),
     },
     include: {
       party: { select: { name: true } },
@@ -81,12 +78,23 @@ export default async function ProductionQueuePage() {
                 : urgency === "today"
                   ? "text-amber-700 font-bold"
                   : "text-foreground";
+            const readOnly =
+              isFactory &&
+              isFactoryReadOnlyOrder({
+                currentStatus: order.currentStatus,
+                needsRateApproval: order.needsRateApproval,
+              });
 
             return (
               <li key={order.id}>
                 <Link
                   href={`/production/${order.id}`}
-                  className="block rounded-xl border-2 border-border bg-card p-4 shadow-sm transition-colors hover:border-primary/40 hover:bg-muted/20 active:bg-muted/40 sm:p-5"
+                  aria-disabled={readOnly}
+                  className={
+                    readOnly
+                      ? "block rounded-xl border-2 border-dashed border-slate-300 bg-slate-100 p-4 opacity-90 transition-colors hover:bg-slate-100 sm:p-5"
+                      : "block rounded-xl border-2 border-border bg-card p-4 shadow-sm transition-colors hover:border-primary/40 hover:bg-muted/20 active:bg-muted/40 sm:p-5"
+                  }
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
@@ -101,9 +109,18 @@ export default async function ProductionQueuePage() {
                         {order.orderNumber}
                       </p>
                     </div>
-                    <Badge tone={statusTone(order.currentStatus)}>
-                      {ORDER_STATUS_LABELS[order.currentStatus]}
-                    </Badge>
+                    {readOnly ? (
+                      <span
+                        className="rounded-full bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-700"
+                        title="Read-only until management approves the order or its rate"
+                      >
+                        Waiting for management approval
+                      </span>
+                    ) : (
+                      <Badge tone={statusTone(order.currentStatus)}>
+                        {ORDER_STATUS_LABELS[order.currentStatus]}
+                      </Badge>
+                    )}
                   </div>
 
                   <div className="mt-4 grid grid-cols-2 gap-3 text-base sm:grid-cols-3 sm:text-lg">
@@ -129,9 +146,17 @@ export default async function ProductionQueuePage() {
                     </div>
                     <div className="col-span-2 sm:col-span-1">
                       <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                        Open
+                        {readOnly ? "Status" : "Open"}
                       </p>
-                      <p className="font-semibold text-primary">Update →</p>
+                      <p
+                        className={
+                          readOnly
+                            ? "font-semibold text-slate-500"
+                            : "font-semibold text-primary"
+                        }
+                      >
+                        {readOnly ? "View only" : "Update →"}
+                      </p>
                     </div>
                   </div>
                 </Link>

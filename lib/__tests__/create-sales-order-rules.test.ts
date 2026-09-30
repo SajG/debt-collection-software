@@ -276,9 +276,13 @@ describe.runIf(required)("create_sales_order — rule matrix (P0-A)", () => {
       `SELECT id FROM "BusinessSettings"`,
     );
     if (rows.length === 0) {
+      // SY21 — BusinessSettings pivoted to organizationId; resolve
+      // from the admin's Profile via Membership.
+      const { resolveOrgIdFromProfile } = await import("@/lib/tenancy");
+      const organizationId = await resolveOrgIdFromProfile(adminSession.userId);
       await db.businessSettings.create({
         data: {
-          profileId: adminSession.userId,
+          organizationId,
           orderApprovalMode: mode,
         },
       });

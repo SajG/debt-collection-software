@@ -14,6 +14,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { useAuth } from "@/auth/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { theme } from "@/theme";
+import { getLocale, setLocale, type Language } from "@/lib/i18n";
 
 type Prefs = {
   notifyStatusChanges: boolean;
@@ -78,6 +79,8 @@ export default function SettingsScreen() {
           </View>
         ) : (
           <>
+            <SectionTitle>Language</SectionTitle>
+            <LanguagePicker />
             <SectionTitle>Notifications</SectionTitle>
             <Row
               label="Order status updates"
@@ -128,6 +131,61 @@ export default function SettingsScreen() {
 
 function SectionTitle({ children }: { children: string }) {
   return <Text style={styles.section}>{children}</Text>;
+}
+
+// SY25 — three-way language picker. Persists via setLocale (which
+// writes AsyncStorage). No re-render tree — call sites read
+// dictionaries synchronously, so we force a full remount by
+// nudging local state and letting the router redraw the next time
+// the user navigates. Fine for a settings screen change.
+function LanguagePicker() {
+  const [current, setCurrent] = useState<Language>(getLocale());
+  const options: { value: Language; label: string; hint: string }[] = [
+    { value: "en", label: "English", hint: "Default" },
+    { value: "hi", label: "हिन्दी", hint: "Hindi" },
+    { value: "mr", label: "मराठी", hint: "Marathi" },
+  ];
+  return (
+    <View style={{ gap: theme.spacing.sm }}>
+      {options.map((o) => {
+        const active = current === o.value;
+        return (
+          <Pressable
+            key={o.value}
+            onPress={() => {
+              setLocale(o.value);
+              setCurrent(o.value);
+            }}
+            style={({ pressed }) => [
+              styles.row,
+              active && { borderColor: theme.colors.primary, borderWidth: 2 },
+              pressed && { opacity: 0.85 },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={`Set language to ${o.label}`}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowLabel}>{o.label}</Text>
+              <Text style={styles.rowHint}>{o.hint}</Text>
+            </View>
+            {active ? (
+              <Text style={{ color: theme.colors.primary, fontWeight: "700" }}>
+                ✓
+              </Text>
+            ) : null}
+          </Pressable>
+        );
+      })}
+      <Text
+        style={{
+          fontSize: theme.type.bodySmall - 2,
+          color: theme.colors.textMuted,
+        }}
+      >
+        Change takes full effect after the next screen change.
+      </Text>
+    </View>
+  );
 }
 
 function Row({

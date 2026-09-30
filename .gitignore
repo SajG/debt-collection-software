@@ -33,3 +33,7 @@ next-env.d.ts
 # supabase CLI local cache
 supabase/.temp/
 mobile/supabase/.temp/
+
+# Real team roster (names + phone numbers). Kept out of git; the
+# tracked prisma/team.example.csv has fake rows for a fresh clone.
+prisma/team.local.csv

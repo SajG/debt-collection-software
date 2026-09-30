@@ -65,12 +65,12 @@ describe("ORDER_STATUS_LABELS (P1 UI contract)", () => {
   });
 });
 
-describe("isFactoryHiddenOrder / canAccessOrder (P1 FACTORY hide)", () => {
+describe("isFactoryReadOnlyOrder / canViewOrder / canActOnOrder (audit item 10)", () => {
   const factory = fakeProfile("FACTORY");
   const admin = fakeProfile("ADMIN");
   const staff = fakeProfile("STAFF");
 
-  it("hides PENDING_APPROVAL and REJECTED from FACTORY even when rate-cleared", () => {
+  it("flags PENDING_APPROVAL / REJECTED / needsRateApproval as FACTORY read-only", () => {
     expect(
       isFactoryHiddenOrder({
         currentStatus: "PENDING_APPROVAL",
@@ -86,26 +86,35 @@ describe("isFactoryHiddenOrder / canAccessOrder (P1 FACTORY hide)", () => {
     expect(
       isFactoryHiddenOrder({
         currentStatus: "ORDER_PLACED",
+        needsRateApproval: true,
+      }),
+    ).toBe(true);
+    expect(
+      isFactoryHiddenOrder({
+        currentStatus: "ORDER_PLACED",
         needsRateApproval: false,
       }),
     ).toBe(false);
   });
 
-  it("FACTORY cannot access a pending or rejected order", () => {
+  it("FACTORY CAN VIEW pending / rejected orders (audit item 10 — RLS opened)", () => {
+    // canAccessOrder is now an alias for canViewOrder — the old
+    // "hide from FACTORY" behaviour became the "waiting for
+    // management approval" grey badge in the UI, not a row hide.
     expect(
       canAccessOrder(factory, {
         salespersonId: staff.id,
         currentStatus: "PENDING_APPROVAL",
         needsRateApproval: false,
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canAccessOrder(factory, {
         salespersonId: staff.id,
         currentStatus: "REJECTED",
         needsRateApproval: true,
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canAccessOrder(factory, {
         salespersonId: staff.id,

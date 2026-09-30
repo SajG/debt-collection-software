@@ -5,6 +5,7 @@ import { refreshRiskLevels } from "@/lib/ar/refresh";
 import { sendReminder } from "@/lib/messaging/send";
 import { captureError } from "@/lib/monitoring";
 import { verifyBearer } from "@/lib/auth/verify-bearer";
+import { forEachActiveOrg } from "@/lib/platform/orgs";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -31,12 +32,32 @@ export async function GET(request: NextRequest) {
   }
 }
 
-async function runCronPass() {
+type OrgSummary = {
+  orgId: string;
+  orgSlug: string;
+  overdueMarked: number;
+  riskUpdated: number;
+  remindersSent: number;
+  remindersBlocked: number;
+  remindersFailed: number;
+  autoRemindersEnabled: boolean;
+};
+
+async function runForOrg(orgId: string, orgSlug: string): Promise<OrgSummary> {
+  // SY22 — per-org pass. refreshOverdueStatuses / refreshRiskLevels
+  // still run globally over Invoices/Parties; tenant scoping is
+  // enforced by their SQL predicates elsewhere. The reminders send
+  // loop is org-scoped so one distributor's WhatsApp outage can't
+  // block another's.
   const overdueMarked = await db.$transaction((tx) => refreshOverdueStatuses(tx));
   const riskUpdated = await refreshRiskLevels();
 
-  const settings = await db.businessSettings.findFirst();
-  const summary = {
+  const settings = await db.businessSettings.findFirst({
+    where: { organizationId: orgId },
+  });
+  const summary: OrgSummary = {
+    orgId,
+    orgSlug,
     overdueMarked,
     riskUpdated,
     remindersSent: 0,
@@ -44,15 +65,11 @@ async function runCronPass() {
     remindersFailed: 0,
     autoRemindersEnabled: settings?.autoRemindersEnabled ?? false,
   };
+  if (!settings?.autoRemindersEnabled) return summary;
 
-  if (!settings?.autoRemindersEnabled) {
-    return NextResponse.json(summary);
-  }
-
-  // Only consented, unpaused parties with an overdue invoice. The gate
-  // re-checks all of this at send time; the filter just avoids useless work.
   const parties = await db.party.findMany({
     where: {
+      organizationId: orgId,
       isActive: true,
       consentStatus: "OPTED_IN",
       outreachPaused: false,
@@ -75,7 +92,7 @@ async function runCronPass() {
         partyId: party.id,
         channel,
         invoiceId: oldestOverdue?.id ?? null,
-        sentById: null, // automated
+        sentById: null,
       });
       if (result.status === "sent") {
         summary.remindersSent++;
@@ -85,12 +102,22 @@ async function runCronPass() {
       if (result.status === "blocked") {
         summary.remindersBlocked++;
         done = true;
-        break; // gate verdicts are party-level — do not try other channels
+        break;
       }
-      // failed → try next channel
     }
     if (!done) summary.remindersFailed++;
   }
+  return summary;
+}
 
-  return NextResponse.json(summary);
+async function runCronPass() {
+  const { ok, failed } = await forEachActiveOrg(
+    "cron.reminders",
+    (org) => runForOrg(org.id, org.slug),
+  );
+  return NextResponse.json({
+    orgsProcessed: ok.length,
+    orgsFailed: failed.length,
+    perOrg: ok.map((r) => r.result),
+  });
 }

@@ -4,6 +4,7 @@ import type { Profile } from "@prisma/client";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/lib/db";
 import { readMfaStatus } from "@/lib/auth/mfa";
+import { resolveOrgIdFromProfile } from "./tenancy";
 
 // The pure scope predicates live in lib/authz-scope.ts so vitest can
 // import them without pulling in next/headers via the Supabase server
@@ -12,6 +13,8 @@ export {
   partyScopeWhere,
   canAccessParty,
   canAccessOrder,
+  canViewOrder,
+  canActOnOrder,
 } from "./authz-scope";
 
 /** Authenticated user's Profile row, or null. */
@@ -51,18 +54,28 @@ export async function requireAdmin(): Promise<Profile> {
   const profile = await requireProfile();
   if (profile.role !== "ADMIN") redirect("/dashboard");
 
+  // Pilot escape hatch — set AUTH_SKIP_MFA=1 to bypass the TOTP wall
+  // globally. Kept for local dev only; production should use the
+  // per-org toggle below instead.
+  if (process.env.AUTH_SKIP_MFA === "1") return profile;
+
+  // SY23 — MFA is per-org opt-in. A brand-new distributor signing
+  // up should NOT hit a TOTP wall on their first login. Synergy's
+  // BusinessSettings.requireManagement2fa is flipped true by the
+  // 20260929050000_saas_onboarding migration; every new org starts
+  // false and shows a "Protect your account" nudge instead.
+  const organizationId = await resolveOrgIdFromProfile(profile.id);
+  const settings = await db.businessSettings.findUnique({
+    where: { organizationId },
+    select: { requireManagement2fa: true },
+  });
+  if (!settings?.requireManagement2fa) return profile;
+
   const { factor, aal } = await readMfaStatus();
   if (factor.kind !== "verified") {
-    // No verified factor at all → force enrolment. The security page
-    // is the only ADMIN destination allowed to render at aal1 with
-    // no factor, so it also acts as the escape hatch for first-run
-    // admins.
     redirect("/settings/security");
   }
   if (aal !== "aal2") {
-    // Verified factor exists but the current session hasn't
-    // challenged. Route to challenge; on success user comes back
-    // here at aal2.
     redirect("/login/challenge");
   }
   return profile;
@@ -104,6 +117,18 @@ export async function requireProfileApi(opts?: {
         profile: null,
         failure: NextResponse.json({ error: "Admin access required" }, { status: 403 }),
       };
+    }
+    if (process.env.AUTH_SKIP_MFA === "1") {
+      return { profile, failure: null };
+    }
+    // SY23 — mirror requireAdmin's per-org MFA opt-in for API routes.
+    const organizationId = await resolveOrgIdFromProfile(profile.id);
+    const settings = await db.businessSettings.findUnique({
+      where: { organizationId },
+      select: { requireManagement2fa: true },
+    });
+    if (!settings?.requireManagement2fa) {
+      return { profile, failure: null };
     }
     const { factor, aal } = await readMfaStatus();
     if (factor.kind !== "verified" || aal !== "aal2") {

@@ -6,6 +6,7 @@
 import type { AccountingProvider } from "@prisma/client";
 import { db } from "@/lib/db";
 import { encryptSecret, decryptSecret } from "@/lib/crypto";
+import { getDefaultOrgId } from "@/lib/tenancy";
 
 export type ProviderSlug = "zoho-books" | "quickbooks" | "xero";
 
@@ -179,9 +180,12 @@ export async function saveConnection(params: {
     ? new Date(Date.now() + (tokens.expires_in - 60) * 1000)
     : null;
 
+  // SY21 — AccountingConnection is unique per (organizationId, provider).
+  const organizationId = await getDefaultOrgId();
   await db.accountingConnection.upsert({
-    where: { provider },
+    where: { organizationId_provider: { organizationId, provider } },
     create: {
+      organizationId,
       provider,
       refreshToken: encryptSecret(tokens.refresh_token),
       accessToken: encryptSecret(tokens.access_token),
@@ -201,7 +205,10 @@ export async function saveConnection(params: {
 export async function getAccessToken(
   provider: AccountingProvider
 ): Promise<{ token: string; orgId: string | null } | { error: string }> {
-  const conn = await db.accountingConnection.findUnique({ where: { provider } });
+  const organizationId = await getDefaultOrgId();
+  const conn = await db.accountingConnection.findUnique({
+    where: { organizationId_provider: { organizationId, provider } },
+  });
   if (!conn) return { error: `${PROVIDER_LABELS[provider]} is not connected.` };
 
   const fresh =
@@ -225,7 +232,7 @@ export async function getAccessToken(
   }
 
   await db.accountingConnection.update({
-    where: { provider },
+    where: { organizationId_provider: { organizationId, provider } },
     data: {
       accessToken: encryptSecret(tokens.access_token),
       accessTokenExpiresAt: tokens.expires_in

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { requireProfile, canAccessParty } from "@/lib/authz";
+import { resolveOrgIdFromProfile } from "@/lib/tenancy";
 import { creditNoteSchema, type CreditNoteInput } from "@/lib/validation";
 import {
   deriveInvoiceStatus,
@@ -14,25 +15,27 @@ import {
 type ActionResult = { error: string } | { ok: true };
 
 /**
- * Next credit note number from the atomic per-year sequence on
- * BusinessSettings (CN-{YYYY}-{NNNN}). Must run inside the same
- * transaction that creates the credit note.
+ * Next credit note number — SY21: per-org, per-year OrgNumberSequence
+ * counter. Must run inside the same transaction that creates the CN.
  */
 async function nextCreditNoteNumber(
-  tx: Prisma.TransactionClient
+  tx: Prisma.TransactionClient,
+  organizationId: string,
 ): Promise<string> {
-  const settings = await tx.businessSettings.findFirst({
-    select: { id: true, creditNoteSeq: true, creditNoteSeqYear: true },
-  });
-  if (!settings) throw new Error("Business settings missing");
-
   const year = new Date().getFullYear();
-  const seq = settings.creditNoteSeqYear === year ? settings.creditNoteSeq + 1 : 1;
-  await tx.businessSettings.update({
-    where: { id: settings.id },
-    data: { creditNoteSeq: seq, creditNoteSeqYear: year },
+  const upserted = await tx.orgNumberSequence.upsert({
+    where: {
+      organizationId_kind_year: {
+        organizationId,
+        kind: "CREDIT_NOTE",
+        year,
+      },
+    },
+    create: { organizationId, kind: "CREDIT_NOTE", year, seq: 1 },
+    update: { seq: { increment: 1 } },
+    select: { seq: true },
   });
-  return `CN-${year}-${String(seq).padStart(4, "0")}`;
+  return `CN-${year}-${String(upserted.seq).padStart(4, "0")}`;
 }
 
 export async function issueCreditNoteAction(
@@ -65,8 +68,9 @@ export async function issueCreditNoteAction(
     };
   }
 
+  const organizationId = await resolveOrgIdFromProfile(profile.id);
   await db.$transaction(async (tx) => {
-    const creditNoteNumber = await nextCreditNoteNumber(tx);
+    const creditNoteNumber = await nextCreditNoteNumber(tx, organizationId);
     await tx.creditNote.create({
       data: {
         creditNoteNumber,

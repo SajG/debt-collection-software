@@ -29,12 +29,7 @@ export default function EmailCodePage({
         </div>
 
         <p className="mt-6 text-center text-xs text-muted-foreground">
-          <a
-            href={`/login${searchParams.callbackUrl ? `?callbackUrl=${encodeURIComponent(searchParams.callbackUrl)}` : ""}`}
-            className="text-primary underline-offset-4 hover:underline"
-          >
-            ← Sign in with password
-          </a>
+          Also on iOS &amp; Android — same account, same data.
         </p>
       </div>
     </main>

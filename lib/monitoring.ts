@@ -3,7 +3,7 @@
 // paths where a silent failure costs money or trust: the outbound send
 // pipeline and the daily cron pass.
 
-import * as Sentry from "@sentry/node";
+import * as Sentry from "@sentry/nextjs";
 
 let initialized = false;
 

@@ -8,6 +8,12 @@ import { TextField } from "@/components/TextField";
 import { Button } from "@/components/Button";
 import { supabase } from "@/lib/supabase";
 import { setDeviceId } from "@/auth/device-lock";
+import { requestEmailCode } from "@/lib/request-code";
+import {
+  DEV_TEST_EMAIL,
+  DEV_TEST_PASSWORD,
+  isDevTestOtp,
+} from "@/auth/dev-test";
 import { theme } from "@/theme";
 
 // SY-email step 2 of 2.
@@ -38,7 +44,12 @@ function platformString(): string {
 }
 
 export default function CodeScreen() {
-  const { email } = useLocalSearchParams<{ email: string }>();
+  const { email, phone } = useLocalSearchParams<{
+    email?: string;
+    phone?: string;
+  }>();
+  const identifier = email ?? phone ?? "";
+  const isDevPhone = !!phone;
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
@@ -63,22 +74,42 @@ export default function CodeScreen() {
       setError("Enter the 6-digit code.");
       return;
     }
-    if (!email) {
+    if (!identifier) {
       setError(GENERIC_ERROR);
       return;
     }
     setVerifying(true);
     try {
-      const { error: verifyErr } = await supabase.auth.verifyOtp({
-        email,
-        token: code,
-        type: "email",
-      });
-      if (verifyErr) {
-        setError(
-          __DEV__ ? `${GENERIC_ERROR}\n[dev] ${verifyErr.message}` : GENERIC_ERROR,
-        );
-        return;
+      if (isDevPhone) {
+        // Dev phone bypass: match static OTP, then sign in as the
+        // provisioned dev auth user via password. Real Supabase phone
+        // OTP is not wired.
+        if (!isDevTestOtp(phone!, code) || !DEV_TEST_EMAIL || !DEV_TEST_PASSWORD) {
+          setError(GENERIC_ERROR);
+          return;
+        }
+        const { error: pwErr } = await supabase.auth.signInWithPassword({
+          email: DEV_TEST_EMAIL,
+          password: DEV_TEST_PASSWORD,
+        });
+        if (pwErr) {
+          setError(
+            __DEV__ ? `${GENERIC_ERROR}\n[dev] ${pwErr.message}` : GENERIC_ERROR,
+          );
+          return;
+        }
+      } else {
+        const { error: verifyErr } = await supabase.auth.verifyOtp({
+          email: identifier,
+          token: code,
+          type: "email",
+        });
+        if (verifyErr) {
+          setError(
+            __DEV__ ? `${GENERIC_ERROR}\n[dev] ${verifyErr.message}` : GENERIC_ERROR,
+          );
+          return;
+        }
       }
       // Session established. register_device is authenticated-only
       // so it runs as the user we just verified.
@@ -103,6 +134,15 @@ export default function CodeScreen() {
         },
       });
       if (regErr || !reg?.[0]) {
+        // SY15.9. register_device raises 'Account disabled' when
+        // Profile.isActive is false. The user just successfully
+        // verified an OTP so they hold a live session — leave it
+        // in place and they can hit any RLS-gated read as an
+        // active-role zombie. Force sign-out before showing the
+        // error.
+        if (regErr?.message?.includes("Account disabled")) {
+          await supabase.auth.signOut();
+        }
         setError(
           __DEV__ && regErr?.message
             ? `${GENERIC_ERROR}\n[dev] ${regErr.message}`
@@ -124,18 +164,19 @@ export default function CodeScreen() {
   }, [code, email]);
 
   async function resend() {
-    if (cooldownLeft > 0 || !email) return;
-    setError(null);
-    const { error: otpErr } = await supabase.auth.signInWithOtp({
-      email,
-      options: { shouldCreateUser: false },
-    });
-    if (otpErr) {
-      setError(
-        __DEV__ ? `${GENERIC_ERROR}\n[dev] ${otpErr.message}` : GENERIC_ERROR,
-      );
+    if (cooldownLeft > 0 || !identifier) return;
+    if (isDevPhone) {
+      // No real send for dev phone; just reset cooldown.
+      setResendingAt(Date.now());
       return;
     }
+    setError(null);
+    // Same enumeration/limiter policy as the email screen — the
+    // server route runs the per-email limit + Sentry-logs SMTP
+    // faults; we always reset the cooldown so the user cannot
+    // distinguish "sent" from "silently dropped".
+    const res = await requestEmailCode(email!);
+    if ("rateLimited" in res) setError(res.message);
     setResendingAt(Date.now());
   }
 
@@ -144,7 +185,9 @@ export default function CodeScreen() {
       <View style={styles.header}>
         <Text style={styles.title}>Enter your code</Text>
         <Text style={styles.subtitle}>
-          A 6-digit code was sent to {email}. Enter it below.
+          {isDevPhone
+            ? `Dev phone ${identifier}. Enter dev OTP.`
+            : `If ${identifier} is registered, a 6-digit code is on its way. Enter it below.`}
         </Text>
       </View>
 
@@ -185,7 +228,9 @@ export default function CodeScreen() {
           style={{ minHeight: theme.tap, justifyContent: "center" }}
           accessibilityRole="button"
         >
-          <Text style={styles.link}>Change email</Text>
+          <Text style={styles.link}>
+            {isDevPhone ? "Change phone" : "Change email"}
+          </Text>
         </Pressable>
       </View>
     </Screen>

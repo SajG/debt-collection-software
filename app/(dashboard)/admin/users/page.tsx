@@ -5,7 +5,7 @@ import { requireProfile } from "@/lib/authz";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { PageHeader, Card } from "../../_components/ui";
 import { CreateUserForm } from "./create-user-form";
-import { UserRowActions } from "./user-row-actions";
+import { UserRowActions, EmailCell } from "./user-row-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -163,6 +163,13 @@ export default async function UsersAdminPage({
     (p) => p.role === "ADMIN" && p.isActive,
   ).length;
 
+  // Emailed-code login (SY-email) is the only web sign-in and the
+  // mobile allowlist. A missing email = a user who cannot sign in
+  // AT ALL. Surface the count front-and-centre so it does not linger.
+  const noEmailCount = profiles.filter(
+    (p) => p.isActive && !p.email,
+  ).length;
+
   // Only "is it wired?" — the shared secret itself is unreadable from
   // any authenticated JWT after migration
   // 20260821180000_security_hardening.
@@ -176,6 +183,19 @@ export default async function UsersAdminPage({
         title="Users"
         subtitle="Everyone who can sign in. Deactivation locks them out at the DB (RLS) and clears their push tokens. Data is never deleted."
       />
+
+      {noEmailCount > 0 ? (
+        <div
+          role="alert"
+          className="mb-6 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+        >
+          <span className="font-semibold">
+            {noEmailCount} {noEmailCount === 1 ? "person" : "people"} can&apos;t
+            sign in yet
+          </span>{" "}
+          — add their email in the row below, then hit Send invite.
+        </div>
+      ) : null}
 
       <Card title="Add user" className="mb-6">
         <CreateUserForm />
@@ -243,13 +263,11 @@ export default async function UsersAdminPage({
                   </td>
                   <td className="py-2 pr-3 font-mono">+91 {p.phone ?? "—"}</td>
                   <td className="py-2 pr-3">
-                    {p.email ? (
-                      <span className="text-sm text-foreground">{p.email}</span>
-                    ) : (
-                      <span className="text-xs italic text-muted-foreground">
-                        no email
-                      </span>
-                    )}
+                    <EmailCell
+                      profileId={p.id}
+                      email={p.email}
+                      isActive={p.isActive}
+                    />
                   </td>
                   <td className="py-2 pr-3">{p.role}</td>
                   <td className="py-2 pr-3">
@@ -300,6 +318,7 @@ export default async function UsersAdminPage({
                         role: p.role,
                         isActive: p.isActive,
                         email: p.email,
+                        invitedAt: p.invitedAt,
                       }}
                       isSelf={p.id === profile.id}
                     />

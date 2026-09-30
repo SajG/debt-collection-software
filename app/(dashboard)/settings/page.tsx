@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/authz";
 import { getLogoSignedUrl } from "@/lib/storage";
+import { resolveOrgIdFromProfile } from "@/lib/tenancy";
 import { PageHeader, LinkButton, Card } from "../_components/ui";
 import { SettingsForm, type SettingsFormValues } from "./settings-form";
 
@@ -16,8 +17,10 @@ const EXPORT_ENTITIES = [
 export default async function SettingsPage() {
   const profile = await requireAdmin();
 
+  // SY21 — BusinessSettings is 1:1 with Organization now.
+  const organizationId = await resolveOrgIdFromProfile(profile.id);
   const settings = await db.businessSettings.findUnique({
-    where: { profileId: profile.id },
+    where: { organizationId },
   });
 
   const initial: SettingsFormValues = {
@@ -33,6 +36,8 @@ export default async function SettingsPage() {
     maxMessagesPerWeek: (settings?.maxMessagesPerWeek ?? 3).toString(),
     autoRemindersEnabled: settings?.autoRemindersEnabled ?? false,
     orderApprovalMode: settings?.orderApprovalMode ?? "EXCEPTIONS_ONLY",
+    requireApprovalForAllOrders:
+      settings?.requireApprovalForAllOrders ?? true,
     whatsappPhoneNumberId: settings?.whatsappPhoneNumberId ?? "",
     whatsappBusinessAccountId: settings?.whatsappBusinessAccountId ?? "",
     whatsappTemplateName: settings?.whatsappTemplateName ?? "",

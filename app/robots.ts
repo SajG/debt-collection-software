@@ -1,21 +1,14 @@
 import type { MetadataRoute } from "next";
 
-// Syncit holds distributor ledgers, party phone numbers, credit
-// limits, and order history — none of it should end up in a search
-// index or an LLM training corpus.
+// SY26 — public marketing routes are crawlable; everything else stays
+// blocked. Middleware's per-response `X-Robots-Tag: noindex` on
+// authenticated surfaces plus the wildcard disallow below keep the
+// dashboard out of every well-behaved crawler AND every AI corpus
+// scraper. AI crawlers are named explicitly because several only
+// respect rules under their own UA.
 //
-// Robots.txt is a request, not a control. The real defence is that
-// nothing is reachable without a session (see middleware.ts and the
-// vitest `auth-gate.test.ts` suite). This file exists so that
-// well-behaved crawlers respect our wishes even when a preview URL
-// leaks somewhere and the WAF hasn't caught up yet.
-//
-// Named user-agent blocks are duplicated below the wildcard because
-// several crawlers (notably GPTBot, ClaudeBot, Google-Extended)
-// only respect a rule when their name is spelled out — the wildcard
-// is treated as "we don't know what you meant." Reinforced by
-// middleware's `X-Robots-Tag: noindex, nofollow, noai, noimageai`
-// per-response header for anyone who ignores robots.txt entirely.
+// The real defence is still auth gating in middleware.ts; robots.txt
+// is a request, not a control.
 
 const AI_AGENTS = [
   "GPTBot",
@@ -35,18 +28,62 @@ const AI_AGENTS = [
   "cohere-ai",
 ];
 
+// Public marketing routes only. Keep this list narrow — every path
+// here is fair game for indexing.
+const MARKETING_ALLOW = [
+  "/",
+  "/features",
+  "/tally",
+  "/pricing",
+  "/download",
+  "/contact",
+  "/blog",
+  "/privacy",
+  "/terms",
+  "/refund-policy",
+  "/login",
+  "/signup",
+];
+
 export default function robots(): MetadataRoute.Robots {
   return {
     rules: [
-      // Blanket deny for everything else.
-      { userAgent: "*", disallow: "/" },
-      // Named AI / scraping agents. Same effective policy, just
-      // spelled out so a crawler with strict UA matching cannot
-      // claim the wildcard didn't apply to it.
+      // Public marketing surfaces — human traffic + SEO wanted.
+      {
+        userAgent: "*",
+        allow: MARKETING_ALLOW,
+        disallow: [
+          "/dashboard",
+          "/admin",
+          "/api",
+          "/production",
+          "/orders",
+          "/invoices",
+          "/payments",
+          "/parties",
+          "/proformas",
+          "/actions",
+          "/worklist",
+          "/settings",
+          "/onboarding",
+          "/recovery",
+          "/escalations",
+          "/targets",
+          "/stock",
+          "/import",
+          "/messages",
+          "/status",
+          "/auth",
+        ],
+      },
+      // AI crawlers — deny everything, including marketing. We're
+      // fine being invisible to LLM training corpora.
       ...AI_AGENTS.map((userAgent) => ({ userAgent, disallow: "/" })),
       // Honeypot — anything requesting this after seeing robots.txt
-      // is by definition scanning us. See app/api/v1/export-all.
+      // is by definition scanning. See app/api/v1/export-all.
       { userAgent: "*", disallow: "/api/v1/export-all" },
     ],
+    sitemap: "https://getsyncit.app/sitemap.xml",
+    host: "https://getsyncit.app",
   };
 }

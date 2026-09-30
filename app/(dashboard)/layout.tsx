@@ -3,6 +3,7 @@ import { Lora, DM_Sans } from "next/font/google";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/lib/db";
 import { isTallyEnabled } from "@/lib/settings";
+import { resolveOrgIdFromProfile } from "@/lib/tenancy";
 import { Sidebar } from "./_components/sidebar";
 import { CommandPalette } from "./_components/command-palette";
 
@@ -32,17 +33,35 @@ export default async function DashboardLayout({
 
   if (!user) redirect("/login");
 
-  const [profile, settings, tallyOn] = await Promise.all([
+  // SY21 — settings pivoted to organizationId; resolve once here.
+  const organizationId = await resolveOrgIdFromProfile(user.id);
+  const [profile, settings, tallyOn, memberships] = await Promise.all([
     db.profile.findUnique({
       where: { id: user.id },
       select: { businessName: true, ownerName: true, role: true },
     }),
     db.businessSettings.findUnique({
-      where: { profileId: user.id },
+      where: { organizationId },
       select: { onboardingDone: true },
     }),
     isTallyEnabled(),
+    db.membership.findMany({
+      where: { profileId: user.id, isActive: true },
+      select: {
+        organizationId: true,
+        role: true,
+        organization: { select: { name: true } },
+      },
+    }),
   ]);
+
+  // SY23 — company switcher payload.
+  const switcher = memberships.map((m) => ({
+    id: m.organizationId,
+    name: m.organization.name,
+    role: m.role,
+  }));
+  const activeOrg = switcher.find((s) => s.id === organizationId);
 
   const fontClasses = `${lora.variable} ${dmSans.variable} font-body`;
 
@@ -64,6 +83,8 @@ export default async function DashboardLayout({
         ownerName={profile?.ownerName ?? "User"}
         role={profile?.role ?? "STAFF"}
         tallyEnabled={tallyOn}
+        activeOrg={activeOrg}
+        memberships={switcher}
       />
       <div className="flex flex-1 flex-col overflow-hidden">
         <main className="flex-1 overflow-y-auto">{children}</main>

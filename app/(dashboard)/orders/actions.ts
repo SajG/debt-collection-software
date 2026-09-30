@@ -7,6 +7,9 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireProfile } from "@/lib/authz";
 import { createClient } from "@/lib/supabase/server";
+import { daysOverdue } from "@/lib/ar/aging";
+
+const OVERDUE_HOLD_DAYS = 60;
 
 export type CreateOrderResult =
   | { ok: true; id: string; orderNumber: string }
@@ -124,6 +127,38 @@ export async function createSalesOrderAction(
     return { error: first.message, fieldErrors };
   }
   const data = parsed.data;
+
+  // 60-day-overdue hold — enforced here in addition to the client-side
+  // gate in order-form.tsx. The RPC's credit-limit gate does not know
+  // about invoice age; keeping this check in the action lets us ship
+  // without a Postgres migration. If this stays long-term, promote to
+  // the create_sales_order RPC so no future caller can bypass.
+  if (data.customerMode === "existing" && data.partyId) {
+    const oldest = await db.invoice.aggregate({
+      where: {
+        partyId: data.partyId,
+        status: { in: ["UNPAID", "PARTIAL", "OVERDUE"] },
+      },
+      _min: { dueDate: true },
+    });
+    const oldestDue = oldest._min.dueDate;
+    const overdueDays = oldestDue ? daysOverdue(oldestDue) : 0;
+    if (overdueDays > OVERDUE_HOLD_DAYS) {
+      if (profile.role !== "ADMIN") {
+        return {
+          error: `On hold — ${overdueDays} days overdue. Collect outstanding before placing a new order.`,
+        };
+      }
+      if (!data.creditOverrideNote?.trim()) {
+        return {
+          error: `On hold — ${overdueDays} days overdue. Enter an override note to release.`,
+          fieldErrors: {
+            creditOverrideNote: "Required to override the 60-day hold.",
+          },
+        };
+      }
+    }
+  }
 
   // Single write path — the create_sales_order RPC. Enforces:
   //   role gate (STAFF/ADMIN, active)

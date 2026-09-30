@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { captureError } from "@/lib/monitoring";
 import {
   checkEmailOtpSendLimit,
   checkLoginRateLimit,
@@ -16,129 +17,11 @@ import {
   tryConsumeRecoveryCode,
 } from "@/lib/auth/mfa";
 
-const loginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(1),
-  callbackUrl: z.string().optional(),
-});
-
-type LoginInput = z.infer<typeof loginSchema>;
 type ActionResult = { error: string } | never;
 
-// After a successful password grant, the router picks between four
-// destinations:
-//
-//   ADMIN, no verified factor  → /settings/security     (forced enrol)
-//   ADMIN, factor, aal1        → /login/challenge        (TOTP now)
-//   ADMIN, factor, aal2        → /dashboard              (fully in)
-//   non-ADMIN                  → /dashboard              (no MFA req)
-//
-// non-ADMIN users are not yet required to enrol MFA. That is a
-// deliberate scope choice — MFA is expensive in support cost and
-// STAFF/FACTORY have no destructive server actions. If that changes,
-// the branch below is the one line to widen.
-
-export async function loginAction(input: LoginInput): Promise<ActionResult> {
-  const parsed = loginSchema.safeParse(input);
-  if (!parsed.success) {
-    return { error: "Please check your email and password and try again." };
-  }
-
-  const { email, password, callbackUrl } = parsed.data;
-
-  const { limited, retryAfterMinutes } = await checkLoginRateLimit(
-    email,
-    "PASSWORD",
-  );
-  if (limited) {
-    return {
-      error: `Too many failed attempts. Please wait ${retryAfterMinutes} minutes and try again.`,
-    };
-  }
-
-  const supabase = createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
-
-  if (error) {
-    await recordLoginAttempt(email, false, "PASSWORD");
-    if (error.message.includes("Invalid login credentials")) {
-      return { error: "The email or password you entered is incorrect." };
-    }
-    if (error.message.includes("Email not confirmed")) {
-      return { error: "Please check your inbox and confirm your email first." };
-    }
-    if (error.status === 429) {
-      return { error: "Too many attempts. Please wait a few minutes and try again." };
-    }
-    return { error: "Something went wrong. Please try again." };
-  }
-
-  await recordLoginAttempt(email, true, "PASSWORD");
-
-  // Stamp the absolute-session cookie. Middleware compares this on
-  // every request and bounces to /login after 90 days regardless of
-  // activity. Set once per fresh sign-in — never refreshed by token
-  // rotation. See middleware.ts.
-  cookies().set("syncit_auth_since", String(Date.now()), {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    // 90 days matches the middleware cap; when the cookie expires
-    // it disappears from the request and the middleware falls back
-    // to Supabase's own TTL rules.
-    maxAge: 60 * 60 * 24 * 90,
-  });
-
-  // Post-password branch. We need the profile role plus the MFA
-  // state of the newly-issued session.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const admin = createAdminClient();
-  const profile = user
-    ? await admin
-        .from("Profile")
-        .select("role, isActive")
-        .eq("id", user.id)
-        .maybeSingle()
-    : null;
-  const role = profile?.data?.role as "ADMIN" | "STAFF" | "FACTORY" | undefined;
-  const isActive = profile?.data?.isActive ?? true;
-
-  if (!isActive) {
-    // AuthContext will bounce them, but be explicit.
-    await supabase.auth.signOut();
-    redirect("/account-disabled");
-  }
-
-  const safeCallback =
-    callbackUrl && callbackUrl.startsWith("/") ? callbackUrl : "/dashboard";
-
-  if (role !== "ADMIN") {
-    redirect(safeCallback);
-  }
-
-  // ADMIN path — MFA required.
-  const factor = await getMfaFactorState(supabase);
-  if (factor.kind !== "verified") {
-    // No verified factor yet. Force them into the security page. It
-    // reads at aal1 by design — otherwise there is no way to first-run
-    // enrol.
-    redirect("/settings/security?first=1");
-  }
-
-  const aal = await currentAssuranceLevel(supabase);
-  if (aal === "aal2") {
-    redirect(safeCallback);
-  }
-
-  // aal1 + verified factor → challenge screen. The callback is
-  // carried across so the user lands where they meant to go.
-  const q = new URLSearchParams({ next: safeCallback });
-  redirect(`/login/challenge?${q.toString()}`);
-}
+// SY23 — password auth removed. Web sign-in is emailed 6-digit codes
+// or "Continue with Google". The Supabase project should have the
+// Email+password provider DISABLED — see docs/LOGIN-RUNBOOK.md.
 
 // ── Challenge action — used by /login/challenge ──────────────────
 
@@ -268,15 +151,23 @@ export async function requestEmailCodeAction(input: {
   });
 
   // Record every send so the rate limit works. Treat Supabase's own
-  // errors as failures for accounting; the outward message stays
-  // generic.
-  await recordLoginAttempt(email, !error, "EMAIL_OTP");
+  // errors as failures for accounting; the outward result stays
+  // uniformly {ok:true} regardless — SY15.8, no enumeration oracle.
+  // The rate-limit branch above IS allowed to leak (attacker only
+  // learns their own limit), but "email not on the allowlist" must
+  // look identical to a successful send.
+  //
+  // Server-side log for real Supabase faults (SMTP down, provider
+  // error, etc.). Never returned to the caller — the user always
+  // sees {ok:true}, so without this log a broken SMTP link would
+  // stay invisible until a user complained.
   if (error) {
-    return {
-      error:
-        "We couldn't send a code. Ask your admin to check your email is on file.",
-    };
+    await captureError(error, {
+      where: "requestEmailCodeAction",
+      supabaseMessage: error.message,
+    });
   }
+  await recordLoginAttempt(email, !error, "EMAIL_OTP");
   return { ok: true };
 }
 
@@ -317,7 +208,59 @@ export async function verifyEmailCodeAction(input: {
     maxAge: 60 * 60 * 24 * 90,
   });
 
+  // Post-OTP role routing — matches loginAction so both web sign-in
+  // paths land in the same place. FACTORY → /production, STAFF →
+  // /dashboard, ADMIN → MFA check (aal1 → /login/challenge, no factor
+  // → /settings/security?first=1, aal2 → dashboard). callbackUrl, when
+  // safe, wins over the role default.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const admin = createAdminClient();
+  const profile = user
+    ? await admin
+        .from("Profile")
+        .select("role, isActive")
+        .eq("id", user.id)
+        .maybeSingle()
+    : null;
+  const role = profile?.data?.role as
+    | "ADMIN"
+    | "STAFF"
+    | "FACTORY"
+    | undefined;
+  const isActive = profile?.data?.isActive ?? true;
+
+  if (!isActive) {
+    await supabase.auth.signOut();
+    redirect("/account-disabled");
+  }
+
+  const roleHome =
+    role === "FACTORY" ? "/production" : "/dashboard";
   const safeCallback =
-    callbackUrl && callbackUrl.startsWith("/") ? callbackUrl : "/dashboard";
-  redirect(safeCallback);
+    callbackUrl && callbackUrl.startsWith("/") ? callbackUrl : roleHome;
+
+  if (role !== "ADMIN") {
+    redirect(safeCallback);
+  }
+
+  // Pilot escape hatch — mirrors loginAction and requireAdmin.
+  if (process.env.AUTH_SKIP_MFA === "1") {
+    redirect(safeCallback);
+  }
+
+  const factor = await getMfaFactorState(supabase);
+  if (factor.kind !== "verified") {
+    redirect("/settings/security?first=1");
+  }
+
+  const aal = await currentAssuranceLevel(supabase);
+  if (aal === "aal2") {
+    redirect(safeCallback);
+  }
+
+  const q = new URLSearchParams({ next: safeCallback });
+  redirect(`/login/challenge?${q.toString()}`);
 }

@@ -55,6 +55,7 @@ describe("admin/users/actions.ts — all exported server actions are ADMIN-gated
         "reactivateUserAction",
         "resendInviteAction",
         "revokeDeviceAction",
+        "setUserEmailAction",
       ].sort(),
     );
   });

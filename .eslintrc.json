@@ -1,3 +1,54 @@
 {
-  "extends": "next/core-web-vitals"
+  "extends": "next/core-web-vitals",
+  "rules": {
+    "no-restricted-imports": [
+      "warn",
+      {
+        "patterns": [
+          {
+            "group": ["@/lib/db", "**/lib/db"],
+            "message": "SY22: prefer tenantDb/requireMembership from '@/lib/tenant'. Raw db bypasses tenant scoping; only lib/tenant.ts, lib/platform/**, scripts/**, prisma/** should import it directly. Existing importers migrate opportunistically."
+          }
+        ]
+      }
+    ],
+    "no-restricted-syntax": [
+      "warn",
+      {
+        "selector": "Literal[value=/^#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?$/]",
+        "message": "SY25: raw hex colours are not allowed in components. Use a token from packages/tokens (Tailwind: bg-syncit-bond, text-syncit-ink, …; mobile: theme.colors.<name>) or add a new token to tokens.json and regenerate."
+      },
+      {
+        "selector": "TemplateElement[value.raw=/#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?/]",
+        "message": "SY25: raw hex colours are not allowed in components. Use a token from packages/tokens."
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": [
+        "lib/tenant.ts",
+        "lib/tenancy.ts",
+        "lib/platform/**",
+        "scripts/**",
+        "prisma/**"
+      ],
+      "rules": { "no-restricted-imports": "off" }
+    },
+    {
+      "files": [
+        "packages/tokens/**",
+        "prisma/**",
+        "scripts/**",
+        "syncit-brand/**",
+        "components/marketing/tokens.ts",
+        "sentry.*.config.ts",
+        "instrumentation.ts",
+        "app/api/csp-report/**",
+        "lib/pdf/**",
+        "components/ui/**"
+      ],
+      "rules": { "no-restricted-syntax": "off" }
+    }
+  ]
 }

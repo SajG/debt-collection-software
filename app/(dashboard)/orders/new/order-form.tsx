@@ -22,7 +22,12 @@ export type OrderFormParty = {
   outstanding: string;
   creditLimit: string | null;
   creditDays: number | null;
+  // Whole days past due on the oldest unpaid invoice for this party.
+  // null means no overdue balance. Powers the 60-day hold gate below.
+  oldestOverdueDays: number | null;
 };
+
+const OVERDUE_HOLD_DAYS = 60;
 
 export type OrderFormProduct = {
   id: string;
@@ -138,7 +143,11 @@ export function OrderForm({
     : null;
   const projected = outstanding + orderValue;
   const overLimit = creditLimit != null && projected > creditLimit;
+  const oldestOverdueDays = selectedParty?.oldestOverdueDays ?? null;
+  const overdueHold =
+    oldestOverdueDays !== null && oldestOverdueDays > OVERDUE_HOLD_DAYS;
   const canOverride = role === "ADMIN";
+  const needsOverrideNote = overLimit || overdueHold;
 
   function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -527,6 +536,29 @@ export function OrderForm({
                 </p>
               )}
 
+              {overdueHold && (
+                <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-3">
+                  <p className="text-sm font-semibold text-red-800">
+                    On hold — {oldestOverdueDays} days overdue.
+                  </p>
+                  <p className="mt-1 text-xs text-red-700">
+                    Oldest unpaid invoice is past the {OVERDUE_HOLD_DAYS}-day
+                    limit.{" "}
+                    {canOverride
+                      ? "Enter an override note below to release."
+                      : "Collect payment before placing a new order, or ask an admin to override."}
+                  </p>
+                  <p className="mt-2">
+                    <Link
+                      href={`/parties/${selectedParty.id}`}
+                      className="text-xs font-medium text-red-800 underline"
+                    >
+                      Open customer & send reminder →
+                    </Link>
+                  </p>
+                </div>
+              )}
+
               {overLimit && (
                 <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-3">
                   <p className="text-sm font-semibold text-red-800">
@@ -548,7 +580,7 @@ export function OrderForm({
                 </div>
               )}
 
-              {overLimit && canOverride && (
+              {needsOverrideNote && canOverride && (
                 <Field label="Override reason">
                   <textarea
                     name="creditOverrideNote"
@@ -586,7 +618,9 @@ export function OrderForm({
               !productId ||
               !quantity ||
               !productRate ||
-              (overLimit && !canOverride)
+              (overLimit && !canOverride) ||
+              (overdueHold && !canOverride) ||
+              (needsOverrideNote && canOverride && !creditOverrideNote.trim())
             }
           >
             {isPending ? "Placing…" : "Place order"}

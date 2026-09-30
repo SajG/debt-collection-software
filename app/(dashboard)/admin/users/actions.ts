@@ -264,6 +264,87 @@ export async function reactivateUserAction(input: {
   return { ok: true };
 }
 
+// ─────────────────────────────────────────────────────────────────
+// Set / update a Profile's email — used by the inline "Add email"
+// row action so an admin can fill in the missing address without
+// deleting and recreating the user.
+//
+// Writes both the Profile row (so the app sees it) and the Supabase
+// auth.users row (so the emailed-code login actually reaches this
+// person). Fake-domain blocklist is enforced here too; a CHECK
+// constraint on Profile.email + emailSchema.refine() are the belt
+// and braces if a bad address slipped past the client.
+// ─────────────────────────────────────────────────────────────────
+
+const setEmailSchema = z.object({
+  profileId: z.string().uuid(),
+  email: emailSchema,
+});
+
+export async function setUserEmailAction(input: {
+  profileId: string;
+  email: string;
+}): Promise<ActionResult> {
+  const admin = await requireAdmin();
+  const parsed = setEmailSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.errors[0].message };
+  const { profileId, email } = parsed.data;
+
+  const target = await db.profile.findUnique({
+    where: { id: profileId },
+    select: { id: true, email: true, isActive: true },
+  });
+  if (!target) return { error: "User not found." };
+  if (!target.isActive)
+    return { error: "User is deactivated — reactivate before setting email." };
+  if (target.email === email) return { ok: true, profileId };
+
+  const dupe = await db.profile.findFirst({
+    where: { email, id: { not: profileId } },
+    select: { id: true },
+  });
+  if (dupe) return { error: `A different user already uses ${email}.` };
+
+  const supabase = createAdminClient();
+  // email_confirm:false — the invite email that follows will confirm.
+  // If the admin never sends an invite, the address is still on file
+  // and the next sign-in via OTP will confirm it on first verify.
+  const { error: authErr } = await supabase.auth.admin.updateUserById(
+    profileId,
+    { email, email_confirm: false },
+  );
+  if (authErr) return { error: `Auth update failed: ${authErr.message}` };
+
+  try {
+    await db.$transaction(async (tx) => {
+      await tx.profile.update({
+        where: { id: profileId },
+        data: { email },
+      });
+      await tx.userAuditLog.create({
+        data: {
+          actorId: admin.id,
+          targetProfileId: profileId,
+          action: "EMAIL_CHANGED",
+          detail: target.email
+            ? `${target.email} → ${email}`
+            : `email set → ${email}`,
+        },
+      });
+    });
+  } catch (e) {
+    return {
+      error:
+        e instanceof Error
+          ? `Profile update failed: ${e.message}`
+          : "Profile update failed.",
+    };
+  }
+
+  revalidatePath("/admin/users");
+  return { ok: true, profileId };
+}
+
 // Enrollment-code action removed (SY-email). The admin sign-in path
 // for mobile is now: admin invites by email → user gets a 6-digit
 // code by email → mobile signs in and registers the device via the

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/authz";
 import { encryptSecret } from "@/lib/crypto";
+import { resolveOrgIdFromProfile } from "@/lib/tenancy";
 import { uploadCompanyLogo, LOGO_MAX_BYTES } from "@/lib/storage";
 
 const optional = (max = 200) =>
@@ -33,6 +34,7 @@ const settingsSchema = z
     maxMessagesPerWeek: z.coerce.number().int().min(1).max(30),
     autoRemindersEnabled: z.coerce.boolean(),
     orderApprovalMode: z.enum(["NONE", "EXCEPTIONS_ONLY", "ALL"]),
+    requireApprovalForAllOrders: z.coerce.boolean(),
 
     whatsappPhoneNumberId: optional(64),
     whatsappBusinessAccountId: optional(64),
@@ -98,6 +100,7 @@ export type SettingsInput = {
   maxMessagesPerWeek: string;
   autoRemindersEnabled: boolean;
   orderApprovalMode: "NONE" | "EXCEPTIONS_ONLY" | "ALL";
+  requireApprovalForAllOrders: boolean;
   whatsappPhoneNumberId?: string;
   whatsappBusinessAccountId?: string;
   whatsappTemplateName?: string;
@@ -128,10 +131,11 @@ export async function updateSettingsAction(
     ...(bankAccountNumber ? { bankAccountNumber: encryptSecret(bankAccountNumber) } : {}),
   };
 
+  const organizationId = await resolveOrgIdFromProfile(profile.id);
   await db.businessSettings.upsert({
-    where: { profileId: profile.id },
+    where: { organizationId },
     create: {
-      profileId: profile.id,
+      organizationId,
       onboardingDone: true,
       ...data,
       ...secrets,
@@ -159,8 +163,9 @@ export async function uploadLogoAction(
     return { error: "Logo must be 2MB or smaller." };
   }
 
+  const organizationId = await resolveOrgIdFromProfile(profile.id);
   const settings = await db.businessSettings.findUnique({
-    where: { profileId: profile.id },
+    where: { organizationId },
     select: { companyLogoPath: true },
   });
 
@@ -171,8 +176,8 @@ export async function uploadLogoAction(
   if ("error" in result) return result;
 
   await db.businessSettings.upsert({
-    where: { profileId: profile.id },
-    create: { profileId: profile.id, companyLogoPath: result.path },
+    where: { organizationId },
+    create: { organizationId, companyLogoPath: result.path },
     update: { companyLogoPath: result.path },
   });
 

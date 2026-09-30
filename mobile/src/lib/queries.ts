@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "./supabase";
 import type { Database, OrderStatus } from "./database.types";
 import { getProfileDirectory, type ProfileDirectoryEntry } from "./profile-directory";
+import { handleRevocationError } from "./session-revoked";
 
 // Plain-hooks data layer. Every hook returns { data, loading, error, refetch }
 // so the screens can stay small. When we outgrow this, drop-in TanStack
@@ -33,6 +34,12 @@ function useQuery<T>(
       setData(result);
     } catch (e) {
       if (versionRef.current !== v) return;
+      // Any RLS-denied / 401 error after an admin revokes the device
+      // becomes a hard sign-out + banner (SY15.1 audit follow-up).
+      // handleRevocationError returns true when it consumed the
+      // error; the root gate will route to /(auth)/email on its
+      // own via the auth-state listener.
+      if (await handleRevocationError(e)) return;
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       if (versionRef.current === v) setLoading(false);

@@ -18,6 +18,7 @@ export type SettingsFormValues = {
   maxMessagesPerWeek: string;
   autoRemindersEnabled: boolean;
   orderApprovalMode: "NONE" | "EXCEPTIONS_ONLY" | "ALL";
+  requireApprovalForAllOrders: boolean;
   whatsappPhoneNumberId: string;
   whatsappBusinessAccountId: string;
   whatsappTemplateName: string;
@@ -348,9 +349,29 @@ export function SettingsForm({
 
       <Section
         title="Order approval"
-        hint="Controls whether a director must approve an order before the factory sees it. Default is exceptions only so routine orders are not held."
+        hint="Controls whether a director must approve an order before the factory can act on it. FACTORY always sees the order — this switch decides who advances it."
       >
-        <Field label="When to hold an order">
+        <label className="flex items-start gap-2 text-sm text-foreground">
+          <input
+            type="checkbox"
+            checked={values.requireApprovalForAllOrders}
+            onChange={(e) =>
+              set("requireApprovalForAllOrders", e.target.checked)
+            }
+            className="mt-1 accent-primary"
+          />
+          <span>
+            <span className="font-semibold">
+              Require management approval for every order
+            </span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              STAFF-placed orders land in PENDING_APPROVAL until an admin
+              approves. FACTORY sees them read-only with a grey
+              &quot;Waiting for management approval&quot; badge.
+            </span>
+          </span>
+        </label>
+        <Field label="Advanced: three-mode override (reporting)">
           <select
             className={inputCls}
             value={values.orderApprovalMode}

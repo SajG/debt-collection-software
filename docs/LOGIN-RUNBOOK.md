@@ -1,10 +1,62 @@
-# Mobile login runbook
+# Login runbook (web + mobile)
 
-Diagnose "I can't log in" in 60 seconds. The chain has seven links;
-each one has a specific way of breaking and a specific symptom the
-user sees.
+Diagnose "I can't log in" in 60 seconds. Web and mobile share the
+same allowlist + emailed-6-digit-code shape; the chains diverge only
+after `verifyOtp`.
 
-## The chain
+## Web chain (SY-email, getsyncit.app/login)
+
+```
+1. app/(marketing)/login/page.tsx          (EmailCodeForm)
+        │
+        ▼
+2. requestEmailCodeAction(email)
+   → supabase.auth.signInWithOtp({
+       email, options:{ shouldCreateUser:false }
+     })                                    (allowlist check)
+        │
+        ▼
+3. Supabase → email provider (login@getsyncit.app) → inbox
+        │
+        ▼
+4. verifyEmailCodeAction(email, token)
+   → supabase.auth.verifyOtp({ email, token, type:'email' })
+   → stamps syncit_auth_since cookie (90-day absolute cap)
+        │
+        ▼
+5. Role branch (matches loginAction):
+     FACTORY  → /production
+     STAFF    → /dashboard
+     ADMIN    → getMfaFactorState + currentAssuranceLevel
+                → no factor    → /settings/security?first=1
+                → aal1         → /login/challenge?next=…
+                → aal2         → /dashboard  (or callbackUrl)
+```
+
+Only `/login/challenge` requires a live session; everything else
+under `/login/*` is public (middleware.ts `isPublic`). A signed-out
+hit to `/login/challenge` bounces to `/login`.
+
+**Common web failures**
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Loop back to /login when opening /login/email-code | PUBLIC_PATHS regressed. | Confirm middleware.ts treats `/login/*` public (except `/login/challenge`). |
+| Code never arrives | SMTP misconfigured OR EMAIL_FROM not verified at Resend/Postmark. | Dashboard → Auth → SMTP; SPF+DKIM on `getsyncit.app`. |
+| "That code didn't work" for a fresh code | Clock skew on the Supabase project OR the OTP expired before delivery. | Set Auth → Providers → Email → OTP Expiration = 600s. |
+| Signed-in but stuck at /login/challenge | ADMIN, aal1 only. Enter TOTP. Recovery-code link on that page falls back to /login?recovered=1. | Enrol TOTP once; then it's one 6-digit code per new device. |
+| "Too many code requests" | 3 sends per email per 15 min (`checkEmailOtpSendLimit`) OR the IP burst cap in middleware. | Wait 15 min. |
+
+Provisioning the first ADMIN on a fresh Supabase project:
+
+```
+node scripts/create-owner.mjs \
+  --email you@example.com --name "Your Name" --phone 9876543210
+```
+
+No password is set; the emailed code is the only credential.
+
+## Mobile chain (Expo app)
 
 ```
 1. mobile/app/(auth)/email.tsx           (user types email)

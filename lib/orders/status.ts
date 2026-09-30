@@ -24,8 +24,12 @@ export function isTerminalOrderStatus(status: OrderStatus): boolean {
   return status === "CANCELLED" || status === "REJECTED";
 }
 
-/** FACTORY RLS + Prisma defence-in-depth. Matches sales_order_select_factory. */
-export function isFactoryHiddenOrder(order: {
+/** Predicate for the READ-ONLY badge (audit item 10 follow-up). RLS
+ *  used to hide these rows from FACTORY entirely — the fix opens
+ *  visibility so the shop floor knows what's in the pipeline, but
+ *  FACTORY may not advance them. Matches the write-gate expression
+ *  on sales_order_update_factory + enforce_factory_sales_order_update. */
+export function isFactoryReadOnlyOrder(order: {
   currentStatus: OrderStatus;
   needsRateApproval?: boolean | null;
 }): boolean {
@@ -35,6 +39,11 @@ export function isFactoryHiddenOrder(order: {
     order.currentStatus === "REJECTED"
   );
 }
+
+/** @deprecated Renamed to isFactoryReadOnlyOrder. Kept as an alias
+ *  so we don't chase a large blast radius of call sites in the same
+ *  change set; callers should migrate. */
+export const isFactoryHiddenOrder = isFactoryReadOnlyOrder;
 
 export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   PENDING_APPROVAL: "Awaiting approval",

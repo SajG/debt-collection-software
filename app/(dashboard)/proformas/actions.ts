@@ -6,6 +6,7 @@ import { Prisma, type ProformaStatus } from "@prisma/client";
 import { addDays } from "date-fns";
 import { db } from "@/lib/db";
 import { requireProfile, canAccessParty } from "@/lib/authz";
+import { resolveOrgIdFromProfile } from "@/lib/tenancy";
 import { proformaSchema, type ProformaInput } from "@/lib/validation";
 import {
   deriveInvoiceStatus,
@@ -58,23 +59,24 @@ function computeLineItems(
 }
 
 /**
- * Next proforma number from the atomic per-year sequence on
- * BusinessSettings (PF-{YYYY}-{NNNN}). Must run inside the same
- * transaction that creates the proforma.
+ * Next proforma number from the atomic per-year, per-org counter
+ * (SY21 — was on BusinessSettings, now OrgNumberSequence). Must run
+ * inside the same transaction that creates the proforma.
  */
-async function nextProformaNumber(tx: Prisma.TransactionClient): Promise<string> {
-  const settings = await tx.businessSettings.findFirst({
-    select: { id: true, proformaSeq: true, proformaSeqYear: true },
-  });
-  if (!settings) throw new Error("Business settings missing");
-
+async function nextProformaNumber(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+): Promise<string> {
   const year = new Date().getFullYear();
-  const seq = settings.proformaSeqYear === year ? settings.proformaSeq + 1 : 1;
-  await tx.businessSettings.update({
-    where: { id: settings.id },
-    data: { proformaSeq: seq, proformaSeqYear: year },
+  const upserted = await tx.orgNumberSequence.upsert({
+    where: {
+      organizationId_kind_year: { organizationId, kind: "PROFORMA", year },
+    },
+    create: { organizationId, kind: "PROFORMA", year, seq: 1 },
+    update: { seq: { increment: 1 } },
+    select: { seq: true },
   });
-  return `PF-${year}-${String(seq).padStart(4, "0")}`;
+  return `PF-${year}-${String(upserted.seq).padStart(4, "0")}`;
 }
 
 export async function createProformaAction(input: ProformaInput): Promise<ActionResult> {
@@ -89,8 +91,9 @@ export async function createProformaAction(input: ProformaInput): Promise<Action
 
   const { lineItems, subtotal, taxAmount, totalAmount } = computeLineItems(data.lineItems);
 
+  const organizationId = await resolveOrgIdFromProfile(profile.id);
   const proformaId = await db.$transaction(async (tx) => {
-    const proformaNumber = await nextProformaNumber(tx);
+    const proformaNumber = await nextProformaNumber(tx, organizationId);
     const proforma = await tx.proformaInvoice.create({
       data: {
         proformaNumber,

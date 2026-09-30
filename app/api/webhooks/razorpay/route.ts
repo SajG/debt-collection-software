@@ -29,16 +29,8 @@ const STATUS_BY_EVENT: Record<string, string> = {
 };
 
 export async function POST(request: NextRequest) {
-  const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
-  if (!secret) {
-    return NextResponse.json({ error: "Webhook not configured" }, { status: 503 });
-  }
-
   const signature = request.headers.get("x-razorpay-signature");
   const rawBody = await request.text();
-  if (!signature || !verifySignature(rawBody, signature, secret)) {
-    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-  }
 
   let payload: {
     event?: string;
@@ -50,15 +42,37 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const status = payload.event ? STATUS_BY_EVENT[payload.event] : undefined;
   const linkId = payload.payload?.payment_link?.entity?.id;
-  if (!status || !linkId) {
-    // Unknown/uninteresting event — acknowledge so Razorpay stops retrying.
+  const status = payload.event ? STATUS_BY_EVENT[payload.event] : undefined;
+  if (!linkId || !status) {
     return NextResponse.json({ received: true });
   }
 
-  await db.paymentLink.updateMany({
+  // SY22 — resolve the tenant from the PaymentLink's stored org, then
+  // verify the signature with THAT tenant's webhook secret. Env
+  // fallback lives on the Synergy tenant only (lib/settings/secrets.ts).
+  const link = await db.paymentLink.findFirst({
     where: { providerLinkId: linkId },
+    select: { id: true, organizationId: true },
+  });
+  if (!link || !link.organizationId) {
+    // organizationId is DB-NOT-NULL post-SY21, but the Prisma type
+    // remains nullable during the type-migration window.
+    return NextResponse.json({ received: true });
+  }
+
+  const { getRazorpaySecrets } = await import("@/lib/settings/secrets");
+  const secrets = await getRazorpaySecrets(link.organizationId);
+  const secret = secrets.webhookSecret;
+  if (!secret) {
+    return NextResponse.json({ error: "Webhook not configured" }, { status: 503 });
+  }
+  if (!signature || !verifySignature(rawBody, signature, secret)) {
+    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+  }
+
+  await db.paymentLink.update({
+    where: { id: link.id },
     data: { status },
   });
 

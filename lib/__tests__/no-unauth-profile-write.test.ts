@@ -41,6 +41,15 @@ const PROFILE_WRITE_RE = /\bprofile\s*\.\s*(create|upsert|createMany)\s*\(/;
 const REQUIRE_ADMIN_RE = /\brequireAdmin\s*\(/;
 const USE_SERVER_RE = /^\s*(?:"use server"|'use server')\s*;?\s*$/m;
 
+// SY23 — the self-serve signup route is the ONE place we create a
+// Profile without an ADMIN caller. It's gated by (a) a fresh email
+// OTP the same request just verified, and (b) per-IP + per-domain
+// rate limits in the same file. Every other creator must remain
+// admin-gated.
+const SIGNUP_ALLOWLIST = new Set([
+  "app/(marketing)/signup/actions.ts",
+]);
+
 describe("no server action creates a Profile without an ADMIN caller", () => {
   const files = walk(APP_DIR);
 
@@ -56,7 +65,9 @@ describe("no server action creates a Profile without an ADMIN caller", () => {
       if (!USE_SERVER_RE.test(src)) continue;
       if (!PROFILE_WRITE_RE.test(src)) continue;
       if (!REQUIRE_ADMIN_RE.test(src)) {
-        offenders.push(relative(ROOT, file));
+        const rel = relative(ROOT, file);
+        if (SIGNUP_ALLOWLIST.has(rel)) continue;
+        offenders.push(rel);
       }
     }
     expect(

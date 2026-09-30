@@ -107,6 +107,22 @@ export async function POST(request: NextRequest) {
     for (const change of entry.changes ?? []) {
       const value = change.value ?? {};
 
+      // SY22 — resolve tenant from the phone_number_id in the payload
+      // (metadata.phone_number_id). Matches BusinessSettings row for
+      // that org; refuses if no tenant claims that number so cross-
+      // tenant delivery reports can't cross the wire.
+      const meta = (value.metadata as { phone_number_id?: string } | undefined) ?? {};
+      const phoneNumberId = meta.phone_number_id?.trim() ?? null;
+      let orgId: string | null = null;
+      if (phoneNumberId) {
+        const settings = await db.businessSettings.findFirst({
+          where: { whatsappPhoneNumberId: phoneNumberId },
+          select: { organizationId: true },
+        });
+        orgId = settings?.organizationId ?? null;
+      }
+      if (!orgId) continue;
+
       for (const status of (value.statuses as StatusEvent[] | undefined) ?? []) {
         if (!status.id) continue;
         const data: Record<string, unknown> = {};
@@ -121,8 +137,9 @@ export async function POST(request: NextRequest) {
         } else {
           continue;
         }
+        // Only touch messages that belong to this org.
         await db.message.updateMany({
-          where: { providerMessageId: status.id },
+          where: { providerMessageId: status.id, organizationId: orgId },
           data,
         });
       }
@@ -130,7 +147,9 @@ export async function POST(request: NextRequest) {
       for (const inbound of (value.messages as InboundMessage[] | undefined) ?? []) {
         if (!inbound.from) continue;
         const phone = inbound.from.replace(/\D/g, "").slice(-10);
-        const party = await db.party.findFirst({ where: { phone } });
+        const party = await db.party.findFirst({
+          where: { phone, organizationId: orgId },
+        });
         if (!party) continue;
 
         const text = inbound.text?.body?.trim() ?? `[${inbound.type ?? "media"}]`;
@@ -138,6 +157,7 @@ export async function POST(request: NextRequest) {
         await db.message.create({
           data: {
             partyId: party.id,
+            organizationId: orgId,
             channel: "WHATSAPP",
             direction: "INBOUND",
             status: "RECEIVED",

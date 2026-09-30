@@ -4,9 +4,22 @@ A B2B accounts-receivable tool for Indian MSME distributors who sell goods on cr
 
 ## Deploy model
 
-**One Supabase project = one distributor.**
+**Shared multi-tenant (SY21).** One Supabase project runs every
+customer as an `Organization` row. Every business table carries an
+`organizationId`; membership of a Profile in an Organization is
+recorded in `Membership` (role + isActive live there — Profile keeps
+identity fields only). Row-level isolation is enforced by RLS
+scoped on `Organization` (SY22 — RLS policies land in a follow-up
+migration; SY21 is schema + backfill only).
 
-Each customer gets their own deployment pointing at their own Supabase project. There is no shared database and no multi-tenancy — this is intentional. Isolation is at the infrastructure level, not row-level.
+Legacy note: earlier releases ran "one Supabase project = one
+distributor" with no shared DB. The SY21 migration
+(`20260929030000_multi_tenant_orgs`) creates the `synergy` org and
+attaches every existing row to it; RLS enforcement arrives in SY22.
+Per-tenant secrets (WhatsApp, Razorpay, Tally sync token) now live
+in encrypted columns on `BusinessSettings` — env vars remain for
+platform-level keys only (Supabase, Resend, Anthropic, CRON_SECRET,
+APP_ENCRYPTION_KEY).
 
 ## Tech stack
 

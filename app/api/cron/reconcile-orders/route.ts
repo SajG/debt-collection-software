@@ -4,6 +4,7 @@ import { captureError } from "@/lib/monitoring";
 import { db } from "@/lib/db";
 import { verifyBearer } from "@/lib/auth/verify-bearer";
 import { isTallyEnabled } from "@/lib/settings";
+import { forEachActiveOrg } from "@/lib/platform/orgs";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -27,61 +28,62 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   }
 
-  // Skip cleanly when Tally is off. Without a live sync there are no
-  // new customer names to reconcile, and running the pass every hour
-  // just logs FAILED / 0-processed rows that look like real errors.
-  if (!(await isTallyEnabled())) {
-    return NextResponse.json({
-      skipped: true,
-      reason: "Tally integration is disabled (BusinessSettings.tallyEnabled).",
+  // SY22 — one pass per active org. isTallyEnabled currently reads
+  // the sole settings row; per-org gating below skips orgs whose
+  // BusinessSettings.tallyEnabled is false.
+  const { ok } = await forEachActiveOrg("cron.reconcile-orders", async (org) => {
+    const settings = await db.businessSettings.findFirst({
+      where: { organizationId: org.id },
+      select: { tallyEnabled: true },
     });
-  }
+    if (!settings?.tallyEnabled) {
+      return { orgId: org.id, orgSlug: org.slug, skipped: true as const };
+    }
 
-  const started = new Date();
-  const sync = await db.syncLog.create({
-    data: {
-      syncType: "FULL_IMPORT",
-      status: "IN_PROGRESS",
-      startedAt: started,
-      details: { scope: "reconcile-orders" },
-    },
+    const sync = await db.syncLog.create({
+      data: {
+        syncType: "FULL_IMPORT",
+        status: "IN_PROGRESS",
+        organizationId: org.id,
+        details: { scope: "reconcile-orders" },
+      },
+    });
+    try {
+      const result = await reconcileNewCustomerOrders();
+      await db.syncLog.update({
+        where: { id: sync.id },
+        data: {
+          status: result.ambiguous > 0 ? "PARTIAL" : "COMPLETED",
+          completedAt: new Date(),
+          recordsTotal: result.scanned,
+          recordsProcessed: result.matched,
+          recordsFailed: result.ambiguous,
+          details: {
+            scope: "reconcile-orders",
+            matched: result.matched,
+            ambiguous: result.ambiguous,
+            unmatched: result.unmatched,
+            ambiguousNames: result.ambiguousNames,
+          },
+        },
+      });
+      return { orgId: org.id, orgSlug: org.slug, ...result };
+    } catch (e) {
+      await db.syncLog.update({
+        where: { id: sync.id },
+        data: {
+          status: "FAILED",
+          completedAt: new Date(),
+          errorMessage: e instanceof Error ? e.message : "reconcile failed",
+        },
+      });
+      await captureError(e, { scope: "cron.reconcile-orders", orgId: org.id });
+      throw e;
+    }
   });
 
-  try {
-    const result = await reconcileNewCustomerOrders();
-
-    await db.syncLog.update({
-      where: { id: sync.id },
-      data: {
-        status: result.ambiguous > 0 ? "PARTIAL" : "COMPLETED",
-        completedAt: new Date(),
-        recordsTotal: result.scanned,
-        recordsProcessed: result.matched,
-        recordsFailed: result.ambiguous,
-        details: {
-          scope: "reconcile-orders",
-          matched: result.matched,
-          ambiguous: result.ambiguous,
-          unmatched: result.unmatched,
-          ambiguousNames: result.ambiguousNames,
-        },
-      },
-    });
-
-    return NextResponse.json(result);
-  } catch (e) {
-    await db.syncLog.update({
-      where: { id: sync.id },
-      data: {
-        status: "FAILED",
-        completedAt: new Date(),
-        errorMessage: e instanceof Error ? e.message : "reconcile failed",
-      },
-    });
-    await captureError(e, { scope: "cron.reconcile-orders" });
-    return NextResponse.json(
-      { error: "Reconcile pass failed" },
-      { status: 500 }
-    );
-  }
+  return NextResponse.json({
+    orgsProcessed: ok.length,
+    perOrg: ok.map((r) => r.result),
+  });
 }

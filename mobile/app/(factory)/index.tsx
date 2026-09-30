@@ -226,8 +226,14 @@ function matchesTab(o: OrderListRow, filter: Filter): boolean {
         o.currentStatus === "READY_TO_DISPATCH" ||
         o.currentStatus === "LR_GENERATED"
       );
-    case "dispatched":
-      return o.currentStatus === "DISPATCHED";
+    case "dispatched": {
+      // SY24 — "Dispatched today" only. Yesterday's ships clutter
+      // the tab; the shop-floor question is "did we ship today?".
+      if (o.currentStatus !== "DISPATCHED") return false;
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      return new Date(o.createdAt).getTime() >= start.getTime();
+    }
     case "blocked":
       // Anything the factory can't act on right now: awaiting admin,
       // held for cause, or gated by rate approval. Read-only cards.

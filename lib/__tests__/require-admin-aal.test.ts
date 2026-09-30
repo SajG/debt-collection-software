@@ -36,6 +36,14 @@ vi.mock("@/lib/db", () => ({
         businessName: "Test",
       }),
     },
+    // SY23 — requireAdmin also reads BusinessSettings.requireManagement2fa
+    // via resolveOrgIdFromProfile → $queryRaw + businessSettings.findUnique.
+    // Return the "Synergy" posture (requireManagement2fa=true) so the
+    // aal2 gate still fires exactly like the pre-SY23 behaviour.
+    businessSettings: {
+      findUnique: async () => ({ requireManagement2fa: true }),
+    },
+    $queryRaw: async () => [{ id: "org-uuid" }],
   },
 }));
 

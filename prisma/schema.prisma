@@ -18,6 +18,29 @@ enum Role {
   FACTORY
 }
 
+// SY21 — multi-tenancy. See migration 20260929030000_multi_tenant_orgs
+// for the shape and backfill; RLS enforcement is deferred to SY22.
+
+enum OrgPlan {
+  TRIAL
+  STARTER
+  GROWTH
+  BUSINESS
+}
+
+enum OrgStatus {
+  ACTIVE
+  PAST_DUE
+  LOCKED
+}
+
+enum SequenceKind {
+  INVOICE
+  ORDER
+  PROFORMA
+  CREDIT_NOTE
+}
+
 enum AccountingTool {
   TALLY
   ZOHO
@@ -219,6 +242,101 @@ enum PaymentDocumentType {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// ORGANIZATION (SY21)
+// One row per customer company. Every business table carries
+// organizationId; RLS scoping arrives in SY22.
+// ─────────────────────────────────────────────────────────────────
+
+model Organization {
+  id          String    @id @default(uuid()) @db.Uuid
+  name        String
+  slug        String    @unique
+  gstin       String?
+  city        String?
+  state       String?
+  industry    String?
+  logoUrl     String?
+  plan        OrgPlan   @default(TRIAL)
+  trialEndsAt DateTime? @db.Timestamptz
+  status      OrgStatus @default(ACTIVE)
+  createdAt   DateTime  @default(now()) @db.Timestamptz
+
+  memberships           Membership[]
+  parties               Party[]
+  invoices              Invoice[]
+  payments              Payment[]
+  paymentDocuments      PaymentDocument[]
+  actions               Action[]
+  proformas             ProformaInvoice[]
+  proformaLineItems     ProformaLineItem[]
+  creditNotes           CreditNote[]
+  syncLogs              SyncLog[]
+  messages              Message[]
+  paymentLinks          PaymentLink[]
+  accountingConnections AccountingConnection[]
+  products              Product[]
+  salesOrders           SalesOrder[]
+  salesOrderItems       SalesOrderItem[]
+  orderStatusEvents     OrderStatusEvent[]
+  dispatchLots          DispatchLot[]
+  orderComments         OrderComment[]
+  orderDocuments        OrderDocument[]
+  stockItems            StockItem[]
+  notificationConfigs   NotificationConfig[]
+  staleOrderNotices     StaleOrderNotice[]
+  escalations           Escalation[]
+  escalationEvents      EscalationEvent[]
+  recommendations       Recommendation[]
+  recoveryTargets       RecoveryTarget[]
+  userAuditLogs         UserAuditLog[]
+  settings              BusinessSettings?
+  numberSequences       OrgNumberSequence[]
+  tallyPairingCodes     TallyPairingCode[]
+  tallyConnectors       TallyConnector[]
+
+  @@index([status])
+}
+
+// One person, N companies. Role + isActive move here from Profile.
+// (Profile.role / Profile.isActive stay one release, kept in sync by
+// a DB trigger — see migration 20260929030000.)
+model Membership {
+  id             String   @id @default(cuid())
+  organizationId String   @db.Uuid
+  profileId      String   @db.Uuid
+  role           Role
+  isOwner        Boolean  @default(false)
+  isActive       Boolean  @default(true)
+  invitedById    String?  @db.Uuid
+  createdAt      DateTime @default(now()) @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  profile      Profile      @relation("MembershipProfile", fields: [profileId], references: [id], onDelete: Cascade)
+  invitedBy    Profile?     @relation("MembershipInviter", fields: [invitedById], references: [id])
+
+  @@unique([organizationId, profileId])
+  @@index([profileId])
+  @@index([organizationId, isActive, role])
+}
+
+// Per-organization number sequences. Replaces the global @unique on
+// proformaNumber / orderNumber / creditNoteNumber and the
+// proformaSeq/creditNoteSeq columns that used to live on
+// BusinessSettings. Format is generated in application code from
+// (kind, year, seq).
+model OrgNumberSequence {
+  organizationId String       @db.Uuid
+  kind           SequenceKind
+  year           Int
+  seq            Int          @default(0)
+  updatedAt      DateTime     @default(now()) @updatedAt @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@id([organizationId, kind, year])
+}
+
+// ─────────────────────────────────────────────────────────────────
 // PROFILE  (auth identity lives in Supabase auth.users)
 // ─────────────────────────────────────────────────────────────────
 
@@ -233,10 +351,12 @@ model Profile {
   // colleague emails — see the header of migration
   // 20260828050000_profile_email + the directory-RPC comment.
   email               String?   @unique
+  // DEPRECATED (SY21): role and isActive move to Membership so one
+  // person can join more than one company. Kept for one release; a
+  // DB trigger (sync_profile_from_membership) recomputes both from
+  // the caller's highest-privilege active membership. New code should
+  // read Membership; do not write to these columns directly.
   role                Role      @default(STAFF)
-  // Managed by /admin/users. Deactivation is reversible; RLS lock-out
-  // is done at the DB via current_user_role() returning NULL when
-  // isActive = false.
   isActive            Boolean   @default(true)
   deactivatedAt       DateTime? @db.Timestamptz
   deactivatedById     String?   @db.Uuid
@@ -259,7 +379,8 @@ model Profile {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
-  businessSettings BusinessSettings?
+  // SY21: BusinessSettings moved to 1:1 with Organization. Read
+  // settings through Membership → Organization → settings.
   pushTokens       PushToken[]
 
   assignedParties      Party[]            @relation("PartyAssignee")
@@ -285,6 +406,8 @@ model Profile {
   recoveryTargets      RecoveryTarget[]   @relation("RecoveryTargetUser")
   openedEscalations    Escalation[]       @relation("EscalationOpener")
   escalationEvents     EscalationEvent[]  @relation("EscalationEventActor")
+  memberships          Membership[]       @relation("MembershipProfile")
+  invitedMemberships   Membership[]       @relation("MembershipInviter")
 
   @@index([isActive, role])
 }
@@ -321,6 +444,7 @@ enum UserAuditAction {
   DEACTIVATED
   ROLE_CHANGED
   PHONE_CHANGED
+  EMAIL_CHANGED
   ENROLLMENT_CODE_ISSUED
   DEVICE_ENROLLED
   DEVICE_REVOKED
@@ -336,19 +460,31 @@ model UserAuditLog {
   detail          String?
   createdAt       DateTime        @default(now()) @db.Timestamptz
 
+  // SY21 — organizationId of the acted-on user (via their membership).
+  // Same user can be in >1 org; the action determines which one the
+  // audit belongs to.
+  organizationId String?      @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   actor  Profile? @relation("UserAuditActor", fields: [actorId], references: [id], onDelete: SetNull)
   target Profile  @relation("UserAuditTarget", fields: [targetProfileId], references: [id], onDelete: Cascade)
 
   @@index([targetProfileId, createdAt])
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────────────────────────
 // BUSINESS SETTINGS  (single row per deployment)
 // ─────────────────────────────────────────────────────────────────
 
+// SY21 — 1:1 with Organization (was 1:1 with Profile). The
+// backfill migration keeps the owner's row and rewrites profileId to
+// the org id; the profileId column is dropped in the same
+// migration. Per-org proforma/credit-note counters moved out to
+// OrgNumberSequence.
 model BusinessSettings {
-  id        String @id @default(cuid())
-  profileId String @unique @db.Uuid
+  id             String @id @default(cuid())
+  organizationId String @unique @db.Uuid
 
   // Onboarding
   accountingTool AccountingTool @default(EXCEL)
@@ -390,17 +526,52 @@ model BusinessSettings {
   // can see it.
   orderApprovalMode OrderApprovalMode @default(ALL)
 
-  // Proforma number sequence
-  // Incremented atomically on each proforma creation.
-  // Format generated in app: PF-{YYYY}-{proformaSeq zero-padded to 4 digits}
-  // Reset to 0 each calendar year (tracked via proformaSeqYear).
-  proformaSeq     Int @default(0)
-  proformaSeqYear Int @default(0) // set to current year on first use
+  // Audit item 10 (2026-09-28). Human-readable toggle that mirrors
+  // orderApprovalMode=ALL. Kept as a plain boolean so /settings can
+  // show a single switch instead of the three-state enum; the enum
+  // stays for reporting. Defaults true on all existing rows via the
+  // 20260929010000_require_approval_toggle migration.
+  requireApprovalForAllOrders Boolean @default(true)
 
-  // Credit note number sequence — same per-year pattern as proformas.
-  // Format generated in app: CN-{YYYY}-{creditNoteSeq zero-padded to 4 digits}
-  creditNoteSeq     Int @default(0)
-  creditNoteSeqYear Int @default(0)
+  // SY23 — TOTP for management is optional per org. Default false
+  // (a new distributor onboarding shouldn't be blocked by a QR-code
+  // wall). requireAdmin() reads this flag to decide whether an aal1
+  // session bounces to /login/challenge; when false, the caller
+  // still gets a dismissible "Protect your account" nudge in the
+  // dashboard. The 20260929050000_saas_onboarding migration flips
+  // Synergy's row to true so nothing changes for the pilot tenant.
+  requireManagement2fa Boolean @default(false)
+
+  // SY23 — onboarding wizard progress. Nullable strings so a partial
+  // step can be resumed. Cleared when onboardingDone flips true.
+  onboardingStep String?
+
+  // SY23 — one-time sample data flag. Trip-wire for the demo dataset
+  // seeded by /onboarding step (c) → "Try with sample data". A
+  // separate row-scan job or the admin can toggle it off and the
+  // sample rows purge together (deletion path lives in
+  // lib/onboarding/sample.ts).
+  sampleDataSeeded Boolean @default(false)
+
+  // SY24 — per-organization catalogue pick-lists. The mobile order
+  // wizard renders these on the brand and packing chips; when null
+  // the app falls back to a starter list so a brand-new tenant
+  // isn't blocked from placing an order. Managed from
+  // /admin/products on the web. JSONB arrays of strings.
+  brandList   Json?
+  packingList Json?
+
+  // SY24 — factory role can see money figures (rates, order value)
+  // when true. Default false so a new distributor's shop-floor
+  // users only see qty/customer/due-date. Synergy uses an
+  // accountant with the FACTORY role for invoicing, so their row
+  // is flipped true by the migration.
+  factoryCanSeeRates Boolean @default(false)
+
+  // Proforma / credit note sequences moved to OrgNumberSequence
+  // (SY21). See migration 20260929030000_multi_tenant_orgs for the
+  // backfill; existing counters are copied into the new table before
+  // the columns are dropped.
 
   // Company branding & bank details (rendered on proforma/invoice PDFs)
   // companyLogoPath is an object path in the private Supabase Storage
@@ -431,10 +602,21 @@ model BusinessSettings {
   // Marketing-category templates must never be used for payment follow-ups.
   whatsappTemplateName      String?
 
+  // SY21 — per-tenant secrets that used to live in Vercel env vars.
+  // All AES-256-GCM encrypted at rest (lib/crypto.ts) except IDs.
+  // lib/settings/secrets.ts reads these first and falls back to the
+  // matching env var for the Synergy migration window.
+  razorpayKeyId          String?
+  razorpayKeySecret      String?
+  razorpayWebhookSecret  String?
+  // Tally sync agent auth — SHA-256 of the shared secret (SY27).
+  // Compared with timingSafeEqual against the incoming bearer token.
+  tallySyncTokenHash     String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -474,8 +656,16 @@ model Party {
   assignedToId String?  @db.Uuid
   assignedTo   Profile? @relation("PartyAssignee", fields: [assignedToId], references: [id])
 
-  // Deduplication key for Tally sync; null for manually-added parties
-  tallyRef String? @unique
+  // SY21 — populated by the multi_tenant_orgs backfill, then set
+  // NOT NULL at the DB. Type stays nullable in Prisma until the
+  // create-site sweep lands so existing db.party.create calls still
+  // typecheck; the DB CHECK stops nulls at the boundary.
+  organizationId String?      @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Deduplication key for Tally sync; null for manually-added parties.
+  // Per-org unique (SY21) — was global @unique before.
+  tallyRef String?
 
   // ── Outreach compliance ────────────────────────────────────────
   // No automated message may be sent unless consentStatus is OPTED_IN.
@@ -503,10 +693,12 @@ model Party {
   escalations    Escalation[]
   recommendation Recommendation?
 
+  @@unique([organizationId, tallyRef])
   @@index([assignedToId])
   @@index([isActive, priority])
   @@index([totalOutstanding])
   @@index([riskLevel])
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -533,19 +725,25 @@ model Invoice {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // SY21 — organizationId (populated by backfill, DB NOT NULL after).
+  organizationId String?      @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   party        Party         @relation(fields: [partyId], references: [id], onDelete: Restrict)
   payments     Payment[]
   messages     Message[]
   paymentLinks PaymentLink[]
   creditNotes  CreditNote[]
 
-  // Invoice numbers are unique per party, not globally
-  // (mirrors Tally's behaviour across companies)
+  // Invoice numbers are unique per organization (SY21). Also kept
+  // per-party so a single ledger stays consistent for readers.
+  @@unique([organizationId, invoiceNumber])
   @@unique([partyId, invoiceNumber])
   @@index([partyId])
   @@index([dueDate])
   @@index([status])
   @@index([partyId, status])
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -568,9 +766,14 @@ model Payment {
   recordedById String        @db.Uuid
   source       PaymentSource @default(MANUAL)
   // Format: 'receipt:<voucher-guid>:<invoice-number>' for allocated rows,
-  // 'receipt:<voucher-guid>:onaccount' for the residual. Partial-unique
-  // in the DB so re-runs of the Tally sync upsert instead of duplicating.
-  tallyRef     String?       @unique
+  // 'receipt:<voucher-guid>:onaccount' for the residual. Per-org
+  // unique (SY21). Partial-unique in the DB so re-runs of the Tally
+  // sync upsert instead of duplicating.
+  tallyRef     String?
+
+  // SY21 — organizationId, populated by backfill (DB NOT NULL after).
+  organizationId String?      @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -580,9 +783,11 @@ model Payment {
   recordedBy Profile           @relation("PaymentRecorder", fields: [recordedById], references: [id])
   documents  PaymentDocument[]
 
+  @@unique([organizationId, tallyRef])
   @@index([partyId])
   @@index([paymentDate])
   @@index([partyId, paymentDate])
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -601,10 +806,16 @@ model PaymentDocument {
   notes        String?
   createdAt    DateTime            @default(now())
 
+  // SY21 — organizationId, denormalized from Payment (populated by
+  // backfill, DB NOT NULL after).
+  organizationId String?      @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   payment    Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
   uploadedBy Profile @relation("PaymentDocumentUploader", fields: [uploadedById], references: [id])
 
   @@index([paymentId])
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -631,6 +842,10 @@ model Action {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  // SY21 — organizationId, populated by backfill (DB NOT NULL after).
+  organizationId String?      @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   party       Party   @relation(fields: [partyId], references: [id], onDelete: Restrict)
   performedBy Profile @relation("ActionPerformer", fields: [performedById], references: [id])
 
@@ -638,6 +853,7 @@ model Action {
   @@index([performedById])
   @@index([nextFollowUpDate])
   @@index([partyId, performedAt])
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -646,7 +862,8 @@ model Action {
 
 model ProformaInvoice {
   id             String         @id @default(cuid())
-  proformaNumber String         @unique // format: PF-{YYYY}-{NNNN}, generated by app
+  // SY21 — per-org unique now; the global @unique came off.
+  proformaNumber String         // format: PF-{YYYY}-{NNNN}, generated by app
   partyId        String
   createdById    String         @db.Uuid
   issueDate      DateTime       @default(now())
@@ -666,12 +883,18 @@ model ProformaInvoice {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // SY21 — organizationId, populated by backfill (DB NOT NULL after).
+  organizationId String?      @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   party     Party              @relation(fields: [partyId], references: [id], onDelete: Restrict)
   createdBy Profile            @relation("ProformaCreator", fields: [createdById], references: [id])
   lineItems ProformaLineItem[]
 
+  @@unique([organizationId, proformaNumber])
   @@index([partyId])
   @@index([status])
+  @@index([organizationId])
 }
 
 model ProformaLineItem {
@@ -686,9 +909,14 @@ model ProformaLineItem {
   lineTotal   Decimal @db.Decimal(12, 2) // (qty × unitPrice) + taxAmount
   sortOrder   Int     @default(0)
 
+  // SY21 — organizationId denormalized from parent (backfill fills it).
+  organizationId String?      @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   proforma ProformaInvoice @relation(fields: [proformaId], references: [id], onDelete: Cascade)
 
   @@index([proformaId])
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -698,7 +926,8 @@ model ProformaLineItem {
 
 model CreditNote {
   id               String           @id @default(cuid())
-  creditNoteNumber String           @unique // format: CN-{YYYY}-{NNNN}, generated by app
+  // SY21 — per-org unique now; the global @unique came off.
+  creditNoteNumber String           // format: CN-{YYYY}-{NNNN}, generated by app
   invoiceId        String
   partyId          String
   amount           Decimal          @db.Decimal(12, 2)
@@ -716,14 +945,20 @@ model CreditNote {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // SY21 — organizationId, populated by backfill (DB NOT NULL after).
+  organizationId String?      @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
   party       Party    @relation(fields: [partyId], references: [id], onDelete: Restrict)
   issuedBy    Profile  @relation("CreditNoteIssuer", fields: [issuedById], references: [id])
   cancelledBy Profile? @relation("CreditNoteCanceller", fields: [cancelledById], references: [id])
 
+  @@unique([organizationId, creditNoteNumber])
   @@index([invoiceId])
   @@index([partyId])
   @@index([status])
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -745,10 +980,15 @@ model SyncLog {
   triggeredById String?  @db.Uuid
   triggeredBy   Profile? @relation("SyncTrigger", fields: [triggeredById], references: [id])
 
+  // SY21 — organizationId, populated by backfill (DB NOT NULL after).
+  organizationId String?      @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   createdAt DateTime @default(now())
 
   @@index([syncType, startedAt])
   @@index([status])
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -778,6 +1018,10 @@ model Message {
   sentAt      DateTime?
   deliveredAt DateTime?
 
+  // SY21 — organizationId, populated by backfill (DB NOT NULL after).
+  organizationId String?      @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   party   Party    @relation(fields: [partyId], references: [id], onDelete: Restrict)
   invoice Invoice? @relation(fields: [invoiceId], references: [id])
   sentBy  Profile? @relation("MessageSender", fields: [sentById], references: [id])
@@ -786,6 +1030,7 @@ model Message {
   @@index([status])
   @@index([providerMessageId])
   @@index([channel, direction, createdAt])
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -797,10 +1042,17 @@ model PaymentLink {
   partyId        String
   invoiceId      String?
   provider       String  @default("RAZORPAY")
-  providerLinkId String  @unique
+  // SY21 — per-org unique now; the global @unique came off. In
+  // practice Razorpay IDs are globally unique, but pinning to org
+  // matches the tenancy boundary.
+  providerLinkId String
   shortUrl       String
   amount         Decimal @db.Decimal(12, 2)
   status         String  @default("created") // Razorpay: created/partially_paid/paid/cancelled/expired
+
+  // SY21 — organizationId, populated by backfill (DB NOT NULL after).
+  organizationId String?      @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -808,7 +1060,9 @@ model PaymentLink {
   party   Party    @relation(fields: [partyId], references: [id], onDelete: Restrict)
   invoice Invoice? @relation(fields: [invoiceId], references: [id])
 
+  @@unique([organizationId, providerLinkId])
   @@index([partyId])
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -818,7 +1072,8 @@ model PaymentLink {
 
 model AccountingConnection {
   id       String             @id @default(cuid())
-  provider AccountingProvider @unique
+  // SY21 — per-org unique now (was global @unique).
+  provider AccountingProvider
 
   // OAuth tokens, AES-256-GCM encrypted at rest (lib/crypto.ts).
   // Decrypt server-side only; never select into a client payload.
@@ -832,6 +1087,13 @@ model AccountingConnection {
   connectedAt DateTime  @default(now())
   lastSyncAt  DateTime?
   updatedAt   DateTime  @updatedAt
+
+  // SY21 — organizationId, populated by backfill (DB NOT NULL after).
+  organizationId String?      @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, provider])
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -856,8 +1118,17 @@ model Product {
   floorRate Decimal? @db.Decimal(14, 2)
   createdAt DateTime @default(now())
 
+  // SY21 — organizationId, populated by backfill (DB NOT NULL after).
+  // Product catalogue becomes per-org — Synergy's Polygum ≠ another
+  // distributor's Polygum. (name, brand) unique per org.
+  organizationId String?      @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   salesOrders     SalesOrder[]
   salesOrderItems SalesOrderItem[]
+
+  @@unique([organizationId, name, brand])
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -866,7 +1137,8 @@ model Product {
 
 model SalesOrder {
   id          String @id @default(cuid())
-  orderNumber String @unique // format: SB/YY-YY/NNNN, generated same pattern as proformaNumber
+  // SY21 — per-org unique now (was global @unique).
+  orderNumber String // format: SB/YY-YY/NNNN, generated same pattern as proformaNumber
 
   // Exactly one of these two must be set — enforce in application logic, not just here:
   partyId         String? // existing customer, chosen from the salesperson's own ledger dropdown
@@ -940,6 +1212,10 @@ model SalesOrder {
   rateApprovedAt    DateTime? @db.Timestamptz
   rateApprovalNote  String?
 
+  // Audit item 10 — stamp for the "waiting > 30 min" admin push
+  // (cron: /api/cron/notify-pending-approval). Null → never notified.
+  adminPendingNotifiedAt DateTime? @db.Timestamptz
+
   // P1 — general order-approval workflow. Filled by
   // approveOrderAction / rejectOrderAction; rejectionReason is
   // required by the action, so REJECTED rows always have context.
@@ -952,6 +1228,10 @@ model SalesOrder {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // SY21 — organizationId, populated by backfill (DB NOT NULL after).
+  organizationId String?      @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   party        Party?             @relation(fields: [partyId], references: [id])
   salesperson  Profile            @relation("OrderSalesperson", fields: [salespersonId], references: [id])
   product      Product            @relation(fields: [productId], references: [id])
@@ -961,10 +1241,12 @@ model SalesOrder {
   dispatchLots DispatchLot[]
   comments     OrderComment[]
 
+  @@unique([organizationId, orderNumber])
   @@index([salespersonId, createdAt])
   @@index([partyId])
   @@index([currentStatus])
   @@index([expectedDeliveryDate])
+  @@index([organizationId])
 }
 
 // One SKU on a multi-line sales order. Rate approval and floor-rate
@@ -1001,12 +1283,17 @@ model SalesOrderItem {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // SY21 — organizationId denormalized from parent SalesOrder.
+  organizationId String?      @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   salesOrder   SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
   product      Product    @relation(fields: [productId], references: [id])
   rateApprover Profile?   @relation("SalesOrderItemRateApprover", fields: [rateApprovedById], references: [id])
 
   @@unique([salesOrderId, lineNumber])
   @@index([salesOrderId])
+  @@index([organizationId])
 }
 
 model OrderStatusEvent {
@@ -1017,10 +1304,15 @@ model OrderStatusEvent {
   updatedById  String      @db.Uuid
   createdAt    DateTime    @default(now())
 
+  // SY21 — organizationId denormalized from parent (backfill fills it).
+  organizationId String?      @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
   updatedBy  Profile    @relation("OrderStatusUpdater", fields: [updatedById], references: [id])
 
   @@index([salesOrderId, createdAt])
+  @@index([organizationId])
 }
 
 model DispatchLot {
@@ -1036,10 +1328,15 @@ model DispatchLot {
   createdById  String   @db.Uuid
   createdAt    DateTime @default(now()) @db.Timestamptz
 
+  // SY21 — organizationId denormalized from parent (backfill fills it).
+  organizationId String?      @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
   createdBy  Profile    @relation("DispatchLotCreator", fields: [createdById], references: [id])
 
   @@index([salesOrderId])
+  @@index([organizationId])
 }
 
 model OrderComment {
@@ -1049,11 +1346,16 @@ model OrderComment {
   body         String
   createdAt    DateTime @default(now()) @db.Timestamptz
 
+  // SY21 — organizationId denormalized from parent (backfill fills it).
+  organizationId String?      @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
   author     Profile    @relation("OrderCommentAuthor", fields: [authorId], references: [id])
 
   @@index([salesOrderId, createdAt])
   @@index([authorId])
+  @@index([organizationId])
 }
 
 model OrderDocument {
@@ -1070,11 +1372,16 @@ model OrderDocument {
   pageGroupId String?
   pageIndex   Int?
 
+  // SY21 — organizationId denormalized from parent (backfill fills it).
+  organizationId String?      @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
   uploadedBy Profile    @relation("DocumentUploader", fields: [uploadedById], references: [id])
 
   @@index([salesOrderId])
   @@index([pageGroupId])
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -1083,16 +1390,24 @@ model OrderDocument {
 
 model StockItem {
   id           String    @id @default(cuid())
-  name         String    @unique
+  // SY21 — per-org unique now (were global @unique before).
+  name         String
   category     String?
   unit         String?
   closingQty   Decimal   @db.Decimal(12, 3)
-  tallyRef     String?   @unique
+  tallyRef     String?
   lastSyncedAt DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
+  // SY21 — organizationId, populated by backfill (DB NOT NULL after).
+  organizationId String?      @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, name])
+  @@unique([organizationId, tallyRef])
   @@index([name])
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -1112,17 +1427,30 @@ model PushToken {
   @@index([profileId])
 }
 
+// SY21 — now per-org. Pre-SY21 rows had id='global'; the migration
+// renames it and links to Synergy. New rows key on organizationId.
 model NotificationConfig {
   id                 String   @id
   edgeFunctionUrl    String?
   edgeFunctionSecret String?
   staleOrderHours    Int      @default(24)
   updatedAt          DateTime @default(now()) @updatedAt @db.Timestamptz
+
+  organizationId String?      @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
 }
 
 model StaleOrderNotice {
   salesOrderId String   @id
   notifiedAt   DateTime @default(now()) @db.Timestamptz
+
+  // SY21 — organizationId denormalized from SalesOrder.
+  organizationId String?      @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
 }
 
 model LoginAttempt {
@@ -1150,6 +1478,62 @@ enum LoginAttemptFactor {
   TOTP
   RECOVERY
   EMAIL_OTP
+}
+
+// SY23 — signup abuse control. One row per POST /api/signup, no
+// authenticated identity yet. Consumed by /api/signup itself.
+model SignupAttempt {
+  id          String   @id @default(cuid())
+  emailDomain String
+  ip          String
+  successful  Boolean  @default(false)
+  createdAt   DateTime @default(now()) @db.Timestamptz
+
+  @@index([ip, createdAt])
+  @@index([emailDomain, createdAt])
+}
+
+// SY27 — Tally per-org pairing.
+//
+// TallyPairingCode: short-lived one-time code an ADMIN generates in
+// Settings → Tally. Only its SHA-256 hash is stored so the plaintext
+// never sits at rest. Expires 15 min after generation; consumed row
+// keeps the audit trail without letting the code be reused.
+//
+// TallyConnector: the paired Windows PC. Only the SHA-256 hash of the
+// long-lived token is stored — the plaintext is shown once during
+// pairing and never again. Revoking flips revokedAt; every subsequent
+// /api/sync/tally call for this token returns 401.
+model TallyPairingCode {
+  id             String    @id @default(cuid())
+  organizationId String    @db.Uuid
+  codeHash       String    @unique
+  createdById    String    @db.Uuid
+  expiresAt      DateTime  @db.Timestamptz
+  consumedAt     DateTime? @db.Timestamptz
+  createdAt      DateTime  @default(now()) @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, expiresAt])
+}
+
+model TallyConnector {
+  id              String    @id @default(cuid())
+  organizationId  String    @db.Uuid
+  name            String
+  tokenHash       String    @unique
+  lastSeenAt      DateTime? @db.Timestamptz
+  lastSyncAt      DateTime? @db.Timestamptz
+  lastError       String?
+  rowsSyncedTotal Int       @default(0)
+  revokedAt       DateTime? @db.Timestamptz
+  revokedById     String?   @db.Uuid
+  createdAt       DateTime  @default(now()) @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, revokedAt])
 }
 
 // One-time backup codes shown once at TOTP enrolment. Codes generated
@@ -1180,9 +1564,15 @@ model RecoveryTarget {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  // SY21 — organizationId; a user can have targets in more than one org.
+  organizationId String?      @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   user Profile @relation("RecoveryTargetUser", fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, month])
+  @@unique([organizationId, userId, month])
+  @@index([userId, month])
+  @@index([organizationId])
 }
 
 model Escalation {
@@ -1195,12 +1585,17 @@ model Escalation {
   createdAt  DateTime         @default(now())
   updatedAt  DateTime         @updatedAt
 
+  // SY21 — organizationId denormalized from Party.
+  organizationId String?      @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   party    Party             @relation(fields: [partyId], references: [id], onDelete: Restrict)
   openedBy Profile?          @relation("EscalationOpener", fields: [openedById], references: [id])
   events   EscalationEvent[]
 
   @@index([status, stage])
   @@index([partyId])
+  @@index([organizationId])
 }
 
 model EscalationEvent {
@@ -1212,10 +1607,15 @@ model EscalationEvent {
   byId         String?          @db.Uuid // null = system (cron)
   createdAt    DateTime         @default(now())
 
+  // SY21 — organizationId denormalized from Escalation.
+  organizationId String?      @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   escalation Escalation @relation(fields: [escalationId], references: [id], onDelete: Cascade)
   by         Profile?   @relation("EscalationEventActor", fields: [byId], references: [id])
 
   @@index([escalationId, createdAt])
+  @@index([organizationId])
 }
 
 model Recommendation {
@@ -1225,5 +1625,11 @@ model Recommendation {
   model       String // "claude-haiku-4-5" | "rules-fallback"
   generatedAt DateTime @default(now())
 
+  // SY21 — organizationId denormalized from Party.
+  organizationId String?      @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   party Party @relation(fields: [partyId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
 }

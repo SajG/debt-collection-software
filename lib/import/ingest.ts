@@ -8,6 +8,7 @@
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { getDefaultOrgId } from "@/lib/tenancy";
 
 type Tx = Prisma.TransactionClient;
 import {
@@ -141,7 +142,16 @@ export type IngestOptions = {
   triggeredById: string | null;
   /** Free-text source for the SyncLog details (e.g. "csv", "tally-agent", "zoho_books"). */
   source: string;
+  /** SY27 — organizationId of the tenant these rows land in. Optional
+   *  for the SY21 migration window; when unset callers fall back to
+   *  the default (Synergy) via getDefaultOrgId(). Every new caller
+   *  MUST pass this to keep tenant scoping honest. */
+  organizationId?: string;
 };
+
+async function resolveOrgId(opts: IngestOptions): Promise<string> {
+  return opts.organizationId ?? (await getDefaultOrgId());
+}
 
 /** Map Profile.costCentreName (lowercased) → profile id for auto-assignment. */
 async function loadCostCentreProfileMap(): Promise<Map<string, string>> {
@@ -227,28 +237,42 @@ export async function ingestPartyRows(
 
     try {
       if (data.tallyRef) {
-        const existing = await db.party.findUnique({
-          where: { tallyRef: data.tallyRef },
+        // SY21: tallyRef is unique per organization. SY27: use the
+        // caller-supplied org when the Tally connector auth resolved
+        // one; falls back to Synergy for legacy TALLY_SYNC_SECRET.
+        const organizationId = await resolveOrgId(opts);
+        const existing = await db.party.findFirst({
+          where: { tallyRef: data.tallyRef, organizationId },
         });
         if (existing) {
           await db.party.update({
             where: { id: existing.id },
             data: { ...partyFields, ...assignmentPatch, ...tallySnapshot },
           });
-          result.skipped++; // counted as updated-in-place, not a new record
+          result.skipped++;
           continue;
         }
       } else {
+        const organizationId = await resolveOrgId(opts);
         const existing = await db.party.findFirst({
-          where: { name: { equals: data.name, mode: "insensitive" } },
+          where: {
+            organizationId,
+            name: { equals: data.name, mode: "insensitive" },
+          },
         });
         if (existing) {
           result.skipped++;
           continue;
         }
       }
+      const organizationId = await resolveOrgId(opts);
       await db.party.create({
-        data: { ...partyFields, ...assignmentPatch, ...tallySnapshot },
+        data: {
+          ...partyFields,
+          ...assignmentPatch,
+          ...tallySnapshot,
+          organizationId,
+        },
       });
       result.imported++;
     } catch {
@@ -361,8 +385,10 @@ export async function ingestInvoiceRows(
       }
 
       const total = new Prisma.Decimal(invoiceData.totalAmount);
+      const organizationId = await resolveOrgId(opts);
       await db.invoice.create({
         data: {
+          organizationId,
           partyId: party.id,
           invoiceNumber: invoiceData.invoiceNumber,
           invoiceDate: invoiceData.invoiceDate,
@@ -448,8 +474,11 @@ export async function ingestStockItemRows(
     const closingQty = new Prisma.Decimal(data.closingQty);
 
     try {
-      const existing = await db.stockItem.findUnique({
-        where: { tallyRef: data.tallyRef },
+      // SY21: stock unique-per-org, not global. SY27: caller-supplied
+      // org for pair-token traffic; falls back to default.
+      const organizationId = await resolveOrgId(opts);
+      const existing = await db.stockItem.findFirst({
+        where: { tallyRef: data.tallyRef, organizationId },
       });
       if (existing) {
         // Always bump lastSyncedAt — even when quantities are unchanged —
@@ -468,8 +497,10 @@ export async function ingestStockItemRows(
         continue;
       }
 
-      // Name is also unique — if a manual row collides, attach the tallyRef
-      const byName = await db.stockItem.findUnique({ where: { name: data.name } });
+      // Name is also unique per org — if a manual row collides, attach tallyRef
+      const byName = await db.stockItem.findFirst({
+        where: { name: data.name, organizationId },
+      });
       if (byName) {
         await db.stockItem.update({
           where: { id: byName.id },
@@ -487,6 +518,7 @@ export async function ingestStockItemRows(
 
       await db.stockItem.create({
         data: {
+          organizationId,
           name: data.name,
           category: data.category,
           unit: data.unit,
@@ -647,11 +679,13 @@ export async function ingestReceiptRows(
         ? new Prisma.Decimal(0)
         : onAccount.plus(unmatchedAmount);
 
+      // SY21: payment tallyRef is unique per organization now.
+      const organizationId = await getDefaultOrgId();
       await db.$transaction(async (tx) => {
         for (const a of allocationsWithInvoice) {
           const ref = `${r.tallyRef}:${a.invoiceNumber}`;
-          const existing = await tx.payment.findUnique({
-            where: { tallyRef: ref },
+          const existing = await tx.payment.findFirst({
+            where: { tallyRef: ref, organizationId },
             select: { id: true, amount: true },
           });
           if (existing) {
@@ -715,8 +749,8 @@ export async function ingestReceiptRows(
 
         if (residual.greaterThan(0)) {
           const ref = `${r.tallyRef}:onaccount`;
-          const existing = await tx.payment.findUnique({
-            where: { tallyRef: ref },
+          const existing = await tx.payment.findFirst({
+            where: { tallyRef: ref, organizationId },
             select: { id: true, amount: true },
           });
           if (existing) {

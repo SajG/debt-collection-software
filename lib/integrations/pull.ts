@@ -218,8 +218,10 @@ export async function syncProvider(
   const invoices = await ingestInvoiceRows(pulled.invoices, { triggeredById, source });
   if ("error" in invoices) return invoices;
 
+  const { getDefaultOrgId } = await import("@/lib/tenancy");
+  const organizationId = await getDefaultOrgId();
   await db.accountingConnection.update({
-    where: { provider },
+    where: { organizationId_provider: { organizationId, provider } },
     data: { lastSyncAt: new Date() },
   });
 

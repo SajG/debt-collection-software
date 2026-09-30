@@ -2,13 +2,24 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 
 // Routes that do NOT require a session.
-// /signup used to live here; self-registration was removed. Users are
-// now created only by an ADMIN (see /admin/users) or by the seed script.
+// /signup is listed pre-emptively — no self-registration page exists
+// yet (SY23). If someone hits it today they get a 404 without a login
+// bounce, which matches the future intent.
 const PUBLIC_PATHS = new Set([
   "/",
   "/login",
+  "/signup",
+  "/pricing",
+  "/features",
+  "/tally",
+  "/download",
+  "/privacy",
+  "/terms",
+  "/refund-policy",
+  "/contact",
   "/account-disabled",
   "/robots.txt",
+  "/sitemap.xml",
 ]);
 // /api/cron and /api/webhooks authenticate themselves (CRON_SECRET bearer,
 // Meta verify token) — no browser session exists on those requests.
@@ -28,6 +39,14 @@ const PUBLIC_PREFIXES = [
   // Anonymous — the browser POSTs violation reports here with no
   // credentials; we accept, log, and drop the body's PII.
   "/api/csp-report",
+  // Mobile sign-in — POST /api/auth/request-code carries no session.
+  // Rate-gated by the per-IP bucket above + per-email limit inside
+  // the route handler; the response is uniform {ok:true} regardless
+  // of allowlist state (SY15.8, no enumeration oracle).
+  "/api/auth/",
+  // /api/session/active-org verifies the caller's session itself
+  // before switching orgs (SY22). Middleware bounce isn't needed.
+  "/api/session/",
   // Honeypot — must reach its own 404 handler so the alert line
   // fires with full request metadata. Redirecting to /login would
   // still leave a trail in access logs but hide the shape of the
@@ -37,6 +56,14 @@ const PUBLIC_PREFIXES = [
 
 function isPublic(pathname: string): boolean {
   if (PUBLIC_PATHS.has(pathname)) return true;
+  // /login sub-flows (/login/email-code, /login/password) must be
+  // reachable while signed out — otherwise the redirect from /login
+  // loops back to /login. /login/challenge is the exception: it is
+  // the aal1 → aal2 TOTP step and MUST require a session; a signed-
+  // out hit falls through to the redirect below.
+  if (pathname.startsWith("/login/") && pathname !== "/login/challenge") {
+    return true;
+  }
   return PUBLIC_PREFIXES.some((p) => pathname.startsWith(p));
 }
 

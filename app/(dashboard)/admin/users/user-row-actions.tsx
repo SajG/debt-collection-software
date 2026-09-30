@@ -6,18 +6,20 @@ import {
   deactivateUserAction,
   reactivateUserAction,
   changeRoleAction,
+  inviteUserAction,
   resendInviteAction,
+  setUserEmailAction,
 } from "./actions";
 
 // Client-side action buttons + confirmations, one row's worth. Kept
 // tiny — no state library, plain window.confirm for the yes/no gate
 // (the destructive verbs name the person, per spec).
 //
-// The old "Issue enrollment code" button + modal was removed with
-// SY-email. Mobile sign-in is now: admin invites by email → user
-// receives a 6-digit code → mobile signs in and register_device()
-// records the device. Use "Resend invite" to email the user again;
-// no one-off codes any more.
+// SY-email: web + mobile sign-in is emailed 6-digit codes only. A
+// user with no email cannot sign in at ALL, so the row exposes an
+// inline "Add email" input (EmailCell) and pairs it with a
+// Send / Resend invite button so the admin can complete the flow
+// without leaving the row.
 
 export function UserRowActions({
   profile,
@@ -29,15 +31,18 @@ export function UserRowActions({
     role: Role;
     isActive: boolean;
     email?: string | null;
+    invitedAt?: Date | null;
   };
   /** True when this row is the currently-signed-in admin. Suppresses
    *  role change + deactivate (the guard trigger would refuse anyway).
-   *  Resend invite still shows so an admin can email themselves a
-   *  fresh sign-in code for mobile. */
+   *  Send invite still shows so an admin can email themselves a fresh
+   *  sign-in code for mobile. */
   isSelf?: boolean;
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+
+  const hasInvitedBefore = !!profile.invitedAt;
 
   function runDeactivate() {
     if (
@@ -62,21 +67,24 @@ export function UserRowActions({
     });
   }
 
-  function runResendInvite() {
+  function runSendInvite() {
     if (!profile.email) {
       setError("This user has no email on file.");
       return;
     }
+    const verb = hasInvitedBefore ? "Resend" : "Send";
     if (
       !window.confirm(
-        `Resend the sign-in invite to ${profile.email}?`,
+        `${verb} the sign-in invite to ${profile.email}?`,
       )
     ) {
       return;
     }
     setError(null);
     startTransition(async () => {
-      const res = await resendInviteAction({ profileId: profile.id });
+      const res = hasInvitedBefore
+        ? await resendInviteAction({ profileId: profile.id })
+        : await inviteUserAction({ profileId: profile.id });
       if ("error" in res) setError(res.error);
     });
   }
@@ -97,6 +105,8 @@ export function UserRowActions({
       if ("error" in res) setError(res.error);
     });
   }
+
+  const inviteLabel = hasInvitedBefore ? "Resend invite" : "Send invite";
 
   return (
     <div className="flex flex-col items-end gap-1">
@@ -125,12 +135,12 @@ export function UserRowActions({
             {profile.email ? (
               <button
                 type="button"
-                onClick={runResendInvite}
+                onClick={runSendInvite}
                 disabled={pending}
                 className="rounded border border-sky-400 bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-800 disabled:opacity-60"
-                title={`Resend the sign-in email to ${profile.email}`}
+                title={`Email a 6-digit sign-in code to ${profile.email}`}
               >
-                Resend invite
+                {inviteLabel}
               </button>
             ) : null}
             {isSelf ? null : (
@@ -154,6 +164,106 @@ export function UserRowActions({
             Reactivate
           </button>
         )}
+      </div>
+      {error ? <p className="text-xs text-red-600">{error}</p> : null}
+    </div>
+  );
+}
+
+// Inline editable email cell. Rendered from page.tsx per row.
+//
+//   * No email yet → an input + "Add" button. Empty submit is a no-op.
+//   * Email set    → shows the address plus an "Edit" toggle so a typo
+//     can be fixed without going through the SQL editor.
+export function EmailCell({
+  profileId,
+  email,
+  isActive,
+}: {
+  profileId: string;
+  email: string | null;
+  isActive: boolean;
+}) {
+  const [editing, setEditing] = useState(!email);
+  const [value, setValue] = useState(email ?? "");
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  function save() {
+    const clean = value.trim().toLowerCase();
+    if (!clean) {
+      setError("Enter an email address.");
+      return;
+    }
+    setError(null);
+    startTransition(async () => {
+      const res = await setUserEmailAction({
+        profileId,
+        email: clean,
+      });
+      if ("error" in res) {
+        setError(res.error);
+        return;
+      }
+      setEditing(false);
+    });
+  }
+
+  if (!editing && email) {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-foreground">{email}</span>
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+          disabled={!isActive}
+          title={
+            isActive
+              ? "Change this email"
+              : "Reactivate the user before changing their email"
+          }
+        >
+          Edit
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-1">
+        <input
+          type="email"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={email ? email : "name@example.com"}
+          className="w-56 rounded border border-border bg-background px-2 py-1 text-xs"
+          disabled={pending || !isActive}
+          autoComplete="off"
+        />
+        <button
+          type="button"
+          onClick={save}
+          disabled={pending || !isActive}
+          className="rounded border border-emerald-400 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800 disabled:opacity-60"
+        >
+          {email ? "Save" : "Add email"}
+        </button>
+        {email ? (
+          <button
+            type="button"
+            onClick={() => {
+              setValue(email);
+              setEditing(false);
+              setError(null);
+            }}
+            disabled={pending}
+            className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+          >
+            Cancel
+          </button>
+        ) : null}
       </div>
       {error ? <p className="text-xs text-red-600">{error}</p> : null}
     </div>

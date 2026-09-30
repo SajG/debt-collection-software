@@ -1,0 +1,6 @@
+ownerName,role,phone,email,note
+Owner One,ADMIN,9000000001,,
+Owner Two,ADMIN,9000000002,,
+Warehouse Lead,FACTORY,9000000003,,pending Tally reconciliation
+Salesperson A,STAFF,9000000004,,
+Salesperson B,STAFF,9000000005,,

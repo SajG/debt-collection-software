@@ -1,4 +1,4 @@
-name: typecheck
+name: ci
 
 on:
   push:
@@ -18,6 +18,13 @@ jobs:
       - run: npm ci
       - run: npx prisma generate
       - run: npx tsc --noEmit
+      - run: npm run lint
+      # The RLS / authz / rate-limit / device-revocation suites are
+      # the ones that actually catch regressions worth catching.
+      # tsc alone was the previous gate — that's how the SY0 backdoor
+      # and the SY15.1 revocation hollow slipped through. This line
+      # is the highest-value one in the file. Do not drop it.
+      - run: npm run test
 
   mobile:
     runs-on: ubuntu-latest

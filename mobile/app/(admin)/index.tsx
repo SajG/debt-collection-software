@@ -24,6 +24,11 @@ import { t } from "@/lib/i18n";
 // possible).
 
 type Tiles = {
+  // SY24 — money-focused KPIs at the top.
+  totalOutstanding: number;
+  overdueInvoicesCount: number;
+  collectedThisMonth: number;
+  dso: number | null; // days
   placedToday: { count: number; value: number };
   placedWeek: { count: number; value: number };
   pendingApproval: number;
@@ -39,6 +44,10 @@ type Tiles = {
 };
 
 const EMPTY: Tiles = {
+  totalOutstanding: 0,
+  overdueInvoicesCount: 0,
+  collectedThisMonth: 0,
+  dso: null,
   placedToday: { count: 0, value: 0 },
   placedWeek: { count: 0, value: 0 },
   pendingApproval: 0,
@@ -90,6 +99,9 @@ async function loadTiles(): Promise<Tiles> {
     holdR,
     thisMonthR,
     lastMonthR,
+    outstandingR,
+    overdueInvR,
+    collectedR,
   ] = await Promise.all([
     supabase
       .from("SalesOrder")
@@ -128,6 +140,17 @@ async function loadTiles(): Promise<Tiles> {
       .eq("currentStatus", "DISPATCHED")
       .gte("createdAt", lastMonthStart)
       .lt("createdAt", lastMonthEnd),
+    // SY24 — new KPIs.
+    supabase.from("Party").select("totalOutstanding"),
+    supabase
+      .from("Invoice")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "OVERDUE"),
+    supabase
+      .from("Payment")
+      .select("amount")
+      .gte("paymentDate", monthStart)
+      .lt("paymentDate", monthEnd),
   ]);
 
   const sumValues = (rows: unknown): number => {
@@ -147,7 +170,37 @@ async function loadTiles(): Promise<Tiles> {
     .map(([category, count]) => ({ category, count }))
     .sort((a, b) => b.count - a.count);
 
+  // SY24 — outstanding, collected, DSO.
+  const outstandingRows =
+    (outstandingR.data as { totalOutstanding: number | string | null }[] | null) ??
+    [];
+  const totalOutstanding =
+    Math.round(
+      outstandingRows.reduce((s, r) => s + Number(r.totalOutstanding ?? 0), 0) *
+        100,
+    ) / 100;
+
+  const collectedRows =
+    (collectedR.data as { amount: number | string | null }[] | null) ?? [];
+  const collectedThisMonth =
+    Math.round(
+      collectedRows.reduce((s, r) => s + Number(r.amount ?? 0), 0) * 100,
+    ) / 100;
+
+  // Naive DSO = (outstanding / dispatched last 30 days) × 30. Good
+  // enough as a mobile-header approximation; the /admin/analytics
+  // web page has the real formula.
+  const thirtyDayRevenue = sumValues(thisMonthR.data) + sumValues(lastMonthR.data);
+  const dso =
+    thirtyDayRevenue > 0
+      ? Math.round((totalOutstanding / thirtyDayRevenue) * 30)
+      : null;
+
   return {
+    totalOutstanding,
+    overdueInvoicesCount: overdueInvR.count ?? 0,
+    collectedThisMonth,
+    dso,
     placedToday: { count: todayR.count ?? 0, value: sumValues(todayR.data) },
     placedWeek: { count: weekR.count ?? 0, value: sumValues(weekR.data) },
     pendingApproval: pendR.count ?? 0,
@@ -262,6 +315,35 @@ export default function AdminCommandCentre() {
             <Text style={styles.errorText}>{error}</Text>
           </View>
         ) : null}
+
+        {/* SY24 — money-first top row. */}
+        <Row>
+          <Tile
+            label="Total outstanding"
+            value={formatINR(tiles.totalOutstanding)}
+            sub="Across all customers"
+            onPress={() => router.push("/(staff)/dues")}
+          />
+          <Tile
+            label="Overdue invoices"
+            value={String(tiles.overdueInvoicesCount)}
+            danger={tiles.overdueInvoicesCount > 0}
+            onPress={() => router.push("/(staff)/dues")}
+          />
+        </Row>
+        <Row>
+          <Tile
+            label="Collected this month"
+            value={formatINR(tiles.collectedThisMonth)}
+            onPress={() => router.push("/(admin)/team")}
+          />
+          <Tile
+            label="DSO"
+            value={tiles.dso === null ? "—" : `${tiles.dso} d`}
+            sub="Days sales outstanding (approx)"
+            onPress={() => router.push("/(admin)/team")}
+          />
+        </Row>
 
         <Row>
           <Tile

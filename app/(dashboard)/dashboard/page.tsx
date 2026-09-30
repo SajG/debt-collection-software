@@ -4,6 +4,7 @@ import { addDays } from "date-fns";
 import { AlertTriangle, Clock, IndianRupee, Truck, Users } from "lucide-react";
 import { db } from "@/lib/db";
 import { requireProfile, partyScopeWhere } from "@/lib/authz";
+import { resolveOrgIdFromProfile } from "@/lib/tenancy";
 import { startOfToday } from "@/lib/ar/balance";
 import { formatINR, formatDate } from "@/lib/format";
 import { Badge, LinkButton, statusTone } from "../_components/ui";
@@ -19,8 +20,9 @@ export default async function DashboardPage() {
 
   if (profile.role === "FACTORY") redirect("/production");
 
+  const organizationId = await resolveOrgIdFromProfile(profile.id);
   const settings = await db.businessSettings.findUnique({
-    where: { profileId: profile.id },
+    where: { organizationId },
     select: { onboardingDone: true },
   });
   if (!settings?.onboardingDone) redirect("/onboarding");

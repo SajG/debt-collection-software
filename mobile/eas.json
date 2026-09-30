@@ -4,14 +4,33 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "android": { "buildType": "apk" }
+      "android": { "buildType": "apk" },
+      "channel": "development"
     },
     "preview": {
       "distribution": "internal",
-      "android": { "buildType": "apk" }
+      "android": { "buildType": "apk" },
+      "channel": "preview"
     },
     "production": {
+      "android": { "buildType": "app-bundle" },
+      "channel": "production"
+    },
+    "production-apk": {
+      "extends": "production",
       "android": { "buildType": "apk" }
+    }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "serviceAccountKeyPath": "./play-service-account.json",
+        "track": "internal"
+      },
+      "ios": {
+        "appleId": "PLACEHOLDER_APPLE_ID",
+        "ascAppId": "PLACEHOLDER_ASC_APP_ID"
+      }
     }
   }
 }

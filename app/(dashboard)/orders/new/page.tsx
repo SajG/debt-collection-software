@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { requireProfile, partyScopeWhere } from "@/lib/authz";
+import { daysOverdue } from "@/lib/ar/aging";
 import { PageHeader } from "../../_components/ui";
 import { OrderForm, type OrderFormParty, type OrderFormProduct, type OrderFormStock } from "./order-form";
 
@@ -25,7 +26,7 @@ export default async function NewOrderPage() {
     isActive: true,
   };
 
-  const [parties, products, stock] = await Promise.all([
+  const [parties, oldestUnpaidByParty, products, stock] = await Promise.all([
     db.party.findMany({
       where: partyWhere,
       orderBy: { name: "asc" },
@@ -40,6 +41,14 @@ export default async function NewOrderPage() {
         assignedToId: true,
       },
       take: 2000,
+    }),
+    // Oldest unpaid invoice dueDate per party — powers the "block if
+    // any invoice > 60 days overdue" gate. UNPAID/PARTIAL/OVERDUE are
+    // the non-terminal states; PAID and CANCELLED are excluded.
+    db.invoice.groupBy({
+      by: ["partyId"],
+      where: { status: { in: ["UNPAID", "PARTIAL", "OVERDUE"] } },
+      _min: { dueDate: true },
     }),
     db.product.findMany({
       where: { isActive: true },
@@ -60,15 +69,25 @@ export default async function NewOrderPage() {
     }),
   ]);
 
-  const formParties: OrderFormParty[] = parties.map((p) => ({
-    id: p.id,
-    name: p.name,
-    phone: p.phone,
-    city: p.city,
-    outstanding: p.totalOutstanding.toString(),
-    creditLimit: p.creditLimit ? p.creditLimit.toString() : null,
-    creditDays: p.creditDays,
-  }));
+  const oldestByPartyId = new Map<string, Date | null>();
+  for (const row of oldestUnpaidByParty) {
+    oldestByPartyId.set(row.partyId, row._min.dueDate);
+  }
+
+  const formParties: OrderFormParty[] = parties.map((p) => {
+    const oldest = oldestByPartyId.get(p.id) ?? null;
+    const overdue = oldest ? daysOverdue(oldest) : 0;
+    return {
+      id: p.id,
+      name: p.name,
+      phone: p.phone,
+      city: p.city,
+      outstanding: p.totalOutstanding.toString(),
+      creditLimit: p.creditLimit ? p.creditLimit.toString() : null,
+      creditDays: p.creditDays,
+      oldestOverdueDays: overdue > 0 ? overdue : null,
+    };
+  });
 
   const formProducts: OrderFormProduct[] = products.map((p) => ({
     id: p.id,

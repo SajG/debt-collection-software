@@ -1,6 +1,7 @@
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { Redirect } from "expo-router";
 import { useAuth } from "@/auth/AuthContext";
+import { useAppUpdates } from "@/lib/app-updates";
 import { t } from "@/lib/i18n";
 import { theme } from "@/theme";
 
@@ -14,6 +15,11 @@ import { theme } from "@/theme";
 // ADMIN              → /(admin)
 export default function IndexGate() {
   const { loading, session, profile, role, locked } = useAuth();
+  // Forced-update floor (SY6 + SY15.4). If the server's
+  // mobileMinAppVersion is higher than our built version, hold the
+  // user at the blocking /update-required screen so they cannot
+  // reach the shell until they update.
+  const { updateRequired } = useAppUpdates();
 
   if (loading) {
     return (
@@ -24,6 +30,10 @@ export default function IndexGate() {
     );
   }
 
+  // Forced update takes precedence over everything — a device on
+  // an outdated version might have known security holes we don't
+  // want holding a live session.
+  if (updateRequired) return <Redirect href="/update-required" />;
   if (!session) return <Redirect href="/(auth)/email" />;
   if (locked) return <Redirect href="/unlock" />;
   if (!profile) return <Redirect href="/no-profile" />;

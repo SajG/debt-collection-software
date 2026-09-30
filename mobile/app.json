@@ -5,12 +5,15 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "scheme": [
-      "syncit",
-      "synworks"
-    ],
+    "scheme": "syncit",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+    "runtimeVersion": { "policy": "appVersion" },
+    "updates": {
+      "url": "https://u.expo.dev/PLACEHOLDER_EAS_PROJECT_ID",
+      "fallbackToCacheTimeout": 0,
+      "checkAutomatically": "ON_LOAD"
+    },
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -21,10 +24,10 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.syncit.app"
+      "bundleIdentifier": "app.getsyncit"
     },
     "android": {
-      "package": "com.syncit.app",
+      "package": "app.getsyncit",
       "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -53,6 +56,12 @@
         {
           "photosPermission": "Syncit needs camera/photo access so you can attach payment proof (bank screenshot, cheque photo) after recording a payment.",
           "cameraPermission": "Syncit uses the camera to capture payment proofs and order proofs while you're at the customer site."
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Syncit uses Face ID to unlock the app so your company's order and customer data stays private if the phone is lost."
         }
       ],
       [

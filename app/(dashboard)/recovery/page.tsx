@@ -57,7 +57,7 @@ export default async function RecoveryPage() {
       <PageHeader title="Today's recovery plan" />
       {empty && <p className="text-neutral-500">No follow-ups due today. All clear.</p>}
       {sections.map(([staffId, entries]) => (
-        <ChaseList key={staffId} title={names.get(staffId) ?? "Staff"} entries={entries} />
+        <ChaseList key={staffId} title={names.get(staffId) ?? "Sales"} entries={entries} />
       ))}
       <ChaseList title="Unassigned" entries={plan.unassigned} />
     </div>

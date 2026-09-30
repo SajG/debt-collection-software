@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/authz";
+import { getDefaultOrgId } from "@/lib/tenancy";
 import { recoveryTargetSchema, type RecoveryTargetInput } from "@/lib/validation";
 
 type ActionResult = { error: string } | { ok: true };
@@ -19,9 +20,12 @@ export async function upsertRecoveryTarget(
   const [y, m] = month.split("-").map(Number);
   const monthKey = new Date(Date.UTC(y, m - 1, 1));
 
+  const organizationId = await getDefaultOrgId();
   await db.recoveryTarget.upsert({
-    where: { userId_month: { userId, month: monthKey } },
-    create: { userId, month: monthKey, targetAmount },
+    where: {
+      organizationId_userId_month: { organizationId, userId, month: monthKey },
+    },
+    create: { organizationId, userId, month: monthKey, targetAmount },
     update: { targetAmount },
   });
 
