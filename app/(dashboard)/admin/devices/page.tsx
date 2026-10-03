@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile } from "@/lib/authz";
 import { PageHeader, Card } from "../../_components/ui";
 import { DeviceRowActions } from "./device-row-actions";
@@ -18,6 +18,7 @@ function timeAgo(d: Date | null | undefined): string {
 
 export default async function DevicesAdminPage() {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   if (profile.role !== "ADMIN") redirect("/dashboard");
 
   // Include revoked so admins have a full audit view; the UI groups

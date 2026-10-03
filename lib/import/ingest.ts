@@ -7,10 +7,9 @@
 
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
-import { db } from "@/lib/db";
-import { getDefaultOrgId } from "@/lib/tenancy";
+import { tenantDb, type TenantClient, type TenantTx } from "@/lib/tenant";
 
-type Tx = Prisma.TransactionClient;
+type Tx = TenantTx;
 import {
   deriveInvoiceStatus,
   recomputePartyOutstanding,
@@ -142,19 +141,19 @@ export type IngestOptions = {
   triggeredById: string | null;
   /** Free-text source for the SyncLog details (e.g. "csv", "tally-agent", "zoho_books"). */
   source: string;
-  /** SY27 — organizationId of the tenant these rows land in. Optional
-   *  for the SY21 migration window; when unset callers fall back to
-   *  the default (Synergy) via getDefaultOrgId(). Every new caller
-   *  MUST pass this to keep tenant scoping honest. */
-  organizationId?: string;
+  /** SY27 — organizationId of the tenant these rows land in. Required
+   *  (SY31): there is no default-company fallback. */
+  organizationId: string;
 };
 
 async function resolveOrgId(opts: IngestOptions): Promise<string> {
-  return opts.organizationId ?? (await getDefaultOrgId());
+  return opts.organizationId;
 }
 
 /** Map Profile.costCentreName (lowercased) → profile id for auto-assignment. */
-async function loadCostCentreProfileMap(): Promise<Map<string, string>> {
+async function loadCostCentreProfileMap(
+  db: TenantClient,
+): Promise<Map<string, string>> {
   const profiles = await db.profile.findMany({
     where: { costCentreName: { not: null } },
     select: { id: true, costCentreName: true },
@@ -187,12 +186,14 @@ export async function ingestPartyRows(
   rows: Record<string, string>[],
   opts: IngestOptions
 ): Promise<ImportResult | { error: string }> {
+  // SY32 — every read/write below is scoped to opts.organizationId.
+  const db = tenantDb(opts.organizationId);
   if (rows.length === 0) return { error: "No rows to import." };
   if (rows.length > MAX_ROWS) return { error: `Maximum ${MAX_ROWS} rows per import.` };
 
   const result: ImportResult = { imported: 0, skipped: 0, failed: 0, errors: [] };
   const unmatchedCostCentres = new Set<string>();
-  const costCentreToProfile = await loadCostCentreProfileMap();
+  const costCentreToProfile = await loadCostCentreProfileMap(db);
 
   const sync = await db.syncLog.create({
     data: {
@@ -313,13 +314,15 @@ export async function ingestInvoiceRows(
   rows: Record<string, string>[],
   opts: IngestOptions
 ): Promise<ImportResult | { error: string }> {
+  // SY32 — every read/write below is scoped to opts.organizationId.
+  const db = tenantDb(opts.organizationId);
   if (rows.length === 0) return { error: "No rows to import." };
   if (rows.length > MAX_ROWS) return { error: `Maximum ${MAX_ROWS} rows per import.` };
 
   const result: ImportResult = { imported: 0, skipped: 0, failed: 0, errors: [] };
   const affectedPartyIds = new Set<string>();
   const unmatchedCostCentres = new Set<string>();
-  const costCentreToProfile = await loadCostCentreProfileMap();
+  const costCentreToProfile = await loadCostCentreProfileMap(db);
 
   const sync = await db.syncLog.create({
     data: {
@@ -446,6 +449,8 @@ export async function ingestStockItemRows(
   rows: Record<string, string>[],
   opts: IngestOptions
 ): Promise<ImportResult | { error: string }> {
+  // SY32 — every read/write below is scoped to opts.organizationId.
+  const db = tenantDb(opts.organizationId);
   if (rows.length === 0) return { error: "No rows to import." };
   if (rows.length > MAX_ROWS) return { error: `Maximum ${MAX_ROWS} rows per import.` };
 
@@ -570,6 +575,8 @@ export async function ingestReceiptRows(
   rows: Array<Record<string, unknown>>,
   opts: IngestOptions,
 ): Promise<ImportResult | { error: string }> {
+  // SY32 — every read/write below is scoped to opts.organizationId.
+  const db = tenantDb(opts.organizationId);
   if (rows.length === 0) return { error: "No rows to import." };
   if (rows.length > MAX_ROWS)
     return { error: `Maximum ${MAX_ROWS} rows per import.` };
@@ -730,7 +737,7 @@ export async function ingestReceiptRows(
               tallyRef: ref,
               // Recorded-by must be non-null; use a well-known system
               // profile id if configured, else fall back to any admin.
-              recordedById: await systemProfileId(tx),
+              recordedById: await systemProfileId(tx, opts.organizationId),
             },
           });
           const newPaid = a.priorPaid.plus(a.amount);
@@ -778,7 +785,7 @@ export async function ingestReceiptRows(
                 reference: r.voucherNumber,
                 source: "TALLY",
                 tallyRef: ref,
-                recordedById: await systemProfileId(tx),
+                recordedById: await systemProfileId(tx, opts.organizationId),
               },
             });
             result.imported++;
@@ -819,23 +826,23 @@ export async function ingestReceiptRows(
 }
 
 // Payment.recordedById is UUID + NOT NULL. Tally imports have no
-// human triggerer, so fall back to the first ADMIN in the system.
-// Cached across a request to avoid per-row lookups. If no admin
-// exists yet the ingest throws — this must be seeded before Tally
-// sync runs against a real project.
-let _cachedSystemProfileId: string | null = null;
-async function systemProfileId(tx: Tx | typeof db): Promise<string> {
-  if (_cachedSystemProfileId) return _cachedSystemProfileId;
-  const admin = await tx.profile.findFirst({
-    where: { role: "ADMIN" },
+// human triggerer, so fall back to the company's first active ADMIN
+// member. Cached per organization (SY32: never another company's
+// admin). If the company has no admin the ingest throws.
+const _systemProfileIdByOrg = new Map<string, string>();
+async function systemProfileId(tx: TenantClient, organizationId: string): Promise<string> {
+  const cached = _systemProfileIdByOrg.get(organizationId);
+  if (cached) return cached;
+  const admin = await tx.membership.findFirst({
+    where: { role: "ADMIN", isActive: true },
     orderBy: { createdAt: "asc" },
-    select: { id: true },
+    select: { profileId: true },
   });
   if (!admin) {
     throw new Error(
-      "No ADMIN profile exists to attribute Tally-imported receipts to.",
+      "No ADMIN member exists in this company to attribute Tally-imported receipts to.",
     );
   }
-  _cachedSystemProfileId = admin.id;
-  return admin.id;
+  _systemProfileIdByOrg.set(organizationId, admin.profileId);
+  return admin.profileId;
 }

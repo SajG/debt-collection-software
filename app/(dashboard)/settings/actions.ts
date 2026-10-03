@@ -2,10 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireAdmin } from "@/lib/authz";
 import { encryptSecret } from "@/lib/crypto";
-import { resolveOrgIdFromProfile } from "@/lib/tenancy";
 import { uploadCompanyLogo, LOGO_MAX_BYTES } from "@/lib/storage";
 
 const optional = (max = 200) =>
@@ -118,6 +117,7 @@ export async function updateSettingsAction(
   input: SettingsInput
 ): Promise<{ error: string } | { saved: true }> {
   const profile = await requireAdmin();
+  const db = tenantDb(profile.organizationId);
 
   const parsed = settingsSchema.safeParse(input);
   if (!parsed.success) {
@@ -131,7 +131,7 @@ export async function updateSettingsAction(
     ...(bankAccountNumber ? { bankAccountNumber: encryptSecret(bankAccountNumber) } : {}),
   };
 
-  const organizationId = await resolveOrgIdFromProfile(profile.id);
+  const organizationId = profile.organizationId;
   await db.businessSettings.upsert({
     where: { organizationId },
     create: {
@@ -154,6 +154,7 @@ export async function uploadLogoAction(
   formData: FormData
 ): Promise<{ error: string } | { saved: true }> {
   const profile = await requireAdmin();
+  const db = tenantDb(profile.organizationId);
 
   const file = formData.get("logo");
   if (!(file instanceof File) || file.size === 0) {
@@ -163,7 +164,7 @@ export async function uploadLogoAction(
     return { error: "Logo must be 2MB or smaller." };
   }
 
-  const organizationId = await resolveOrgIdFromProfile(profile.id);
+  const organizationId = profile.organizationId;
   const settings = await db.businessSettings.findUnique({
     where: { organizationId },
     select: { companyLogoPath: true },

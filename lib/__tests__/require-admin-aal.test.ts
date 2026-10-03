@@ -19,7 +19,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: () => ({
     auth: {
       getUser: async () => ({
-        data: { user: { id: "admin-uuid" } },
+        data: { user: { id: "admin-uuid", app_metadata: {} } },
       }),
     },
   }),
@@ -27,6 +27,10 @@ vi.mock("@/lib/supabase/server", () => ({
 
 vi.mock("@/lib/db", () => ({
   db: {
+    // tenantDb() wraps db.$extends; the mock needs no scoping.
+    $extends() {
+      return this;
+    },
     profile: {
       findUnique: async () => ({
         id: "admin-uuid",
@@ -36,14 +40,19 @@ vi.mock("@/lib/db", () => ({
         businessName: "Test",
       }),
     },
+    // SY31 — the role comes from the sole active Membership.
+    membership: {
+      findMany: async () => [
+        { organizationId: "org-uuid", role: "ADMIN", isOwner: true },
+      ],
+    },
     // SY23 — requireAdmin also reads BusinessSettings.requireManagement2fa
-    // via resolveOrgIdFromProfile → $queryRaw + businessSettings.findUnique.
+    // for the active company.
     // Return the "Synergy" posture (requireManagement2fa=true) so the
     // aal2 gate still fires exactly like the pre-SY23 behaviour.
     businessSettings: {
       findUnique: async () => ({ requireManagement2fa: true }),
     },
-    $queryRaw: async () => [{ id: "org-uuid" }],
   },
 }));
 

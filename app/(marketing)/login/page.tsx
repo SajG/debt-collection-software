@@ -2,20 +2,29 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { EmailCodeForm } from "./email-code/email-code-form";
 import { GoogleSignInButton } from "./google-button";
+import { isSignupEnabled } from "@/lib/signup-flag";
+import { safePath } from "@/lib/safe-redirect";
 
 export const metadata: Metadata = {
   title: "Sign in — Syncit",
 };
 
 // SY23 — web sign-in options: Google OAuth OR emailed 6-digit code.
-// Password auth is fully removed; the Supabase project should have
-// email+password disabled (docs/LOGIN-RUNBOOK.md).
+// Password auth is fully removed (SY31); the Supabase project should
+// have email+password disabled (docs/LOGIN-RUNBOOK.md). The Google
+// button only shows while SIGNUP_ENABLED=true.
+
+export const dynamic = "force-dynamic";
 
 export default function LoginPage({
   searchParams,
 }: {
   searchParams: { callbackUrl?: string; error?: string; recovered?: string };
 }) {
+  const signupEnabled = isSignupEnabled();
+  const callbackUrl = searchParams.callbackUrl
+    ? safePath(searchParams.callbackUrl, "/dashboard")
+    : undefined;
   return (
     <main className="flex min-h-screen flex-col items-center justify-center p-6 bg-muted/30">
       <div className="w-full max-w-sm">
@@ -54,32 +63,28 @@ export default function LoginPage({
             </div>
           )}
 
-          <GoogleSignInButton
-            label="Continue with Google"
-            next={searchParams.callbackUrl ?? "/dashboard"}
-          />
-          <div className="relative flex items-center py-1">
-            <div className="flex-grow border-t border-border" />
-            <span className="mx-3 text-xs uppercase tracking-wide text-muted-foreground">
-              or with email
-            </span>
-            <div className="flex-grow border-t border-border" />
-          </div>
-          <EmailCodeForm callbackUrl={searchParams.callbackUrl} />
+          {signupEnabled && (
+            <>
+              <GoogleSignInButton
+                label="Continue with Google"
+                next={callbackUrl ?? "/dashboard"}
+              />
+              <div className="relative flex items-center py-1">
+                <div className="flex-grow border-t border-border" />
+                <span className="mx-3 text-xs uppercase tracking-wide text-muted-foreground">
+                  or with email
+                </span>
+                <div className="flex-grow border-t border-border" />
+              </div>
+            </>
+          )}
+          <EmailCodeForm callbackUrl={callbackUrl} />
         </div>
 
-        <p className="mt-6 text-center text-xs text-muted-foreground">
-          <Link
-            href={`/login/password${searchParams.callbackUrl ? `?callbackUrl=${encodeURIComponent(searchParams.callbackUrl)}` : ""}`}
-            className="text-primary underline-offset-4 hover:underline"
-          >
-            Prefer a password? Sign in that way →
-          </Link>
-        </p>
-        <p className="mt-4 text-center text-sm text-muted-foreground">
+        <p className="mt-6 text-center text-sm text-muted-foreground">
           New to Syncit?{" "}
           <Link href="/signup" className="text-primary underline-offset-4 hover:underline">
-            Start free trial →
+            {signupEnabled ? "Start free trial →" : "Get your company set up →"}
           </Link>
         </p>
         <p className="mt-2 text-center text-xs text-muted-foreground">

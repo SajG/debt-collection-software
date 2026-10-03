@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile, canAccessParty } from "@/lib/authz";
 import { PageHeader } from "../../../_components/ui";
 import { ActionForm } from "../../action-form";
@@ -10,6 +10,7 @@ export default async function EditActionPage({
   params: { id: string };
 }) {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const action = await db.action.findUnique({
     where: { id: params.id },

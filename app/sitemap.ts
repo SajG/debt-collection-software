@@ -24,6 +24,7 @@ const MARKETING_ROUTES: {
   { path: "/privacy", changeFrequency: "yearly", priority: 0.3 },
   { path: "/terms", changeFrequency: "yearly", priority: 0.3 },
   { path: "/refund-policy", changeFrequency: "yearly", priority: 0.3 },
+  { path: "/delete-account", changeFrequency: "yearly", priority: 0.3 },
 ];
 
 export default function sitemap(): MetadataRoute.Sitemap {

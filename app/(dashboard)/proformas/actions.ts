@@ -4,9 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { Prisma, type ProformaStatus } from "@prisma/client";
 import { addDays } from "date-fns";
-import { db } from "@/lib/db";
+import { tenantDb, type TenantTx } from "@/lib/tenant";
 import { requireProfile, canAccessParty } from "@/lib/authz";
-import { resolveOrgIdFromProfile } from "@/lib/tenancy";
 import { proformaSchema, type ProformaInput } from "@/lib/validation";
 import {
   deriveInvoiceStatus,
@@ -64,7 +63,7 @@ function computeLineItems(
  * inside the same transaction that creates the proforma.
  */
 async function nextProformaNumber(
-  tx: Prisma.TransactionClient,
+  tx: TenantTx,
   organizationId: string,
 ): Promise<string> {
   const year = new Date().getFullYear();
@@ -81,6 +80,7 @@ async function nextProformaNumber(
 
 export async function createProformaAction(input: ProformaInput): Promise<ActionResult> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const parsed = proformaSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.errors[0].message };
@@ -91,7 +91,7 @@ export async function createProformaAction(input: ProformaInput): Promise<Action
 
   const { lineItems, subtotal, taxAmount, totalAmount } = computeLineItems(data.lineItems);
 
-  const organizationId = await resolveOrgIdFromProfile(profile.id);
+  const organizationId = profile.organizationId;
   const proformaId = await db.$transaction(async (tx) => {
     const proformaNumber = await nextProformaNumber(tx, organizationId);
     const proforma = await tx.proformaInvoice.create({
@@ -121,6 +121,7 @@ export async function updateProformaAction(
   input: ProformaInput
 ): Promise<ActionResult> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const existing = await db.proformaInvoice.findUnique({
     where: { id },
@@ -177,6 +178,7 @@ export async function transitionProformaAction(
   to: ProformaStatus
 ): Promise<{ error: string } | { ok: true }> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const existing = await db.proformaInvoice.findUnique({
     where: { id },
@@ -205,6 +207,7 @@ export async function emailProformaPdfAction(
   id: string
 ): Promise<{ error: string } | { ok: true }> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const proforma = await db.proformaInvoice.findUnique({
     where: { id },
@@ -217,10 +220,11 @@ export async function emailProformaPdfAction(
     return { error: `A ${proforma.status.toLowerCase()} proforma cannot be emailed.` };
   }
 
-  const pdf = await buildProformaPdf(id);
+  const pdf = await buildProformaPdf(db, id);
   if ("error" in pdf) return { error: pdf.error };
 
   const result = await sendReminder({
+    organizationId: profile.organizationId,
     partyId: proforma.partyId,
     channel: "EMAIL",
     sentById: profile.id,
@@ -259,6 +263,7 @@ function lineItemBreakdown(
 
 export async function convertProformaAction(id: string): Promise<ActionResult> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const existing = await db.proformaInvoice.findUnique({
     where: { id },

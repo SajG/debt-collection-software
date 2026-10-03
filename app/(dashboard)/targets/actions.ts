@@ -1,9 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireAdmin } from "@/lib/authz";
-import { getDefaultOrgId } from "@/lib/tenancy";
 import { recoveryTargetSchema, type RecoveryTargetInput } from "@/lib/validation";
 
 type ActionResult = { error: string } | { ok: true };
@@ -11,7 +10,8 @@ type ActionResult = { error: string } | { ok: true };
 export async function upsertRecoveryTarget(
   input: RecoveryTargetInput
 ): Promise<ActionResult> {
-  await requireAdmin();
+  const admin = await requireAdmin();
+  const db = tenantDb(admin.organizationId);
 
   const parsed = recoveryTargetSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.errors[0].message };
@@ -20,7 +20,7 @@ export async function upsertRecoveryTarget(
   const [y, m] = month.split("-").map(Number);
   const monthKey = new Date(Date.UTC(y, m - 1, 1));
 
-  const organizationId = await getDefaultOrgId();
+  const organizationId = admin.organizationId;
   await db.recoveryTarget.upsert({
     where: {
       organizationId_userId_month: { organizationId, userId, month: monthKey },

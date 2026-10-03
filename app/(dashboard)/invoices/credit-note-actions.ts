@@ -2,9 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
-import { db } from "@/lib/db";
+import { tenantDb, type TenantTx } from "@/lib/tenant";
 import { requireProfile, canAccessParty } from "@/lib/authz";
-import { resolveOrgIdFromProfile } from "@/lib/tenancy";
 import { creditNoteSchema, type CreditNoteInput } from "@/lib/validation";
 import {
   deriveInvoiceStatus,
@@ -19,7 +18,7 @@ type ActionResult = { error: string } | { ok: true };
  * counter. Must run inside the same transaction that creates the CN.
  */
 async function nextCreditNoteNumber(
-  tx: Prisma.TransactionClient,
+  tx: TenantTx,
   organizationId: string,
 ): Promise<string> {
   const year = new Date().getFullYear();
@@ -42,6 +41,7 @@ export async function issueCreditNoteAction(
   input: CreditNoteInput
 ): Promise<ActionResult> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const parsed = creditNoteSchema.safeParse(input);
   if (!parsed.success) {
@@ -68,7 +68,7 @@ export async function issueCreditNoteAction(
     };
   }
 
-  const organizationId = await resolveOrgIdFromProfile(profile.id);
+  const organizationId = profile.organizationId;
   await db.$transaction(async (tx) => {
     const creditNoteNumber = await nextCreditNoteNumber(tx, organizationId);
     await tx.creditNote.create({
@@ -107,6 +107,7 @@ export async function cancelCreditNoteAction(
   id: string
 ): Promise<ActionResult> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   if (profile.role !== "ADMIN") {
     return { error: "Only an admin can cancel a credit note." };
   }

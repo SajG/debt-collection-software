@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile, canAccessParty } from "@/lib/authz";
 import { PageHeader } from "../../../_components/ui";
 import { ProformaForm } from "../../proforma-form";
@@ -10,6 +10,7 @@ export default async function EditProformaPage({
   params: { id: string };
 }) {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const proforma = await db.proformaInvoice.findUnique({
     where: { id: params.id },

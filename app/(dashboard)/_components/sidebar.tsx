@@ -164,6 +164,7 @@ const GROUPS: NavGroup[] = [
       { href: "/admin/slipping", label: "Slipping", icon: AlertTriangle, roles: ["ADMIN"] },
       { href: "/import", label: "Import", icon: Upload, roles: ["ADMIN"] },
       { href: "/settings", label: "Settings", icon: Settings, roles: ["ADMIN"] },
+      { href: "/settings/billing", label: "Billing", icon: CreditCard, roles: ["ADMIN"] },
       {
         href: "/settings/security",
         label: "Security",

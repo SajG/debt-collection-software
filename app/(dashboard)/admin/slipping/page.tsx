@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile } from "@/lib/authz";
 import { PageHeader, Card, Badge, statusTone } from "../../_components/ui";
 import { ORDER_STATUS_LABELS, customerName } from "@/lib/orders/status";
@@ -29,6 +29,7 @@ function formatDate(d: Date | null): string {
 
 export default async function SlippingOrdersPage() {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   if (profile.role !== "ADMIN") redirect("/dashboard");
 
   const now = new Date();

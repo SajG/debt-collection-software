@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile, canAccessParty } from "@/lib/authz";
 import { formatINR, formatDate } from "@/lib/format";
 import {
@@ -25,6 +25,7 @@ export default async function PartyDetailPage({
   params: { id: string };
 }) {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const party = await db.party.findUnique({
     where: { id: params.id },
@@ -55,7 +56,7 @@ export default async function PartyDetailPage({
   if (!party || !canAccessParty(profile, party)) notFound();
 
   // Live risk score; also syncs the stored riskLevel so list badges match.
-  const risk = await scoreAndPersistParty(party);
+  const risk = await scoreAndPersistParty(db, party);
 
   const openInvoices = party.invoices.filter(
     (i) => i.status !== "PAID" && i.status !== "CANCELLED"

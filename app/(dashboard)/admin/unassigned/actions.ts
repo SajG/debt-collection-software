@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireAdmin } from "@/lib/authz";
 
 export type ActionResult = { ok: true; count: number } | { error: string };
@@ -20,7 +20,7 @@ export async function bulkAssignPartiesAction(input: {
   partyIds: string[];
   assigneeId: string;
 }): Promise<ActionResult> {
-  await requireAdmin();
+  const db = tenantDb((await requireAdmin()).organizationId);
   const parsed = schema.safeParse(input);
   if (!parsed.success) {
     return { error: parsed.error.errors[0].message };

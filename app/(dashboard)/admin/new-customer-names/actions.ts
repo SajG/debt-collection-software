@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireAdmin } from "@/lib/authz";
 
 export type ActionResult =
@@ -33,6 +33,7 @@ export async function promoteNewCustomerNameAction(input: {
   assignedToId?: string;
 }): Promise<ActionResult> {
   const admin = await requireAdmin();
+  const db = tenantDb(admin.organizationId);
   const parsed = schema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.errors[0].message };
   const d = parsed.data;

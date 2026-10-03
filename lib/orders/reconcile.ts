@@ -1,5 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import { db } from "@/lib/db";
+import type { TenantDb } from "@/lib/tenant";
 
 export type PendingOrderMatch = {
   orderId: string;
@@ -17,7 +17,7 @@ export type PendingOrderMatch = {
  * "ambiguous" (>1 candidate) and "unmatched" (0 candidates); exact single
  * matches are auto-linked by the nightly job so they usually don't appear.
  */
-export async function findPendingCustomerMatches(): Promise<PendingOrderMatch[]> {
+export async function findPendingCustomerMatches(db: TenantDb): Promise<PendingOrderMatch[]> {
   const orders = await db.salesOrder.findMany({
     where: {
       partyId: null,
@@ -69,6 +69,7 @@ export async function findPendingCustomerMatches(): Promise<PendingOrderMatch[]>
 }
 
 export async function linkOrderToParty(
+  db: TenantDb,
   orderId: string,
   partyId: string,
   updatedById: string
@@ -131,7 +132,7 @@ export type ReconcileResult = {
   ambiguousNames: string[];
 };
 
-export async function reconcileNewCustomerOrders(): Promise<ReconcileResult> {
+export async function reconcileNewCustomerOrders(db: TenantDb): Promise<ReconcileResult> {
   const orders = await db.salesOrder.findMany({
     where: {
       partyId: null,

@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import type { AccountingProvider } from "@prisma/client";
 import { requireProfile, requireAdmin } from "@/lib/authz";
-import { checkImportRateLimit } from "@/lib/rate-limit";
+import { tenantDb } from "@/lib/tenant";
+import { checkImportRateLimit } from "@/lib/platform/rate-limit";
 import {
   ingestPartyRows,
   ingestInvoiceRows,
@@ -19,7 +20,12 @@ export async function linkOrderToPartyAction(
   partyId: string
 ): Promise<{ ok: true } | { error: string }> {
   const profile = await requireAdmin();
-  const res = await linkOrderToParty(orderId, partyId, profile.id);
+  const res = await linkOrderToParty(
+    tenantDb(profile.organizationId),
+    orderId,
+    partyId,
+    profile.id,
+  );
   if ("ok" in res) {
     revalidatePath("/import");
     revalidatePath("/orders");
@@ -45,7 +51,8 @@ export async function importPartiesAction(
   if (profile.role !== "ADMIN") return { error: "Admin access required." };
   const limited = await importRateLimitError(profile.id);
   if (limited) return limited;
-  return ingestPartyRows(rows, { triggeredById: profile.id, source: "csv" });
+  const organizationId = profile.organizationId;
+  return ingestPartyRows(rows, { triggeredById: profile.id, source: "csv", organizationId });
 }
 
 export async function importInvoicesAction(
@@ -55,7 +62,8 @@ export async function importInvoicesAction(
   if (profile.role !== "ADMIN") return { error: "Admin access required." };
   const limited = await importRateLimitError(profile.id);
   if (limited) return limited;
-  return ingestInvoiceRows(rows, { triggeredById: profile.id, source: "csv" });
+  const organizationId = profile.organizationId;
+  return ingestInvoiceRows(rows, { triggeredById: profile.id, source: "csv", organizationId });
 }
 
 /** On-demand pull from a connected cloud accounting provider. */
@@ -67,7 +75,8 @@ export async function syncAccountingProviderAction(
   const limited = await importRateLimitError(profile.id);
   if (limited) return limited;
 
-  const result = await syncProvider(provider, profile.id);
+  const organizationId = profile.organizationId;
+  const result = await syncProvider(provider, profile.id, organizationId);
   if (!("error" in result)) {
     revalidatePath("/import");
     revalidatePath("/parties");

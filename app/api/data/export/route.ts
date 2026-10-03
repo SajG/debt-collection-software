@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireProfileApi } from "@/lib/authz";
-import { db } from "@/lib/db";
+import { tenantDb, type TenantDb } from "@/lib/tenant";
 import { toCsv, csvResponse } from "@/lib/export";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 // `entity=all` returns a single JSON bundle (CSV is per-entity only).
 const ROW_CAP = 50_000;
 
-async function partiesRows() {
+async function partiesRows(db: TenantDb) {
   const rows = await db.party.findMany({
     include: { assignedTo: { select: { ownerName: true } } },
     orderBy: { createdAt: "asc" },
@@ -43,7 +43,7 @@ async function partiesRows() {
   }));
 }
 
-async function invoicesRows() {
+async function invoicesRows(db: TenantDb) {
   const rows = await db.invoice.findMany({
     include: { party: { select: { name: true } } },
     orderBy: { invoiceDate: "asc" },
@@ -70,7 +70,7 @@ async function invoicesRows() {
   }));
 }
 
-async function paymentsRows() {
+async function paymentsRows(db: TenantDb) {
   const rows = await db.payment.findMany({
     include: {
       party: { select: { name: true } },
@@ -96,7 +96,7 @@ async function paymentsRows() {
   }));
 }
 
-async function actionsRows() {
+async function actionsRows(db: TenantDb) {
   const rows = await db.action.findMany({
     include: {
       party: { select: { name: true } },
@@ -120,7 +120,7 @@ async function actionsRows() {
   }));
 }
 
-async function creditNotesRows() {
+async function creditNotesRows(db: TenantDb) {
   const rows = await db.creditNote.findMany({
     include: {
       party: { select: { name: true } },
@@ -146,7 +146,7 @@ async function creditNotesRows() {
   }));
 }
 
-async function proformasRows() {
+async function proformasRows(db: TenantDb) {
   const rows = await db.proformaInvoice.findMany({
     include: {
       party: { select: { name: true } },
@@ -183,8 +183,10 @@ const ENTITIES = {
 type Entity = keyof typeof ENTITIES;
 
 export async function GET(request: NextRequest) {
-  const { failure } = await requireProfileApi({ adminOnly: true });
+  // SY32 — every row below is scoped to the caller's active company.
+  const { failure, organizationId } = await requireProfileApi({ adminOnly: true });
   if (failure) return failure;
+  const db = tenantDb(organizationId);
 
   const params = request.nextUrl.searchParams;
   const entity = params.get("entity") ?? "all";
@@ -194,12 +196,12 @@ export async function GET(request: NextRequest) {
   if (entity === "all") {
     const [parties, invoices, payments, actions, creditNotes, proformas] =
       await Promise.all([
-        partiesRows(),
-        invoicesRows(),
-        paymentsRows(),
-        actionsRows(),
-        creditNotesRows(),
-        proformasRows(),
+        partiesRows(db),
+        invoicesRows(db),
+        paymentsRows(db),
+        actionsRows(db),
+        creditNotesRows(db),
+        proformasRows(db),
       ]);
     return NextResponse.json(
       { exportedAt: new Date().toISOString(), parties, invoices, payments, actions, creditNotes, proformas },
@@ -218,7 +220,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const rows = await ENTITIES[entity as Entity]();
+  const rows = await ENTITIES[entity as Entity](db);
 
   if (format === "json") {
     return NextResponse.json(rows, {

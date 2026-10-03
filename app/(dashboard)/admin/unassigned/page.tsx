@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile } from "@/lib/authz";
 import { formatINR } from "@/lib/format";
 import { PageHeader, Card } from "../../_components/ui";
@@ -13,6 +13,7 @@ export const dynamic = "force-dynamic";
 // on the sales side while Tally sync is deferred.
 export default async function UnassignedPartiesPage() {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   if (profile.role !== "ADMIN") redirect("/dashboard");
 
   const [parties, assignees] = await Promise.all([

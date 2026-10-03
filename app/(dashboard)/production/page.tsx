@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireFactoryOrAdmin } from "@/lib/authz";
 import { formatDate, toNumber } from "@/lib/format";
 import {
@@ -12,6 +12,7 @@ import { PageHeader, Badge, statusTone } from "../_components/ui";
 
 export default async function ProductionQueuePage() {
   const profile = await requireFactoryOrAdmin();
+  const db = tenantDb(profile.organizationId);
 
   // Audit item 10: FACTORY sees the whole pipeline, PENDING_APPROVAL
   // and needsRateApproval rows included, so the shop floor is never

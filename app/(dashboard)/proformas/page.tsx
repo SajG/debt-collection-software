@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile, partyScopeWhere } from "@/lib/authz";
 import { formatINR, formatDate } from "@/lib/format";
 import { PAGE_SIZES, parsePageParams, pageArgs, pageResult } from "@/lib/pagination";
@@ -21,6 +21,7 @@ export default async function ProformasPage({
   searchParams: { cursor?: string; size?: string };
 }) {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   const page = parsePageParams(searchParams);
 
   const fetched = await db.proformaInvoice.findMany({

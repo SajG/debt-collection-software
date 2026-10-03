@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { db } from "@/lib/db";
+import type { TenantClient } from "@/lib/tenant";
 
 /** Indian FY label: April–March → "YY-YY" (e.g. "25-26"). */
 export function currentFyLabel(now = new Date()): string {
@@ -16,7 +16,7 @@ export function currentFyLabel(now = new Date()): string {
  * unique `orderNumber` index.
  */
 export async function nextOrderNumber(
-  tx: Prisma.TransactionClient,
+  tx: TenantClient,
   now = new Date()
 ): Promise<string> {
   const fy = currentFyLabel(now);

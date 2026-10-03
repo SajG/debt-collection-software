@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 
 // SY23 — one-click sample dataset for /onboarding step (c).
 //
@@ -13,6 +13,7 @@ export async function seedSampleData(
   organizationId: string,
   ownerProfileId: string,
 ): Promise<void> {
+  const db = tenantDb(organizationId);
   const existing = await db.businessSettings.findUnique({
     where: { organizationId },
     select: { sampleDataSeeded: true },
@@ -100,6 +101,7 @@ export async function seedSampleData(
  * cascade to invoices/orders via existing FKs.
  */
 export async function purgeSampleData(organizationId: string): Promise<void> {
+  const db = tenantDb(organizationId);
   await db.$transaction([
     db.party.deleteMany({
       where: { organizationId, name: { startsWith: "[Sample]" } },

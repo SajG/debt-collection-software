@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile } from "@/lib/authz";
 import { PageHeader, Card, inputCls, btnPrimaryCls, btnSecondaryCls } from "../../_components/ui";
 import { upsertProductAction, toggleProductActiveAction } from "./actions";
@@ -15,6 +15,7 @@ async function toggleForm(id: string) {
 
 export default async function ProductsAdminPage() {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   if (profile.role !== "ADMIN") redirect("/dashboard");
 
   const products = await db.product.findMany({

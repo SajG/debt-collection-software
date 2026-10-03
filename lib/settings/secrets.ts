@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { decryptSecret } from "@/lib/crypto";
 
 // SY21 — per-tenant secrets accessor.
@@ -49,27 +49,27 @@ type OrgSecretsRow = {
 };
 
 async function loadRow(organizationId: string): Promise<OrgSecretsRow | null> {
-  const rows = await db.$queryRaw<OrgSecretsRow[]>`
-    SELECT
-      bs."organizationId"           AS "organizationId",
-      o."slug"                       AS "slug",
-      bs."whatsappPhoneNumberId"    AS "whatsappPhoneNumberId",
-      bs."whatsappBusinessAccountId" AS "whatsappBusinessAccountId",
-      bs."whatsappApiToken"          AS "whatsappApiToken",
-      bs."whatsappTemplateName"      AS "whatsappTemplateName",
-      bs."razorpayKeyId"             AS "razorpayKeyId",
-      bs."razorpayKeySecret"         AS "razorpayKeySecret",
-      bs."razorpayWebhookSecret"     AS "razorpayWebhookSecret",
-      bs."tallySyncTokenHash"        AS "tallySyncTokenHash",
-      bs."tallyHost"                 AS "tallyHost",
-      bs."tallyPort"                 AS "tallyPort",
-      bs."tallyCompanyName"          AS "tallyCompanyName"
-      FROM "BusinessSettings" bs
-      JOIN "Organization"     o ON o.id = bs."organizationId"
-     WHERE bs."organizationId" = ${organizationId}::uuid
-     LIMIT 1
-  `;
-  return rows[0] ?? null;
+  const row = await tenantDb(organizationId).businessSettings.findUnique({
+    where: { organizationId },
+    select: {
+      organizationId: true,
+      whatsappPhoneNumberId: true,
+      whatsappBusinessAccountId: true,
+      whatsappApiToken: true,
+      whatsappTemplateName: true,
+      razorpayKeyId: true,
+      razorpayKeySecret: true,
+      razorpayWebhookSecret: true,
+      tallySyncTokenHash: true,
+      tallyHost: true,
+      tallyPort: true,
+      tallyCompanyName: true,
+      organization: { select: { slug: true } },
+    },
+  });
+  if (!row) return null;
+  const { organization, ...rest } = row;
+  return { ...rest, slug: organization.slug } as OrgSecretsRow;
 }
 
 /** Decrypt a stored ciphertext; empty / null passes through as null. */

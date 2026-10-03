@@ -4,7 +4,7 @@ import { OrderStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile } from "@/lib/authz";
 import { createClient } from "@/lib/supabase/server";
 import { daysOverdue } from "@/lib/ar/aging";
@@ -111,6 +111,7 @@ export async function createSalesOrderAction(
   formData: FormData,
 ): Promise<CreateOrderResult> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   if (profile.role === "FACTORY") {
     return { error: "Factory users cannot place orders." };
   }
@@ -221,6 +222,7 @@ export async function cancelSalesOrderAction(
   reason: string,
 ): Promise<{ ok: true } | { error: string }> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   const order = await db.salesOrder.findUnique({ where: { id: orderId } });
   if (!order) return { error: "Order not found." };
   const isOwner = order.salespersonId === profile.id;

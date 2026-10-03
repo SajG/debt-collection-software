@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireProfileApi } from "@/lib/authz";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { toCsv, csvResponse } from "@/lib/export";
 
 export const dynamic = "force-dynamic";
@@ -9,8 +9,9 @@ export const dynamic = "force-dynamic";
 // delivery status, and inbound replies. Admin only.
 // GET /api/messages/export?format=csv|json[&from=YYYY-MM-DD&to=YYYY-MM-DD]
 export async function GET(request: NextRequest) {
-  const { failure } = await requireProfileApi({ adminOnly: true });
+  const { failure, organizationId } = await requireProfileApi({ adminOnly: true });
   if (failure) return failure;
+  const db = tenantDb(organizationId);
 
   const params = request.nextUrl.searchParams;
   const format = params.get("format") === "json" ? "json" : "csv";

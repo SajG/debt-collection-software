@@ -6,11 +6,14 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { captureError } from "@/lib/monitoring";
+import { orgRequiresManagement2fa } from "@/lib/authz";
+import { pinActiveOrgClaim } from "@/lib/platform/active-org";
+import { safePath } from "@/lib/safe-redirect";
 import {
   checkEmailOtpSendLimit,
   checkLoginRateLimit,
   recordLoginAttempt,
-} from "@/lib/rate-limit";
+} from "@/lib/platform/rate-limit";
 import {
   currentAssuranceLevel,
   getMfaFactorState,
@@ -19,98 +22,9 @@ import {
 
 type ActionResult = { error: string } | never;
 
-// SY29 — password sign-in restored (owner request 2026-09-30) as a
-// SECONDARY path alongside emailed 6-digit codes and Google OAuth.
-// Enable Email+password in the Supabase dashboard for this to work.
-// Same MFA + role routing as the OTP path.
-
-const loginSchema = z.object({
-  email: z.string().trim().toLowerCase().email(),
-  password: z.string().min(1),
-  callbackUrl: z.string().optional(),
-});
-
-export async function loginAction(input: {
-  email: string;
-  password: string;
-  callbackUrl?: string;
-}): Promise<ActionResult> {
-  const parsed = loginSchema.safeParse(input);
-  if (!parsed.success) {
-    return { error: "Enter your email and password." };
-  }
-  const { email, password, callbackUrl } = parsed.data;
-
-  const { limited, retryAfterMinutes } = await checkLoginRateLimit(
-    email,
-    "PASSWORD",
-  );
-  if (limited) {
-    return {
-      error: `Too many failed attempts. Wait ${retryAfterMinutes} minutes and try again.`,
-    };
-  }
-
-  const supabase = createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
-
-  if (error) {
-    await recordLoginAttempt(email, false, "PASSWORD");
-    if (error.message.includes("Invalid login credentials")) {
-      return { error: "The email or password you entered is incorrect." };
-    }
-    if (error.message.includes("Email not confirmed")) {
-      return { error: "Please check your inbox and confirm your email first." };
-    }
-    if (error.status === 429) {
-      return { error: "Too many attempts. Wait a few minutes and try again." };
-    }
-    await captureError(error, { where: "loginAction" });
-    return { error: "Something went wrong. Please try again." };
-  }
-  await recordLoginAttempt(email, true, "PASSWORD");
-
-  cookies().set("syncit_auth_since", String(Date.now()), {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 90,
-  });
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const admin = createAdminClient();
-  const profile = user
-    ? await admin
-        .from("Profile")
-        .select("role, isActive")
-        .eq("id", user.id)
-        .maybeSingle()
-    : null;
-  const role = profile?.data?.role as "ADMIN" | "STAFF" | "FACTORY" | undefined;
-  const isActive = profile?.data?.isActive ?? true;
-
-  if (!isActive) {
-    await supabase.auth.signOut();
-    redirect("/account-disabled");
-  }
-
-  const roleHome = role === "FACTORY" ? "/production" : "/dashboard";
-  const safeCallback =
-    callbackUrl && callbackUrl.startsWith("/") ? callbackUrl : roleHome;
-
-  if (role !== "ADMIN") redirect(safeCallback);
-  if (process.env.AUTH_SKIP_MFA === "1") redirect(safeCallback);
-
-  const factor = await getMfaFactorState(supabase);
-  if (factor.kind !== "verified") redirect("/settings/security?first=1");
-  const aal = await currentAssuranceLevel(supabase);
-  if (aal === "aal2") redirect(safeCallback);
-  const q = new URLSearchParams({ next: safeCallback });
-  redirect(`/login/challenge?${q.toString()}`);
-}
+// SY31 — web sign-in is emailed 6-digit code or Google only. The
+// password path (loginAction, /login/password) was removed: no way to
+// set or reset a password exists.
 
 // ── Challenge action — used by /login/challenge ──────────────────
 
@@ -191,12 +105,11 @@ export async function challengeAction(
   }
   await recordLoginAttempt(email, true, "TOTP");
 
-  const dest = next && next.startsWith("/") ? next : "/dashboard";
-  redirect(dest);
+  redirect(safePath(next, "/dashboard"));
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Email-OTP path (SY-email) — alternative to password.
+// Email-OTP path (SY-email).
 //
 // Same allowlist rule as mobile: shouldCreateUser: false. If the
 // address isn't already in auth.users (i.e. no admin ever invited
@@ -204,10 +117,9 @@ export async function challengeAction(
 // mail. From the caller's perspective every failure looks the same
 // — generic message, no oracle.
 //
-// ADMIN accounts signing in via this path are STILL subject to
-// requireAdmin()'s aal2 gate — verifyOtp completes at aal1, and
-// hitting any /dashboard route bounces them to /login/challenge for
-// TOTP. See require-admin-aal.test.ts.
+// ADMIN accounts of a company with requireManagement2fa on are STILL
+// subject to requireAdmin()'s aal2 gate — verifyOtp completes at
+// aal1. See require-admin-aal.test.ts.
 // ─────────────────────────────────────────────────────────────────
 
 const requestCodeSchema = z.object({
@@ -297,46 +209,44 @@ export async function verifyEmailCodeAction(input: {
     maxAge: 60 * 60 * 24 * 90,
   });
 
-  // Post-OTP role routing — matches loginAction so both web sign-in
-  // paths land in the same place. FACTORY → /production, STAFF →
-  // /dashboard, ADMIN → MFA check (aal1 → /login/challenge, no factor
-  // → /settings/security?first=1, aal2 → dashboard). callbackUrl, when
-  // safe, wins over the role default.
+  // Post-OTP routing (SY31) — the same rule requireAdmin() applies:
+  //   * role = the ACTIVE Membership's role (never Profile.role);
+  //   * no membership → /onboarding;
+  //   * FACTORY → /production, STAFF → /dashboard;
+  //   * ADMIN → MFA screens ONLY when the active company has
+  //     BusinessSettings.requireManagement2fa on: no factor →
+  //     /settings/security?first=1, aal1 → /login/challenge.
+  // callbackUrl, when safePath() accepts it, wins over the role default.
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  if (!user) return { error: "That code didn't work. Try requesting a fresh one." };
 
   const admin = createAdminClient();
-  const profile = user
-    ? await admin
-        .from("Profile")
-        .select("role, isActive")
-        .eq("id", user.id)
-        .maybeSingle()
-    : null;
-  const role = profile?.data?.role as
-    | "ADMIN"
-    | "STAFF"
-    | "FACTORY"
-    | undefined;
-  const isActive = profile?.data?.isActive ?? true;
+  const profile = await admin
+    .from("Profile")
+    .select("isActive")
+    .eq("id", user.id)
+    .maybeSingle();
+  const isActive = profile.data?.isActive ?? true;
 
   if (!isActive) {
     await supabase.auth.signOut();
     redirect("/account-disabled");
   }
 
-  const roleHome =
-    role === "FACTORY" ? "/production" : "/dashboard";
-  const safeCallback =
-    callbackUrl && callbackUrl.startsWith("/") ? callbackUrl : roleHome;
+  const { active } = await pinActiveOrgClaim(user);
+  if (!active) redirect("/onboarding");
 
-  if (role !== "ADMIN") {
-    redirect(safeCallback);
-  }
+  const roleHome = active.role === "FACTORY" ? "/production" : "/dashboard";
+  const safeCallback = safePath(callbackUrl, roleHome);
 
-  // Pilot escape hatch — mirrors loginAction and requireAdmin.
-  if (process.env.AUTH_SKIP_MFA === "1") {
+  if (active.role !== "ADMIN") redirect(safeCallback);
+
+  // Pilot escape hatch — mirrors requireAdmin.
+  if (process.env.AUTH_SKIP_MFA === "1") redirect(safeCallback);
+
+  if (!(await orgRequiresManagement2fa(active.organizationId))) {
     redirect(safeCallback);
   }
 

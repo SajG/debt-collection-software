@@ -1,6 +1,6 @@
 import { subMonths } from "date-fns";
 import type { Party } from "@prisma/client";
-import { db } from "@/lib/db";
+import type { TenantClient } from "@/lib/tenant";
 import { daysOverdue } from "./aging";
 import { riskScore, type RiskInput, type RiskResult } from "./risk";
 import { startOfToday } from "./balance";
@@ -9,7 +9,10 @@ import { startOfToday } from "./balance";
  * Assemble the pure-scoring inputs for one party from the DB.
  * hasOpenDispute mirrors the Phase D outreach pause driven by DISPUTED actions.
  */
-export async function buildRiskInput(party: Party): Promise<RiskInput> {
+export async function buildRiskInput(
+  db: TenantClient,
+  party: Party,
+): Promise<RiskInput> {
   const today = startOfToday();
   const yearAgo = subMonths(today, 12);
 
@@ -65,8 +68,8 @@ export async function buildRiskInput(party: Party): Promise<RiskInput> {
   };
 }
 
-export async function scoreParty(party: Party): Promise<RiskResult> {
-  return riskScore(await buildRiskInput(party));
+export async function scoreParty(db: TenantClient, party: Party): Promise<RiskResult> {
+  return riskScore(await buildRiskInput(db, party));
 }
 
 /**
@@ -75,8 +78,11 @@ export async function scoreParty(party: Party): Promise<RiskResult> {
  * live-scoring screen (worklist, party detail) just displayed.
  * Priority stays user-controlled — only riskLevel is written.
  */
-export async function scoreAndPersistParty(party: Party): Promise<RiskResult> {
-  const result = await scoreParty(party);
+export async function scoreAndPersistParty(
+  db: TenantClient,
+  party: Party,
+): Promise<RiskResult> {
+  const result = await scoreParty(db, party);
   if (result.level !== party.riskLevel) {
     await db.party.update({
       where: { id: party.id },
@@ -90,11 +96,11 @@ export async function scoreAndPersistParty(party: Party): Promise<RiskResult> {
  * Persist recomputed risk levels for all active parties.
  * Idempotent; called from the cron pass and safe to run on demand.
  */
-export async function refreshRiskLevels(): Promise<number> {
+export async function refreshRiskLevels(db: TenantClient): Promise<number> {
   const parties = await db.party.findMany({ where: { isActive: true }, take: 2000 });
   let updated = 0;
   for (const party of parties) {
-    const { level } = await scoreAndPersistParty(party);
+    const { level } = await scoreAndPersistParty(db, party);
     if (level !== party.riskLevel) updated++;
   }
   return updated;

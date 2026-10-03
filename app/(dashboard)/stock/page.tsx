@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile } from "@/lib/authz";
 import { isTallyEnabled } from "@/lib/settings";
 import { formatDateTime, toNumber } from "@/lib/format";
@@ -11,13 +11,13 @@ export default async function StockPage({
 }: {
   searchParams: { q?: string };
 }) {
-  await requireProfile();
+  const db = tenantDb((await requireProfile()).organizationId);
   const q = (searchParams.q ?? "").trim();
 
   // StockItem is populated only by the Tally sync agent. When Tally
   // is disabled the table is empty by design, so we show a clear
   // explanation instead of an empty grid that reads like "zero stock".
-  if (!(await isTallyEnabled())) {
+  if (!(await isTallyEnabled(db))) {
     return (
       <div className="p-4 sm:p-8">
         <PageHeader

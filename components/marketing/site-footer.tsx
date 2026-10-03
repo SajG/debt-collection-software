@@ -19,6 +19,7 @@ const LEGAL_LINKS = [
   { label: "Privacy", href: "/privacy" },
   { label: "Terms", href: "/terms" },
   { label: "Refund policy", href: "/refund-policy" },
+  { label: "Delete account", href: "/delete-account" },
 ];
 
 export function SiteFooter() {

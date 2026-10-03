@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireFactoryOrAdmin, canAccessOrder } from "@/lib/authz";
 import { formatDate, formatDateTime, toNumber } from "@/lib/format";
 import { getOrderDocumentSignedUrl } from "@/lib/storage";
@@ -31,6 +31,7 @@ export default async function ProductionOrderPage({
   params: { id: string };
 }) {
   const profile = await requireFactoryOrAdmin();
+  const db = tenantDb(profile.organizationId);
 
   const order = await db.salesOrder.findUnique({
     where: { id: params.id },

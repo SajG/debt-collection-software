@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile, canAccessParty } from "@/lib/authz";
 import { PageHeader } from "../../../_components/ui";
 import { PartyForm, type PartyFormValues } from "../../party-form";
@@ -10,6 +10,7 @@ export default async function EditPartyPage({
   params: { id: string };
 }) {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const party = await db.party.findUnique({ where: { id: params.id } });
   if (!party || !canAccessParty(profile, party)) notFound();

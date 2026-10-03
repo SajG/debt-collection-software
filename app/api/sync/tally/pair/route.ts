@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
+import { findTallyPairingCode } from "@/lib/platform/resolve";
 import { captureError } from "@/lib/monitoring";
 import {
   generateConnectorToken,
@@ -62,9 +63,7 @@ export async function POST(request: NextRequest) {
   const now = new Date();
 
   try {
-    const pairing = await db.tallyPairingCode.findUnique({
-      where: { codeHash },
-    });
+    const pairing = await findTallyPairingCode(codeHash);
     if (!pairing) {
       return NextResponse.json(
         { error: "Pairing code is not valid." },
@@ -87,7 +86,8 @@ export async function POST(request: NextRequest) {
     const token = generateConnectorToken();
     const tokenHash = hashSecret(token);
 
-    const connector = await db.$transaction(async (tx) => {
+    // SY32 — the code names its company; write only inside it.
+    const connector = await tenantDb(pairing.organizationId).$transaction(async (tx) => {
       await tx.tallyPairingCode.update({
         where: { id: pairing.id },
         data: { consumedAt: now },

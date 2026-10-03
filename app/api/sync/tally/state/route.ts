@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
+import { getLegacySynergyOrgIdForTallySecret } from "@/lib/platform/legacy-tally";
 import { verifyBearer } from "@/lib/auth/verify-bearer";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +20,9 @@ export async function GET(request: NextRequest) {
   // Prefer the most recent COMPLETED / PARTIAL sync — PARTIAL still means the
   // pull got through, just with per-row failures we don't want to re-attempt
   // on every run.
+  // SY32 — this endpoint only answers the legacy shared-secret agent,
+  // which syncs Synergy; read only Synergy's sync history.
+  const db = tenantDb(await getLegacySynergyOrgIdForTallySecret());
   const lastInvoiceSync = await db.syncLog.findFirst({
     where: {
       syncType: "IMPORT_INVOICES",

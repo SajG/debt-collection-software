@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
-import { db } from "@/lib/db";
+import { findPaymentLinkOrg } from "@/lib/platform/resolve";
+import { withLockBypass } from "@/lib/platform/billing";
 
 export const dynamic = "force-dynamic";
 
@@ -51,15 +52,9 @@ export async function POST(request: NextRequest) {
   // SY22 — resolve the tenant from the PaymentLink's stored org, then
   // verify the signature with THAT tenant's webhook secret. Env
   // fallback lives on the Synergy tenant only (lib/settings/secrets.ts).
-  const link = await db.paymentLink.findFirst({
-    where: { providerLinkId: linkId },
-    select: { id: true, organizationId: true },
-  });
-  if (!link || !link.organizationId) {
-    // organizationId is DB-NOT-NULL post-SY21, but the Prisma type
-    // remains nullable during the type-migration window.
-    return NextResponse.json({ received: true });
-  }
+  const found = await findPaymentLinkOrg(linkId);
+  if (!found) return NextResponse.json({ received: true });
+  const link = { id: found.linkId, organizationId: found.organizationId };
 
   const { getRazorpaySecrets } = await import("@/lib/settings/secrets");
   const secrets = await getRazorpaySecrets(link.organizationId);
@@ -71,10 +66,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
-  await db.paymentLink.update({
-    where: { id: link.id },
-    data: { status },
-  });
+  // SY28 — a customer can pay while the org is LOCKED; keep the link
+  // status true so nobody re-sends a paid link after unlocking.
+  await withLockBypass(link.organizationId, (tx) =>
+    tx.paymentLink.update({
+      where: { id: link.id },
+      data: { status },
+    }),
+  );
 
   return NextResponse.json({ received: true });
 }

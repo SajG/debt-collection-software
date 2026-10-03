@@ -3,8 +3,10 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import type { Role, UserAuditAction } from "@prisma/client";
-import { db } from "@/lib/db";
+import { tenantDb, type TenantClient } from "@/lib/tenant";
+import { countOtherActiveMemberships, identityInUse } from "@/lib/platform/identity";
 import { requireAdmin } from "@/lib/authz";
+import { checkSeatAvailable } from "@/lib/platform/billing";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient as createSsrClient } from "@/lib/supabase/server";
 
@@ -59,6 +61,7 @@ const createSchema = z.object({
 // ─────────────────────────────────────────────────────────────────
 
 async function writeAudit(
+  db: TenantClient,
   actorId: string,
   targetProfileId: string,
   action: UserAuditAction,
@@ -69,8 +72,35 @@ async function writeAudit(
   });
 }
 
-async function countActiveAdmins(): Promise<number> {
-  return db.profile.count({ where: { role: "ADMIN", isActive: true } });
+// SY31 — every action below is scoped to the admin's ACTIVE company.
+// A target must hold a Membership in that company; the role that
+// matters is the Membership role (current_user_role() reads it too).
+
+async function requireAdminInOrg() {
+  const admin = await requireAdmin();
+  const organizationId = admin.organizationId;
+  return { admin, organizationId, db: tenantDb(organizationId) };
+}
+
+async function findTargetMembership(db: TenantClient, profileId: string) {
+  return db.membership.findFirst({
+    where: { profileId },
+    select: { id: true, role: true, isActive: true },
+  });
+}
+
+async function countActiveAdmins(
+  db: TenantClient,
+  excludeProfileId: string,
+): Promise<number> {
+  return db.membership.count({
+    where: {
+      role: "ADMIN",
+      isActive: true,
+      profileId: { not: excludeProfileId },
+      profile: { isActive: true },
+    },
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -86,18 +116,21 @@ export async function createUserAction(input: {
   email: string;
   role: Role;
 }): Promise<ActionResult> {
-  const admin = await requireAdmin();
+  const { admin, organizationId, db } = await requireAdminInOrg();
 
   const parsed = createSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.errors[0].message };
   const { ownerName, businessName, phone, email, role } = parsed.data;
 
+  // SY28 — plan seat limit. Checked before touching Supabase Auth.
+  const seats = await checkSeatAvailable(organizationId);
+  if (!seats.ok) return { error: seats.message };
+
   // Rule out obvious collisions before touching Supabase Auth so the
   // rollback path is rarer.
-  const dupePhone = await db.profile.findFirst({ where: { phone } });
-  if (dupePhone) return { error: `A user with phone ${phone} already exists.` };
-  const dupeEmail = await db.profile.findFirst({ where: { email } });
-  if (dupeEmail) return { error: `A user with email ${email} already exists.` };
+  const inUse = await identityInUse({ phone, email });
+  if (inUse.phone) return { error: `A user with phone ${phone} already exists.` };
+  if (inUse.email) return { error: `A user with email ${email} already exists.` };
 
   const supabase = createAdminClient();
   const e164 = `+91${phone}`;
@@ -127,6 +160,16 @@ export async function createUserAction(input: {
           email,
           role,
           createdById: admin.id,
+        },
+      });
+      // SY22 — requireMembership() refuses users without an active
+      // Membership, and SY28 counts seats from it.
+      await tx.membership.create({
+        data: {
+          organizationId,
+          profileId: userId,
+          role,
+          invitedById: admin.id,
         },
       });
       await tx.userAuditLog.create({
@@ -168,27 +211,19 @@ export async function createUserAction(input: {
 export async function deactivateUserAction(input: {
   profileId: string;
 }): Promise<ActionResult> {
-  const admin = await requireAdmin();
+  const { admin, organizationId, db } = await requireAdminInOrg();
 
   if (input.profileId === admin.id) {
     return { error: "You can't deactivate your own account." };
   }
 
-  const target = await db.profile.findUnique({
-    where: { id: input.profileId },
-    select: { id: true, role: true, isActive: true, ownerName: true },
-  });
-  if (!target) return { error: "User not found." };
-  if (!target.isActive) return { error: "User is already deactivated." };
+  const membership = await findTargetMembership(db, input.profileId);
+  if (!membership) return { error: "User not found." };
+  if (!membership.isActive) return { error: "User is already deactivated." };
+  const target = { id: input.profileId };
 
-  if (target.role === "ADMIN") {
-    const others = await db.profile.count({
-      where: {
-        role: "ADMIN",
-        isActive: true,
-        id: { not: target.id },
-      },
-    });
+  if (membership.role === "ADMIN") {
+    const others = await countActiveAdmins(db, target.id);
     if (others === 0) {
       return {
         error:
@@ -198,15 +233,22 @@ export async function deactivateUserAction(input: {
   }
 
   try {
+    const otherOrgs = await countOtherActiveMemberships(organizationId, target.id);
     await db.$transaction(async (tx) => {
-      await tx.profile.update({
-        where: { id: target.id },
-        data: {
-          isActive: false,
-          deactivatedAt: new Date(),
-          deactivatedById: admin.id,
-        },
+      await tx.membership.update({
+        where: { id: membership.id },
+        data: { isActive: false },
       });
+      // Profile.isActive is recomputed from memberships by the
+      // sync_profile_from_membership trigger, so another company's
+      // access is untouched. Stamp who/when only when this was their
+      // last company.
+      if (otherOrgs === 0) {
+        await tx.profile.update({
+          where: { id: target.id },
+          data: { deactivatedAt: new Date(), deactivatedById: admin.id },
+        });
+      }
       await tx.userAuditLog.create({
         data: {
           actorId: admin.id,
@@ -232,23 +274,31 @@ export async function deactivateUserAction(input: {
 export async function reactivateUserAction(input: {
   profileId: string;
 }): Promise<ActionResult> {
-  const admin = await requireAdmin();
+  const { admin, organizationId, db } = await requireAdminInOrg();
 
+  const membership = await findTargetMembership(db, input.profileId);
+  if (!membership) return { error: "User not found." };
   const target = await db.profile.findUnique({
     where: { id: input.profileId },
     select: { id: true, isActive: true },
   });
   if (!target) return { error: "User not found." };
-  if (target.isActive) return { error: "User is already active." };
+  if (membership.isActive && target.isActive) {
+    return { error: "User is already active." };
+  }
+
+  const seats = await checkSeatAvailable(organizationId);
+  if (!seats.ok) return { error: seats.message };
 
   await db.$transaction(async (tx) => {
+    await tx.membership.update({
+      where: { id: membership.id },
+      data: { isActive: true },
+    });
+    // isActive follows the membership via trigger.
     await tx.profile.update({
       where: { id: target.id },
-      data: {
-        isActive: true,
-        deactivatedAt: null,
-        deactivatedById: null,
-      },
+      data: { deactivatedAt: null, deactivatedById: null },
     });
     await tx.userAuditLog.create({
       data: {
@@ -285,10 +335,20 @@ export async function setUserEmailAction(input: {
   profileId: string;
   email: string;
 }): Promise<ActionResult> {
-  const admin = await requireAdmin();
+  const { admin, organizationId, db } = await requireAdminInOrg();
   const parsed = setEmailSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.errors[0].message };
   const { profileId, email } = parsed.data;
+
+  if (!(await findTargetMembership(db, profileId))) {
+    return { error: "User not found." };
+  }
+  if ((await countOtherActiveMemberships(organizationId, profileId)) > 0) {
+    return {
+      error:
+        "This person also belongs to another company, so their sign-in email can't be changed from here.",
+    };
+  }
 
   const target = await db.profile.findUnique({
     where: { id: profileId },
@@ -299,10 +359,7 @@ export async function setUserEmailAction(input: {
     return { error: "User is deactivated — reactivate before setting email." };
   if (target.email === email) return { ok: true, profileId };
 
-  const dupe = await db.profile.findFirst({
-    where: { email, id: { not: profileId } },
-    select: { id: true },
-  });
+  const dupe = (await identityInUse({ email, excludeProfileId: profileId })).email;
   if (dupe) return { error: `A different user already uses ${email}.` };
 
   const supabase = createAdminClient();
@@ -358,7 +415,7 @@ export async function setUserEmailAction(input: {
 export async function revokeDeviceAction(input: {
   deviceId: string;
 }): Promise<RevokeDeviceResult> {
-  await requireAdmin();
+  const { db } = await requireAdminInOrg();
   // Split: the RPC needs the caller's auth.uid() (SSR client) to
   // enforce ADMIN + stamp the audit row; the global signOut needs
   // service_role. Two clients, one action.
@@ -370,6 +427,9 @@ export async function revokeDeviceAction(input: {
     select: { id: true, profileId: true, revokedAt: true },
   });
   if (!device) return { error: "Device not found." };
+  if (!(await findTargetMembership(db, device.profileId))) {
+    return { error: "Device not found." };
+  }
   if (device.revokedAt) {
     return { ok: true }; // idempotent
   }
@@ -398,23 +458,19 @@ export async function changeRoleAction(input: {
   profileId: string;
   role: Role;
 }): Promise<ActionResult> {
-  const admin = await requireAdmin();
+  const { admin, organizationId, db } = await requireAdminInOrg();
   const parsed = roleEnum.safeParse(input.role);
   if (!parsed.success) return { error: "Invalid role." };
 
-  const target = await db.profile.findUnique({
-    where: { id: input.profileId },
-    select: { id: true, role: true, isActive: true },
-  });
-  if (!target) return { error: "User not found." };
+  const membership = await findTargetMembership(db, input.profileId);
+  if (!membership) return { error: "User not found." };
+  const target = { id: input.profileId, role: membership.role };
   if (target.role === input.role) {
     return { error: "That user already has this role." };
   }
 
-  if (target.role === "ADMIN" && input.role !== "ADMIN" && target.isActive) {
-    const others = await db.profile.count({
-      where: { role: "ADMIN", isActive: true, id: { not: target.id } },
-    });
+  if (target.role === "ADMIN" && input.role !== "ADMIN" && membership.isActive) {
+    const others = await countActiveAdmins(db, target.id);
     if (others === 0) {
       return {
         error:
@@ -425,8 +481,11 @@ export async function changeRoleAction(input: {
 
   try {
     await db.$transaction(async (tx) => {
-      await tx.profile.update({
-        where: { id: target.id },
+      // The Membership role is the one web + RLS enforce (SY31).
+      // Profile.role follows via the sync_profile_from_membership
+      // trigger (mobile still reads it).
+      await tx.membership.update({
+        where: { id: membership.id },
         data: { role: input.role },
       });
       await tx.userAuditLog.create({
@@ -504,18 +563,20 @@ async function sendInvite(
 export async function inviteUserAction(input: {
   profileId: string;
 }): Promise<InviteResult> {
-  const admin = await requireAdmin();
+  const { admin, organizationId, db } = await requireAdminInOrg();
 
-  const target = await db.profile.findUnique({
+  const membership = await findTargetMembership(db, input.profileId);
+  if (!membership?.isActive) return { error: "User not found." };
+  const profileRow = await db.profile.findUnique({
     where: { id: input.profileId },
     select: {
       id: true,
       email: true,
       ownerName: true,
-      role: true,
       isActive: true,
     },
   });
+  const target = profileRow ? { ...profileRow, role: membership.role } : null;
   if (!target) return { error: "User not found." };
   if (!target.isActive)
     return { error: "User is deactivated — reactivate first." };
@@ -552,18 +613,20 @@ export async function inviteUserAction(input: {
 export async function resendInviteAction(input: {
   profileId: string;
 }): Promise<InviteResult> {
-  const admin = await requireAdmin();
+  const { admin, organizationId, db } = await requireAdminInOrg();
 
-  const target = await db.profile.findUnique({
+  const membership = await findTargetMembership(db, input.profileId);
+  if (!membership?.isActive) return { error: "User not found." };
+  const profileRow = await db.profile.findUnique({
     where: { id: input.profileId },
     select: {
       id: true,
       email: true,
       ownerName: true,
-      role: true,
       isActive: true,
     },
   });
+  const target = profileRow ? { ...profileRow, role: membership.role } : null;
   if (!target) return { error: "User not found." };
   if (!target.isActive) return { error: "User is deactivated." };
   if (!target.email) return { error: "This user has no email." };
@@ -610,4 +673,47 @@ export async function resendInviteAction(input: {
 
   revalidatePath("/admin/users");
   return { ok: true, email: target.email, kind: res.kind };
+}
+
+// ─────────────────────────────────────────────────────────────────
+// SY35 — transfer ownership. Only the current owner may hand the
+// company to another ACTIVE ADMIN of the same company. The owner can
+// then delete their own account (account deletion refuses owners).
+// ─────────────────────────────────────────────────────────────────
+
+export async function makeOwnerAction(input: {
+  profileId: string;
+}): Promise<ActionResult> {
+  const { admin, db } = await requireAdminInOrg();
+  if (!admin.isOwner) return { error: "Only the company owner can transfer ownership." };
+  if (input.profileId === admin.id) return { error: "You are already the owner." };
+
+  const target = await findTargetMembership(db, input.profileId);
+  if (!target || !target.isActive) return { error: "User not found." };
+  if (target.role !== "ADMIN") {
+    return { error: "Make them an ADMIN first — only an admin can own the company." };
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.membership.updateMany({
+      where: { profileId: admin.id },
+      data: { isOwner: false },
+    });
+    await tx.membership.update({
+      where: { id: target.id },
+      data: { isOwner: true },
+    });
+    await tx.userAuditLog.create({
+      data: {
+        actorId: admin.id,
+        targetProfileId: input.profileId,
+        action: "ROLE_CHANGED",
+        detail: `ownership transferred by ${admin.ownerName}`,
+      },
+    });
+  });
+
+  revalidatePath("/admin/users");
+  revalidatePath("/settings/billing");
+  return { ok: true };
 }

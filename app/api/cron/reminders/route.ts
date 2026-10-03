@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { refreshOverdueStatuses } from "@/lib/ar/balance";
 import { refreshRiskLevels } from "@/lib/ar/refresh";
 import { sendReminder } from "@/lib/messaging/send";
@@ -44,13 +44,15 @@ type OrgSummary = {
 };
 
 async function runForOrg(orgId: string, orgSlug: string): Promise<OrgSummary> {
+  // SY32 — everything below is scoped to this one company.
+  const db = tenantDb(orgId);
   // SY22 — per-org pass. refreshOverdueStatuses / refreshRiskLevels
   // still run globally over Invoices/Parties; tenant scoping is
   // enforced by their SQL predicates elsewhere. The reminders send
   // loop is org-scoped so one distributor's WhatsApp outage can't
   // block another's.
   const overdueMarked = await db.$transaction((tx) => refreshOverdueStatuses(tx));
-  const riskUpdated = await refreshRiskLevels();
+  const riskUpdated = await refreshRiskLevels(db);
 
   const settings = await db.businessSettings.findFirst({
     where: { organizationId: orgId },
@@ -89,6 +91,7 @@ async function runForOrg(orgId: string, orgSlug: string): Promise<OrgSummary> {
     let done = false;
     for (const channel of ["WHATSAPP", "SMS", "EMAIL"] as const) {
       const result = await sendReminder({
+        organizationId: orgId,
         partyId: party.id,
         channel,
         invoiceId: oldestOverdue?.id ?? null,

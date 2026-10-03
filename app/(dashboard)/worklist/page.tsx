@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile, partyScopeWhere } from "@/lib/authz";
 import { formatINR } from "@/lib/format";
 import { AGING_BUCKETS, AGING_LABELS, agingSummary } from "@/lib/ar/aging";
@@ -26,6 +26,7 @@ export default async function WorklistPage({
   searchParams: { size?: string };
 }) {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   const scope = partyScopeWhere(profile);
   const requested = Number(searchParams.size);
   const size = (WORKLIST_SIZES as readonly number[]).includes(requested)
@@ -69,7 +70,7 @@ export default async function WorklistPage({
   const scored = await Promise.all(
     parties.map(async (party) => ({
       party,
-      risk: await scoreAndPersistParty(party),
+      risk: await scoreAndPersistParty(db, party),
     }))
   );
   scored.sort(

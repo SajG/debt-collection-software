@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile, partyScopeWhere } from "@/lib/authz";
 import { daysOverdue } from "@/lib/ar/aging";
 import { PageHeader } from "../../_components/ui";
@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 
 export default async function NewOrderPage() {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   if (profile.role === "FACTORY") {
     return (
       <div className="p-8">

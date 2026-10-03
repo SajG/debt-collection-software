@@ -4,9 +4,8 @@
 // CSV importer accepts and feed lib/import/ingest.ts — one ingestion path.
 
 import type { AccountingProvider } from "@prisma/client";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { encryptSecret, decryptSecret } from "@/lib/crypto";
-import { getDefaultOrgId } from "@/lib/tenancy";
 
 export type ProviderSlug = "zoho-books" | "quickbooks" | "xero";
 
@@ -171,8 +170,9 @@ export async function saveConnection(params: {
   provider: AccountingProvider;
   tokens: TokenResponse;
   externalOrgId: string | null;
+  organizationId: string;
 }): Promise<void> {
-  const { provider, tokens, externalOrgId } = params;
+  const { provider, tokens, externalOrgId, organizationId } = params;
   if (!tokens.refresh_token) {
     throw new Error("Provider did not return a refresh token");
   }
@@ -181,8 +181,8 @@ export async function saveConnection(params: {
     : null;
 
   // SY21 — AccountingConnection is unique per (organizationId, provider).
-  const organizationId = await getDefaultOrgId();
-  await db.accountingConnection.upsert({
+  // SY32 — written through the company's own tenantDb client.
+  await tenantDb(organizationId).accountingConnection.upsert({
     where: { organizationId_provider: { organizationId, provider } },
     create: {
       organizationId,
@@ -203,9 +203,11 @@ export async function saveConnection(params: {
 
 /** Valid access token for API calls, refreshing (and re-storing) if stale. */
 export async function getAccessToken(
-  provider: AccountingProvider
+  provider: AccountingProvider,
+  organizationId: string
 ): Promise<{ token: string; orgId: string | null } | { error: string }> {
-  const organizationId = await getDefaultOrgId();
+  // SY32 — the connection row (and so the tokens) is this company's.
+  const db = tenantDb(organizationId);
   const conn = await db.accountingConnection.findUnique({
     where: { organizationId_provider: { organizationId, provider } },
   });

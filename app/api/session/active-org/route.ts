@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { db } from "@/lib/db";
+import { findOwnActiveMembership } from "@/lib/platform/resolve";
 
 // SY22 — active organization switcher.
 //
@@ -48,14 +48,7 @@ export async function POST(req: NextRequest) {
   }
   const { organizationId } = parsed.data;
 
-  const membership = await db.membership.findFirst({
-    where: {
-      organizationId,
-      profileId: user.id,
-      isActive: true,
-    },
-    select: { id: true, role: true },
-  });
+  const membership = await findOwnActiveMembership(user.id, organizationId);
   if (!membership) {
     // Same shape as the unauthenticated response — no oracle for
     // which orgs exist.

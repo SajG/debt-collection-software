@@ -1,6 +1,9 @@
 import { subDays } from "date-fns";
 import type { Profile } from "@prisma/client";
-import { db } from "@/lib/db";
+import type { TenantClient } from "@/lib/tenant";
+
+// SY32 — every pass runs inside ONE company: callers hand in a
+// tenantDb(orgId) client (crons via forEachActiveOrg).
 import { buildRiskInput } from "@/lib/ar/refresh";
 import { riskScore } from "@/lib/ar/risk";
 import { daysOverdue } from "@/lib/ar/aging";
@@ -13,11 +16,11 @@ const STALE_ACTION_DAYS = 14;
 const REC_REFRESH_COUNT = 15;
 const CRON_PARTY_CAP = 500;
 
-export async function runAutoFlag(): Promise<{ flagged: number; checked: number }> {
+export async function runAutoFlag(db: TenantClient): Promise<{ flagged: number; checked: number }> {
   const parties = await db.party.findMany({ where: ACTIVE_PARTY_WHERE, take: CRON_PARTY_CAP });
   let flagged = 0;
   for (const party of parties) {
-    const input = await buildRiskInput(party);
+    const input = await buildRiskInput(db, party);
     const verdict = shouldAutoFlag({
       outstanding: input.outstanding,
       maxDaysOverdue: input.maxDaysOverdue,
@@ -41,20 +44,23 @@ export async function runAutoFlag(): Promise<{ flagged: number; checked: number 
   return { flagged, checked: parties.length };
 }
 
-export async function runRecommendationRefresh(): Promise<{ refreshed: number }> {
+export async function runRecommendationRefresh(db: TenantClient): Promise<{ refreshed: number }> {
   const parties = await db.party.findMany({ where: ACTIVE_PARTY_WHERE, take: CRON_PARTY_CAP });
   const scored = await Promise.all(
-    parties.map(async (p) => ({ id: p.id, score: riskScore(await buildRiskInput(p)).score }))
+    parties.map(async (p) => ({ id: p.id, score: riskScore(await buildRiskInput(db, p)).score }))
   );
   scored.sort((a, b) => b.score - a.score);
   const top = scored.slice(0, REC_REFRESH_COUNT);
   for (const { id } of top) {
-    await refreshRecommendation(id);
+    await refreshRecommendation(db, id);
   }
   return { refreshed: top.length };
 }
 
-export async function assemblePlanParties(now: Date = new Date()): Promise<PlanParty[]> {
+export async function assemblePlanParties(
+  db: TenantClient,
+  now: Date = new Date(),
+): Promise<PlanParty[]> {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const staleCutoff = subDays(today, STALE_ACTION_DAYS);
 
@@ -76,7 +82,7 @@ export async function assemblePlanParties(now: Date = new Date()): Promise<PlanP
 
   const result: PlanParty[] = [];
   for (const party of parties) {
-    const input = await buildRiskInput(party);
+    const input = await buildRiskInput(db, party);
     const risk = riskScore(input);
     const reasons: PlanParty["reasons"] = [];
 
@@ -124,8 +130,11 @@ export async function assemblePlanParties(now: Date = new Date()): Promise<PlanP
   return result;
 }
 
-export async function buildPlanForProfile(profile: Profile): Promise<DailyPlan> {
-  const all = buildDailyPlan(await assemblePlanParties());
+export async function buildPlanForProfile(
+  db: TenantClient,
+  profile: Profile,
+): Promise<DailyPlan> {
+  const all = buildDailyPlan(await assemblePlanParties(db));
   if (profile.role === "ADMIN") return all;
   return {
     byStaff: new Map([[profile.id, all.byStaff.get(profile.id) ?? []]]),

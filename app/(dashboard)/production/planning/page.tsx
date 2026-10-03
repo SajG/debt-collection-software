@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile } from "@/lib/authz";
 import { isTallyEnabled } from "@/lib/settings";
 import { PageHeader, Card, Badge } from "../../_components/ui";
@@ -14,6 +14,7 @@ export const dynamic = "force-dynamic";
 // FACTORY + ADMIN only; STAFF wouldn't act on this data.
 export default async function ProductionPlanningPage() {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   if (profile.role !== "FACTORY" && profile.role !== "ADMIN") {
     redirect("/dashboard");
   }
@@ -46,7 +47,7 @@ export default async function ProductionPlanningPage() {
     db.stockItem.findMany({
       select: { name: true, closingQty: true, unit: true },
     }),
-    isTallyEnabled(),
+    isTallyEnabled(db),
   ]);
 
   // Group by product (name + brand). closingQty is looked up by

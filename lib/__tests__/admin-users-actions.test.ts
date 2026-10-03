@@ -11,6 +11,10 @@
  *
  * A STAFF caller who hits any of these actions therefore gets the
  * requireAdmin() redirect ("/dashboard") long before any write.
+ *
+ * SY31 — actions may call requireAdminInOrg() instead, a local helper
+ * that calls requireAdmin() and resolves the active company. The
+ * helper itself is checked below.
  */
 
 import { readFileSync } from "node:fs";
@@ -28,6 +32,7 @@ const FILE = resolve(
   "actions.ts",
 );
 const SRC = readFileSync(FILE, "utf8");
+const GATE_RE = /\brequireAdmin(?:InOrg)?\s*\(/;
 
 const EXPORT_RE =
   /export\s+async\s+function\s+(\w+)\s*\([\s\S]*?\)\s*(?::\s*[\s\S]*?)?\{([\s\S]*?)\n\}/g;
@@ -52,6 +57,7 @@ describe("admin/users/actions.ts — all exported server actions are ADMIN-gated
         "createUserAction",
         "deactivateUserAction",
         "inviteUserAction",
+        "makeOwnerAction",
         "reactivateUserAction",
         "resendInviteAction",
         "revokeDeviceAction",
@@ -60,8 +66,16 @@ describe("admin/users/actions.ts — all exported server actions are ADMIN-gated
     );
   });
 
+  it("requireAdminInOrg() starts with requireAdmin()", () => {
+    const helper = SRC.match(
+      /async\s+function\s+requireAdminInOrg\s*\(\)\s*\{([\s\S]*?)\n\}/,
+    );
+    expect(helper, "requireAdminInOrg helper not found").not.toBeNull();
+    expect(helper![1].trimStart().startsWith("const admin = await requireAdmin();")).toBe(true);
+  });
+
   it("every action calls requireAdmin()", () => {
-    const offenders = fns.filter((f) => !/\brequireAdmin\s*\(/.test(f.body));
+    const offenders = fns.filter((f) => !GATE_RE.test(f.body));
     expect(
       offenders.map((f) => f.name),
       "Missing requireAdmin(): " + offenders.map((f) => f.name).join(", "),
@@ -73,7 +87,7 @@ describe("admin/users/actions.ts — all exported server actions are ADMIN-gated
       /\b(db\.\$transaction|db\.profile\.|db\.userAuditLog\.|supabase\.auth\.admin\.)/;
     const offenders: string[] = [];
     for (const f of fns) {
-      const adminIdx = f.body.search(/\brequireAdmin\s*\(/);
+      const adminIdx = f.body.search(GATE_RE);
       const mutIdx = f.body.search(MUTATION_RE);
       if (adminIdx === -1) {
         offenders.push(`${f.name}: no requireAdmin`);

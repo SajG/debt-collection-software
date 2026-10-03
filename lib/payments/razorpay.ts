@@ -1,7 +1,7 @@
 // Razorpay Payment Links via REST (no SDK). Supports UPI and partial
 // payments. SERVER-ONLY — uses the secret key.
 
-import { db } from "@/lib/db";
+import type { TenantClient } from "@/lib/tenant";
 
 const API_BASE = "https://api.razorpay.com/v1";
 
@@ -22,7 +22,9 @@ export type PaymentLinkResult =
  * Create (or reuse an open) payment link for a party/invoice and persist it.
  * Partial payments are enabled with a ₹100 minimum instalment.
  */
-export async function getOrCreatePaymentLink(params: {
+export async function getOrCreatePaymentLink(
+  db: TenantClient,
+  params: {
   partyId: string;
   invoiceId?: string | null;
   amount: number; // ₹

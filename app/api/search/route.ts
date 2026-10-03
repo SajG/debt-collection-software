@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfileApi, partyScopeWhere } from "@/lib/authz";
 
 // Command-palette backend. Fuzzy search across the four surfaces a
@@ -55,6 +55,7 @@ const ADMIN_PAGES: SearchHit[] = [
 export async function GET(req: Request) {
   const { profile, failure } = await requireProfileApi();
   if (failure) return failure;
+  const db = tenantDb(profile.organizationId);
 
   const url = new URL(req.url);
   const q = (url.searchParams.get("q") ?? "").trim();

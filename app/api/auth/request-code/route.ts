@@ -5,7 +5,7 @@ import { captureError } from "@/lib/monitoring";
 import {
   checkEmailOtpSendLimit,
   recordLoginAttempt,
-} from "@/lib/rate-limit";
+} from "@/lib/platform/rate-limit";
 
 // Mobile calls THIS route for a 6-digit email code (SY-email + audit
 // item 9). Previously the mobile client hit supabase.auth.signInWithOtp

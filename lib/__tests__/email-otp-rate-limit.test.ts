@@ -30,7 +30,7 @@ let checkEmailOtpSendLimit: (
 beforeEach(async () => {
   countMock.mockReset();
   vi.resetModules();
-  ({ checkEmailOtpSendLimit } = await import("../rate-limit"));
+  ({ checkEmailOtpSendLimit } = await import("../platform/rate-limit"));
 });
 afterEach(() => vi.clearAllMocks());
 

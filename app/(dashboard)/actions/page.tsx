@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile, partyScopeWhere } from "@/lib/authz";
 import { formatINR, formatDate } from "@/lib/format";
 import { startOfToday } from "@/lib/ar/balance";
@@ -16,6 +16,7 @@ import {
 
 export default async function ActionsPage() {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   const scope = { party: partyScopeWhere(profile) };
 
   const [upcoming, recent] = await Promise.all([

@@ -2,9 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile, canAccessParty } from "@/lib/authz";
-import { checkSendRateLimit } from "@/lib/rate-limit";
+import { checkSendRateLimit } from "@/lib/platform/rate-limit";
 import { sendReminder, type SendReminderResult } from "@/lib/messaging/send";
 
 const sendInput = z.object({
@@ -26,6 +26,7 @@ export async function sendReminderAction(
   input: z.input<typeof sendInput>
 ): Promise<SendReminderResult> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const parsed = sendInput.safeParse(input);
   if (!parsed.success) {
@@ -47,6 +48,7 @@ export async function sendReminderAction(
   }
 
   const result = await sendReminder({
+    organizationId: profile.organizationId,
     partyId,
     channel,
     invoiceId,

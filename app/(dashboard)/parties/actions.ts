@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { redirect } from "next/navigation";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile, canAccessParty } from "@/lib/authz";
 import { partySchema, type PartyInput } from "@/lib/validation";
 
@@ -12,6 +12,7 @@ type MaybeError = { error: string } | undefined;
 
 export async function createPartyAction(input: PartyInput): Promise<ActionResult> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const parsed = partySchema.safeParse(input);
   if (!parsed.success) {
@@ -36,6 +37,7 @@ export async function updatePartyAction(
   input: PartyInput
 ): Promise<ActionResult> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const existing = await db.party.findUnique({ where: { id } });
   if (!existing || !canAccessParty(profile, existing)) {
@@ -74,6 +76,7 @@ export async function setConsentAction(
   input: z.infer<typeof consentInput>
 ): Promise<MaybeError> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const parsed = consentInput.safeParse(input);
   if (!parsed.success) return { error: "Invalid consent update." };
@@ -98,6 +101,7 @@ export async function pauseOutreachAction(
   reason: string
 ): Promise<MaybeError> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const party = await db.party.findUnique({ where: { id: partyId } });
   if (!party || !canAccessParty(profile, party)) {
@@ -120,6 +124,7 @@ export async function pauseOutreachAction(
 /** Clearing a pause is a deliberate human decision — ADMIN only. */
 export async function resumeOutreachAction(partyId: string): Promise<MaybeError> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   if (profile.role !== "ADMIN") {
     return { error: "Only an admin can resume outreach after a pause." };
   }
@@ -157,6 +162,7 @@ export async function bulkAssignPartiesAction(input: {
   assignedToId: string | null;
 }): Promise<{ error: string } | { updated: number }> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   if (profile.role !== "ADMIN") return { error: "Admin access required." };
 
   const parsed = bulkAssignSchema.safeParse(input);

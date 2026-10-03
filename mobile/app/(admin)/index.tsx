@@ -59,156 +59,63 @@ const EMPTY: Tiles = {
   loadingAt: null,
 };
 
-function startOfDayIso(d = new Date()): string {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x.toISOString();
-}
-function startOfWeekIso(d = new Date()): string {
-  const x = new Date(d);
-  const day = x.getDay(); // 0=Sun
-  x.setHours(0, 0, 0, 0);
-  x.setDate(x.getDate() - day);
-  return x.toISOString();
-}
-function startOfMonth(offset = 0): Date {
-  const d = new Date();
-  d.setDate(1);
-  d.setHours(0, 0, 0, 0);
-  d.setMonth(d.getMonth() + offset);
-  return d;
-}
+// SY33 — every number comes from get_management_summary(), computed in
+// SQL for the caller's active company. The old version downloaded
+// Party / Payment / SalesOrder rows and summed them here, which went
+// wrong past Supabase's 1,000-row response cap.
+type ManagementSummary = {
+  totalOutstanding: number | string;
+  overdueInvoicesCount: number | string;
+  overdueAmount: number | string;
+  collectedThisMonth: number | string;
+  dsoDays: number | string | null;
+  placedTodayCount: number | string;
+  placedTodayValue: number | string;
+  placedWeekCount: number | string;
+  placedWeekValue: number | string;
+  pendingApproval: number | string;
+  rateApproval: number | string;
+  overdueOrders: number | string;
+  onHoldTotal: number | string;
+  onHoldByReason: { category: string | null; count: number | string }[];
+  dispatchedThisMonth: number | string;
+  dispatchedLastMonth: number | string;
+};
+
+const num = (v: number | string | null | undefined): number => Number(v ?? 0);
+const money = (v: number | string | null | undefined): number =>
+  Math.round(num(v) * 100) / 100;
 
 async function loadTiles(): Promise<Tiles> {
-  // A single realtime pull. Everything runs in parallel; failures
-  // downgrade to zero rather than blocking the whole tile grid.
-  const todayIso = startOfDayIso();
-  const weekIso = startOfWeekIso();
-  const monthStart = startOfMonth(0).toISOString();
-  const monthEnd = startOfMonth(1).toISOString();
-  const lastMonthStart = startOfMonth(-1).toISOString();
-  const lastMonthEnd = monthStart;
-  const nowIso = new Date().toISOString();
-
-  const [
-    todayR,
-    weekR,
-    pendR,
-    rateR,
-    overdueR,
-    holdR,
-    thisMonthR,
-    lastMonthR,
-    outstandingR,
-    overdueInvR,
-    collectedR,
-  ] = await Promise.all([
-    supabase
-      .from("SalesOrder")
-      .select("orderValue", { count: "exact" })
-      .gte("createdAt", todayIso),
-    supabase
-      .from("SalesOrder")
-      .select("orderValue", { count: "exact" })
-      .gte("createdAt", weekIso),
-    supabase
-      .from("SalesOrder")
-      .select("id", { count: "exact", head: true })
-      .eq("currentStatus", "PENDING_APPROVAL"),
-    supabase
-      .from("SalesOrder")
-      .select("id", { count: "exact", head: true })
-      .eq("needsRateApproval", true),
-    supabase
-      .from("SalesOrder")
-      .select("id", { count: "exact", head: true })
-      .lt("expectedDeliveryDate", nowIso.slice(0, 10))
-      .not("currentStatus", "in", '("DISPATCHED","DELIVERED","CANCELLED","REJECTED")'),
-    supabase
-      .from("SalesOrder")
-      .select("holdReasonCategory")
-      .eq("currentStatus", "ON_HOLD"),
-    supabase
-      .from("SalesOrder")
-      .select("orderValue")
-      .eq("currentStatus", "DISPATCHED")
-      .gte("createdAt", monthStart)
-      .lt("createdAt", monthEnd),
-    supabase
-      .from("SalesOrder")
-      .select("orderValue")
-      .eq("currentStatus", "DISPATCHED")
-      .gte("createdAt", lastMonthStart)
-      .lt("createdAt", lastMonthEnd),
-    // SY24 — new KPIs.
-    supabase.from("Party").select("totalOutstanding"),
-    supabase
-      .from("Invoice")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "OVERDUE"),
-    supabase
-      .from("Payment")
-      .select("amount")
-      .gte("paymentDate", monthStart)
-      .lt("paymentDate", monthEnd),
-  ]);
-
-  const sumValues = (rows: unknown): number => {
-    const arr = (rows as { orderValue: number | string | null }[] | null) ?? [];
-    let s = 0;
-    for (const r of arr) s += Number(r.orderValue ?? 0);
-    return Math.round(s * 100) / 100;
-  };
-
-  const holdRows =
-    (holdR.data as { holdReasonCategory: string | null }[] | null) ?? [];
-  const holdMap = new Map<string | null, number>();
-  for (const r of holdRows) {
-    holdMap.set(r.holdReasonCategory, (holdMap.get(r.holdReasonCategory) ?? 0) + 1);
-  }
-  const byReason = Array.from(holdMap.entries())
-    .map(([category, count]) => ({ category, count }))
-    .sort((a, b) => b.count - a.count);
-
-  // SY24 — outstanding, collected, DSO.
-  const outstandingRows =
-    (outstandingR.data as { totalOutstanding: number | string | null }[] | null) ??
-    [];
-  const totalOutstanding =
-    Math.round(
-      outstandingRows.reduce((s, r) => s + Number(r.totalOutstanding ?? 0), 0) *
-        100,
-    ) / 100;
-
-  const collectedRows =
-    (collectedR.data as { amount: number | string | null }[] | null) ?? [];
-  const collectedThisMonth =
-    Math.round(
-      collectedRows.reduce((s, r) => s + Number(r.amount ?? 0), 0) * 100,
-    ) / 100;
-
-  // Naive DSO = (outstanding / dispatched last 30 days) × 30. Good
-  // enough as a mobile-header approximation; the /admin/analytics
-  // web page has the real formula.
-  const thirtyDayRevenue = sumValues(thisMonthR.data) + sumValues(lastMonthR.data);
-  const dso =
-    thirtyDayRevenue > 0
-      ? Math.round((totalOutstanding / thirtyDayRevenue) * 30)
-      : null;
+  // Cast: get_management_summary is added by migration
+  // 20261003000000_sy33_rpc_tenant_guards and isn't in the generated types.
+  const { data, error } = await (supabase.rpc as unknown as (
+    fn: string,
+  ) => Promise<{ data: ManagementSummary | null; error: { message: string } | null }>)(
+    "get_management_summary",
+  );
+  if (error) throw new Error(error.message);
+  if (!data) return { ...EMPTY, loadingAt: new Date().toISOString() };
 
   return {
-    totalOutstanding,
-    overdueInvoicesCount: overdueInvR.count ?? 0,
-    collectedThisMonth,
-    dso,
-    placedToday: { count: todayR.count ?? 0, value: sumValues(todayR.data) },
-    placedWeek: { count: weekR.count ?? 0, value: sumValues(weekR.data) },
-    pendingApproval: pendR.count ?? 0,
-    rateApproval: rateR.count ?? 0,
-    overdue: overdueR.count ?? 0,
-    onHold: { total: holdRows.length, byReason },
-    dispatchedThisMonth: sumValues(thisMonthR.data),
-    dispatchedLastMonth: sumValues(lastMonthR.data),
+    totalOutstanding: money(data.totalOutstanding),
+    overdueInvoicesCount: num(data.overdueInvoicesCount),
+    collectedThisMonth: money(data.collectedThisMonth),
+    dso: data.dsoDays === null ? null : num(data.dsoDays),
+    placedToday: { count: num(data.placedTodayCount), value: money(data.placedTodayValue) },
+    placedWeek: { count: num(data.placedWeekCount), value: money(data.placedWeekValue) },
+    pendingApproval: num(data.pendingApproval),
+    rateApproval: num(data.rateApproval),
+    overdue: num(data.overdueOrders),
+    onHold: {
+      total: num(data.onHoldTotal),
+      byReason: (data.onHoldByReason ?? []).map((r) => ({
+        category: r.category,
+        count: num(r.count),
+      })),
+    },
+    dispatchedThisMonth: money(data.dispatchedThisMonth),
+    dispatchedLastMonth: money(data.dispatchedLastMonth),
     loadingAt: new Date().toISOString(),
   };
 }
@@ -236,7 +143,7 @@ export default function AdminCommandCentre() {
   useEffect(() => {
     void load();
     // Realtime: any SalesOrder insert/update refreshes the tile grid.
-    // Fires cheaply — the aggregate re-query is a handful of counts.
+    // Fires cheaply — one get_management_summary() call.
     const channel = supabase.channel(
       `admin-tiles:${Math.random().toString(36).slice(2, 10)}`,
     );
@@ -286,6 +193,15 @@ export default function AdminCommandCentre() {
           accessibilityLabel="Switch to salesperson view"
         >
           <Text style={styles.staffBtnText}>{t("admin.switchToStaff")}</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => router.push("/account")}
+          hitSlop={8}
+          style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.7 }]}
+          accessibilityRole="button"
+          accessibilityLabel={t("account.title")}
+        >
+          <Text style={styles.signOutGlyph}>⚙</Text>
         </Pressable>
         <Pressable
           onPress={() =>

@@ -1,11 +1,12 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { currentAssuranceLevel, getMfaFactorState } from "@/lib/auth/mfa";
+import { safePath } from "@/lib/safe-redirect";
 import { ChallengeForm } from "./challenge-form";
 
-// Second-factor challenge. Rendered after a successful password
-// grant when the user has a verified TOTP factor but the session is
-// still at aal1. On success, requireAdmin() sees aal2 and lets them
+// Second-factor challenge. Rendered after an emailed-code sign-in
+// when the user has a verified TOTP factor but the session is still
+// at aal1. On success, requireAdmin() sees aal2 and lets them
 // through.
 
 export const dynamic = "force-dynamic";
@@ -31,7 +32,7 @@ export default async function ChallengePage({
   const aal = await currentAssuranceLevel(supabase);
   if (aal === "aal2") {
     // Already elevated (browser refresh, back button). Go on.
-    redirect(searchParams.next?.startsWith("/") ? searchParams.next : "/dashboard");
+    redirect(safePath(searchParams.next, "/dashboard"));
   }
 
   return (
@@ -44,7 +45,7 @@ export default async function ChallengePage({
         Syncit / PayTrack admin account.
       </p>
       <div className="mt-6">
-        <ChallengeForm next={searchParams.next ?? "/dashboard"} />
+        <ChallengeForm next={safePath(searchParams.next, "/dashboard")} />
       </div>
     </div>
   );

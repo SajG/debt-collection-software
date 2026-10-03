@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile, canAccessParty } from "@/lib/authz";
 import { formatDate, formatDateTime, formatINR } from "@/lib/format";
 import { getPaymentDocumentSignedUrl } from "@/lib/storage";
@@ -31,6 +31,7 @@ export default async function PaymentDetailPage({
   params: { id: string };
 }) {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const payment = await db.payment.findUnique({
     where: { id: params.id },

@@ -1,5 +1,5 @@
 import { requireProfile } from "@/lib/authz";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { formatINR } from "@/lib/format";
 import { istMonthKey, istMonthWindow, pace } from "@/lib/recovery/targets";
 import { PageHeader } from "../_components/ui";
@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 
 export default async function TargetsPage() {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   const isAdmin = profile.role === "ADMIN";
   const now = new Date();
   const monthKey = istMonthKey(now);

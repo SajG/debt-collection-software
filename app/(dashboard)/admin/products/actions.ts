@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile } from "@/lib/authz";
 
 const upsertSchema = z.object({
@@ -18,12 +18,13 @@ export type UpsertResult = { ok: true } | { error: string; fieldErrors?: Record<
 
 async function requireAdmin() {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   if (profile.role !== "ADMIN") throw new Error("Admin only");
   return profile;
 }
 
 export async function upsertProductAction(fd: FormData): Promise<UpsertResult> {
-  await requireAdmin();
+  const db = tenantDb((await requireAdmin()).organizationId);
   const raw = Object.fromEntries(fd) as Record<string, string>;
   const parsed = upsertSchema.safeParse(raw);
   if (!parsed.success) {
@@ -51,7 +52,7 @@ export async function upsertProductAction(fd: FormData): Promise<UpsertResult> {
 }
 
 export async function toggleProductActiveAction(id: string): Promise<UpsertResult> {
-  await requireAdmin();
+  const db = tenantDb((await requireAdmin()).organizationId);
   const p = await db.product.findUnique({ where: { id } });
   if (!p) return { error: "Not found" };
   await db.product.update({ where: { id }, data: { isActive: !p.isActive } });

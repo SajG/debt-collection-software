@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfileApi } from "@/lib/authz";
 import {
   avgOrderToDispatchHours,
@@ -17,8 +18,9 @@ export const dynamic = "force-dynamic";
 // Sheets both open it directly. Kept as text/csv rather than pulling
 // in an xlsx library — the numbers are what matter.
 export async function GET(request: NextRequest) {
-  const { failure } = await requireProfileApi({ adminOnly: true });
+  const { failure, organizationId } = await requireProfileApi({ adminOnly: true });
   if (failure) return failure;
+  const db = tenantDb(organizationId);
 
   const days = Math.max(
     7,
@@ -31,13 +33,13 @@ export async function GET(request: NextRequest) {
 
   const [bySalesperson, byProduct, byBrand, byMonth, top, avg, holds] =
     await Promise.all([
-      ordersBySalesperson(range),
-      ordersByProduct(range),
-      ordersByBrand(range),
-      ordersByMonth(range),
-      topCustomers(range, 50),
-      avgOrderToDispatchHours(range),
-      currentHoldOrders(),
+      ordersBySalesperson(db, range),
+      ordersByProduct(db, range),
+      ordersByBrand(db, range),
+      ordersByMonth(db, range),
+      topCustomers(db, range, 50),
+      avgOrderToDispatchHours(db, range),
+      currentHoldOrders(db),
     ]);
 
   const q = (s: string): string =>

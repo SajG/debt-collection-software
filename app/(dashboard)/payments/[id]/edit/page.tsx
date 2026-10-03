@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile, canAccessParty } from "@/lib/authz";
 import { formatINR, formatDate } from "@/lib/format";
 import { PageHeader } from "../../../_components/ui";
@@ -11,6 +11,7 @@ export default async function EditPaymentPage({
   params: { id: string };
 }) {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const payment = await db.payment.findUnique({
     where: { id: params.id },

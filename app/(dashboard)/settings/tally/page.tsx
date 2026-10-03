@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile } from "@/lib/authz";
-import { resolveOrgIdFromProfile } from "@/lib/tenancy";
 import { PageHeader } from "../../_components/ui";
 import { PairPanel } from "./pair-panel";
 import { ConnectorsList } from "./connectors-list";
 import { friendlyTallyError } from "@/lib/tally/errors";
+import { orgHasFeature } from "@/lib/platform/billing";
+import Link from "next/link";
 
 export const metadata: Metadata = {
   title: "Tally connection — Syncit",
@@ -29,9 +30,11 @@ export const dynamic = "force-dynamic";
 
 export default async function TallySettingsPage() {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   if (profile.role !== "ADMIN") redirect("/settings");
 
-  const organizationId = await resolveOrgIdFromProfile(profile.id);
+  const organizationId = profile.organizationId;
+  const tallyOnPlan = await orgHasFeature(organizationId, "tallyLiveSync");
   const connectors = await db.tallyConnector.findMany({
     where: { organizationId },
     orderBy: [{ revokedAt: "asc" }, { createdAt: "desc" }],
@@ -54,7 +57,19 @@ export default async function TallySettingsPage() {
         subtitle="Pair the Windows connector on your Tally PC. Every paired PC syncs into this workspace only."
       />
 
-      <PairPanel />
+      {tallyOnPlan ? (
+        <PairPanel />
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-muted/60 p-6 text-sm">
+          <span>
+            Tally live sync is part of the Growth plan. On your current plan,
+            bring data in with Excel import.
+          </span>
+          <Link href="/settings/billing" className="font-medium text-primary hover:underline">
+            Upgrade plan
+          </Link>
+        </div>
+      )}
 
       <div>
         <h2 className="text-lg font-semibold mb-3">Connected PCs</h2>

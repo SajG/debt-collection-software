@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireAdmin } from "@/lib/authz";
 import { formatDateTime } from "@/lib/format";
 import {
@@ -17,12 +17,12 @@ import { isTallyEnabled } from "@/lib/settings";
 export const dynamic = "force-dynamic";
 
 export default async function ImportPage() {
-  await requireAdmin();
+  const db = tenantDb((await requireAdmin()).organizationId);
 
   const [connections, pending, tallyOn] = await Promise.all([
     db.accountingConnection.findMany(),
-    findPendingCustomerMatches(),
-    isTallyEnabled(),
+    findPendingCustomerMatches(db),
+    isTallyEnabled(db),
   ]);
   const providers: ProviderStatus[] = (
     Object.entries(PROVIDER_BY_SLUG) as [

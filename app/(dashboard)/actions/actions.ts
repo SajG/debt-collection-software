@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { db } from "@/lib/db";
+import { tenantDb, type TenantClient } from "@/lib/tenant";
 import { requireProfile, canAccessParty } from "@/lib/authz";
 import { actionSchema, type ActionInput } from "@/lib/validation";
 
@@ -12,6 +12,7 @@ export async function createFollowUpAction(
   input: ActionInput
 ): Promise<ActionResult> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const parsed = actionSchema.safeParse(input);
   if (!parsed.success) {
@@ -40,7 +41,7 @@ export async function createFollowUpAction(
 
 /** DISPUTED outcome ⇒ all outreach to the party stops until a human clears it. */
 async function pauseForDispute(
-  tx: Pick<typeof db, "party">,
+  tx: TenantClient,
   partyId: string
 ): Promise<void> {
   await tx.party.update({
@@ -58,6 +59,7 @@ export async function updateFollowUpAction(
   input: ActionInput
 ): Promise<ActionResult> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const existing = await db.action.findUnique({
     where: { id },

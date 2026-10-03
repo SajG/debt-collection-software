@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireProfileApi, canAccessParty } from "@/lib/authz";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { buildProformaPdf } from "@/lib/pdf/build";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +12,7 @@ export async function GET(
 ) {
   const { profile, failure } = await requireProfileApi();
   if (failure) return failure;
+  const db = tenantDb(profile.organizationId);
 
   const proforma = await db.proformaInvoice.findUnique({
     where: { id: params.id },
@@ -21,7 +22,7 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const result = await buildProformaPdf(params.id);
+  const result = await buildProformaPdf(db, params.id);
   if ("error" in result) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }

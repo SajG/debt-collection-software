@@ -3,7 +3,8 @@
 // inside this render call and the resulting PDF bytes.
 
 import { Prisma } from "@prisma/client";
-import { db } from "@/lib/db";
+import type { BusinessSettings } from "@prisma/client";
+import type { TenantClient } from "@/lib/tenant";
 import { decryptSecret } from "@/lib/crypto";
 import { formatDate, toNumber } from "@/lib/format";
 import { downloadLogoBytes } from "@/lib/storage";
@@ -30,9 +31,7 @@ function qty(v: Prisma.Decimal): string {
   return toNumber(v).toLocaleString("en-IN", { maximumFractionDigits: 3 });
 }
 
-type SettingsRow = NonNullable<
-  Prisma.PromiseReturnType<typeof db.businessSettings.findFirst>
->;
+type SettingsRow = BusinessSettings;
 
 async function companyBlock(settings: SettingsRow, businessName: string) {
   return {
@@ -82,14 +81,14 @@ function taxBlock(
   return { split: "IGST", igst: rs(taxAmount) };
 }
 
-async function adminBusinessName(): Promise<string> {
-  return (
-    (await db.profile.findFirst({ where: { role: "ADMIN" } }))?.businessName ??
-    "Your supplier"
-  );
+// SY32 — the letterhead is the caller's own company: its Organization
+// name and BusinessSettings, both read through the tenantDb client.
+async function companyName(db: TenantClient): Promise<string> {
+  return (await db.organization.findFirst({ select: { name: true } }))?.name ?? "Your supplier";
 }
 
 export async function buildProformaPdf(
+  db: TenantClient,
   proformaId: string
 ): Promise<{ filename: string; buffer: Buffer; partyId: string } | { error: string }> {
   const [proforma, settings, businessName] = await Promise.all([
@@ -98,7 +97,7 @@ export async function buildProformaPdf(
       include: { party: true, lineItems: { orderBy: { sortOrder: "asc" } } },
     }),
     db.businessSettings.findFirst(),
-    adminBusinessName(),
+    companyName(db),
   ]);
   if (!proforma) return { error: "Proforma not found" };
   if (!settings) return { error: "Business settings missing" };
@@ -146,12 +145,13 @@ export async function buildProformaPdf(
 }
 
 export async function buildInvoicePdf(
+  db: TenantClient,
   invoiceId: string
 ): Promise<{ filename: string; buffer: Buffer; partyId: string } | { error: string }> {
   const [invoice, settings, businessName] = await Promise.all([
     db.invoice.findUnique({ where: { id: invoiceId }, include: { party: true } }),
     db.businessSettings.findFirst(),
-    adminBusinessName(),
+    companyName(db),
   ]);
   if (!invoice) return { error: "Invoice not found" };
   if (!settings) return { error: "Business settings missing" };

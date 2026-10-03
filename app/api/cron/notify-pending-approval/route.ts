@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { captureError } from "@/lib/monitoring";
 import { verifyBearer } from "@/lib/auth/verify-bearer";
 import { forEachActiveOrg } from "@/lib/platform/orgs";
@@ -52,6 +52,8 @@ type OrgSummary = {
 };
 
 async function runForOrg(orgId: string, orgSlug: string): Promise<OrgSummary> {
+  // SY32 — scoped to this one company; admins are its members only.
+  const db = tenantDb(orgId);
   const cutoff = new Date(Date.now() - PENDING_WINDOW_MS);
 
   const orders = await db.salesOrder.findMany({

@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile, canAccessOrder } from "@/lib/authz";
 import { formatDate, formatDateTime, formatINR, toNumber } from "@/lib/format";
 import { getOrderDocumentSignedUrl } from "@/lib/storage";
@@ -58,6 +58,7 @@ export default async function SalesOrderDetailPage({
   params: { id: string };
 }) {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const order = await db.salesOrder.findUnique({
     where: { id: params.id },

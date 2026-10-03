@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile, canAccessParty } from "@/lib/authz";
 import { formatINR, formatDate } from "@/lib/format";
 import {
@@ -27,6 +27,7 @@ export default async function InvoiceDetailPage({
   params: { id: string };
 }) {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const invoice = await db.invoice.findUnique({
     where: { id: params.id },

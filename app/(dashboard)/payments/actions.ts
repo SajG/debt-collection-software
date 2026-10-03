@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile, canAccessParty } from "@/lib/authz";
 import { paymentSchema, type PaymentInput } from "@/lib/validation";
 import {
@@ -19,6 +19,7 @@ export async function createPaymentAction(
   input: PaymentInput
 ): Promise<ActionResult> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const parsed = paymentSchema.safeParse(input);
   if (!parsed.success) {
@@ -128,6 +129,7 @@ export async function updatePaymentMetaAction(
   input: z.input<typeof paymentMetaSchema>
 ): Promise<ActionResult> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const payment = await db.payment.findUnique({
     where: { id },

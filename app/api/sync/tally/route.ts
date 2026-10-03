@@ -1,9 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
+import { findTallyConnectorByTokenHash } from "@/lib/platform/resolve";
 import { captureError } from "@/lib/monitoring";
 import { hashSecret } from "@/lib/tally/pairing";
 import { verifyBearer } from "@/lib/auth/verify-bearer";
+import { isOrgLocked, orgHasFeature } from "@/lib/platform/billing";
+import { getLegacySynergyOrgIdForTallySecret } from "@/lib/platform/legacy-tally";
 import {
   ingestPartyRows,
   ingestInvoiceRows,
@@ -22,7 +25,7 @@ export const maxDuration = 300;
 //      organizationId. Every row lands in THAT tenant. This is the
 //      per-org flow every new customer uses.
 //   2. Legacy `Authorization: Bearer $TALLY_SYNC_SECRET` → falls back
-//      to the Synergy tenant via getDefaultOrgId(). Kept alive until
+//      to the Synergy tenant via getLegacySynergyOrgIdForTallySecret(). Kept alive until
 //      Synergy re-pairs with a real code; remove the env var after
 //      that (see docs/TALLY.md).
 //
@@ -63,9 +66,7 @@ async function authenticate(request: NextRequest): Promise<AuthResult> {
 
   // SY27 per-org token.
   if (secret.startsWith("syt_")) {
-    const connector = await db.tallyConnector.findUnique({
-      where: { tokenHash: hashSecret(secret) },
-    });
+    const connector = await findTallyConnectorByTokenHash(hashSecret(secret));
     if (!connector) return null;
     if (connector.revokedAt) return null;
     return {
@@ -89,6 +90,25 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   }
 
+  // SY28 — plan feature + LOCKED read-only. Checked before parsing so
+  // the connector gets a clear, stable answer it can show the user.
+  const orgId =
+    auth.kind === "token"
+      ? auth.organizationId
+      : await getLegacySynergyOrgIdForTallySecret();
+  if (await isOrgLocked(orgId)) {
+    return NextResponse.json(
+      { error: "This Syncit workspace is read-only until a plan is chosen.", code: "org_locked" },
+      { status: 423 },
+    );
+  }
+  if (!(await orgHasFeature(orgId, "tallyLiveSync"))) {
+    return NextResponse.json(
+      { error: "Tally live sync isn't included in this Syncit plan.", code: "plan_feature" },
+      { status: 402 },
+    );
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -106,7 +126,7 @@ export async function POST(request: NextRequest) {
   const opts = {
     triggeredById: null,
     source: auth.kind === "token" ? "tally-connector" : "tally-agent-legacy",
-    ...(auth.kind === "token" ? { organizationId: auth.organizationId } : {}),
+    organizationId: orgId,
   };
 
   const summary: Record<string, unknown> = {};
@@ -135,7 +155,7 @@ export async function POST(request: NextRequest) {
     await captureError(e, {
       scope: "api.sync.tally",
       authKind: auth.kind,
-      ...(auth.kind === "token" ? { organizationId: auth.organizationId } : {}),
+      organizationId: orgId,
     });
   }
 
@@ -150,8 +170,8 @@ export async function POST(request: NextRequest) {
   // and surface the last failure in plain language.
   if (auth.kind === "token") {
     const now = new Date();
-    await db.tallyConnector
-      .update({
+    await tenantDb(auth.organizationId)
+      .tallyConnector.update({
         where: { id: auth.connectorId },
         data: {
           lastSeenAt: now,

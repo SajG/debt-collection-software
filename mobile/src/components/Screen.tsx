@@ -2,6 +2,7 @@ import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from "re
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { ReactNode } from "react";
 import { OfflineBanner } from "./OfflineBanner";
+import { BillingBanner } from "./BillingBanner";
 import { BackBar } from "./BackBar";
 import { theme } from "@/theme";
 
@@ -33,6 +34,7 @@ export function Screen({
   return (
     <SafeAreaView style={styles.safe} edges={["top", "bottom", "left", "right"]}>
       <OfflineBanner />
+      <BillingBanner />
       {back ? <BackBar title={backTitle} fallback={backFallback} /> : null}
       <KeyboardAvoidingView
         style={styles.flex}

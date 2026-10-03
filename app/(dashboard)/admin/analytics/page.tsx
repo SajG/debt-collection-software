@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile } from "@/lib/authz";
 import {
   avgOrderToDispatchHours,
@@ -28,6 +29,7 @@ export default async function AnalyticsPage({
   searchParams: { days?: string };
 }) {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   if (profile.role !== "ADMIN") redirect("/dashboard");
 
   const days = Math.max(7, Math.min(365, Number(searchParams.days ?? 90)));
@@ -39,13 +41,13 @@ export default async function AnalyticsPage({
 
   const [bySalesperson, byProduct, byBrand, byMonth, top, avg, holds] =
     await Promise.all([
-      ordersBySalesperson(range),
-      ordersByProduct(range),
-      ordersByBrand(range),
-      ordersByMonth(range),
-      topCustomers(range, 10),
-      avgOrderToDispatchHours(range),
-      currentHoldOrders(),
+      ordersBySalesperson(db, range),
+      ordersByProduct(db, range),
+      ordersByBrand(db, range),
+      ordersByMonth(db, range),
+      topCustomers(db, range, 10),
+      avgOrderToDispatchHours(db, range),
+      currentHoldOrders(db),
     ]);
 
   return (

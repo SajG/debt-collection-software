@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
+import { findOrgByWhatsAppNumber } from "@/lib/platform/resolve";
+import { withLockBypass } from "@/lib/platform/billing";
 
 export const dynamic = "force-dynamic";
 
@@ -114,14 +116,10 @@ export async function POST(request: NextRequest) {
       const meta = (value.metadata as { phone_number_id?: string } | undefined) ?? {};
       const phoneNumberId = meta.phone_number_id?.trim() ?? null;
       let orgId: string | null = null;
-      if (phoneNumberId) {
-        const settings = await db.businessSettings.findFirst({
-          where: { whatsappPhoneNumberId: phoneNumberId },
-          select: { organizationId: true },
-        });
-        orgId = settings?.organizationId ?? null;
-      }
+      if (phoneNumberId) orgId = await findOrgByWhatsAppNumber(phoneNumberId);
       if (!orgId) continue;
+      const tenantOrgId: string = orgId;
+      const db = tenantDb(tenantOrgId);
 
       for (const status of (value.statuses as StatusEvent[] | undefined) ?? []) {
         if (!status.id) continue;
@@ -137,11 +135,14 @@ export async function POST(request: NextRequest) {
         } else {
           continue;
         }
-        // Only touch messages that belong to this org.
-        await db.message.updateMany({
-          where: { providerMessageId: status.id, organizationId: orgId },
-          data,
-        });
+        // Only touch messages that belong to this org. Delivery facts
+        // are recorded even while the org is LOCKED (SY28).
+        await withLockBypass(tenantOrgId, (tx) =>
+          tx.message.updateMany({
+            where: { providerMessageId: status.id, organizationId: orgId },
+            data,
+          }),
+        );
       }
 
       for (const inbound of (value.messages as InboundMessage[] | undefined) ?? []) {
@@ -154,24 +155,28 @@ export async function POST(request: NextRequest) {
 
         const text = inbound.text?.body?.trim() ?? `[${inbound.type ?? "media"}]`;
 
-        await db.message.create({
-          data: {
-            partyId: party.id,
-            organizationId: orgId,
-            channel: "WHATSAPP",
-            direction: "INBOUND",
-            status: "RECEIVED",
-            body: text,
-            providerMessageId: inbound.id ?? null,
-          },
-        });
-
-        if (OPT_OUT_WORDS.has(text.toLowerCase())) {
-          await db.party.update({
-            where: { id: party.id },
-            data: { consentStatus: "OPTED_OUT", consentUpdatedAt: new Date() },
+        // SY28 — inbound replies and opt-outs are recorded even while
+        // the org is LOCKED: a STOP must never be lost.
+        await withLockBypass(tenantOrgId, async (tx) => {
+          await tx.message.create({
+            data: {
+              partyId: party.id,
+              organizationId: orgId,
+              channel: "WHATSAPP",
+              direction: "INBOUND",
+              status: "RECEIVED",
+              body: text,
+              providerMessageId: inbound.id ?? null,
+            },
           });
-        }
+
+          if (OPT_OUT_WORDS.has(text.toLowerCase())) {
+            await tx.party.update({
+              where: { id: party.id },
+              data: { consentStatus: "OPTED_OUT", consentUpdatedAt: new Date() },
+            });
+          }
+        });
       }
     }
   }

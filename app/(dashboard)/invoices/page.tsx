@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile, partyScopeWhere } from "@/lib/authz";
 import { formatINR, formatDate } from "@/lib/format";
 import { differenceInCalendarDays } from "date-fns";
@@ -34,6 +34,7 @@ export default async function InvoicesPage({
   searchParams: { filter?: string; cursor?: string; size?: string };
 }) {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   const filter = FILTERS.find((f) => f.key === searchParams.filter) ?? FILTERS[0];
   const page = parsePageParams(searchParams);
 

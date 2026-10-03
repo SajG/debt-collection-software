@@ -1,6 +1,9 @@
 import { Prisma, type InvoiceStatus } from "@prisma/client";
+import type { TenantClient } from "../tenant";
 
-type Tx = Prisma.TransactionClient;
+// SY32 — always a tenantDb client (or its tx), so every query below is
+// scoped to one organization.
+type Tx = TenantClient;
 
 const D = Prisma.Decimal;
 type Dec = InstanceType<typeof D>;

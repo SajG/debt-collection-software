@@ -1,7 +1,6 @@
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireAdmin } from "@/lib/authz";
 import { getLogoSignedUrl } from "@/lib/storage";
-import { resolveOrgIdFromProfile } from "@/lib/tenancy";
 import { PageHeader, LinkButton, Card } from "../_components/ui";
 import { SettingsForm, type SettingsFormValues } from "./settings-form";
 
@@ -16,9 +15,10 @@ const EXPORT_ENTITIES = [
 
 export default async function SettingsPage() {
   const profile = await requireAdmin();
+  const db = tenantDb(profile.organizationId);
 
   // SY21 — BusinessSettings is 1:1 with Organization now.
-  const organizationId = await resolveOrgIdFromProfile(profile.id);
+  const organizationId = profile.organizationId;
   const settings = await db.businessSettings.findUnique({
     where: { organizationId },
   });
@@ -93,6 +93,19 @@ export default async function SettingsPage() {
           </div>
         </Card>
       </div>
+      {profile.isOwner && (
+        <div className="mb-6">
+          <Card title="Company">
+            <p className="text-sm text-muted-foreground">
+              Download all data, transfer ownership, or delete the company —{" "}
+              <a href="/settings/company" className="text-primary hover:underline">
+                Settings → Company
+              </a>
+              .
+            </p>
+          </Card>
+        </div>
+      )}
       <SettingsForm
         initial={initial}
         tokenConfigured={Boolean(settings?.whatsappApiToken)}

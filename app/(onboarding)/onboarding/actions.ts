@@ -2,9 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
-import { db } from "@/lib/db";
-import { resolveOrgIdFromProfile } from "@/lib/tenancy";
+import { requireMembership, tenantDb } from "@/lib/tenant";
 import { captureError } from "@/lib/monitoring";
 
 // SY23 — 4-step onboarding wizard.
@@ -29,6 +27,19 @@ const INDUSTRIES = [
 
 type ActionResult = { error: string } | { ok: true } | never;
 
+// SY31 — the company being set up is the caller's ACTIVE Membership
+// (no membership → /onboarding, via requireMembership). Only that
+// company's ADMIN may write to it.
+async function requireOnboardingAdmin() {
+  const ctx = await requireMembership();
+  if (ctx.role !== "ADMIN") redirect("/onboarding");
+  return {
+    user: ctx.profile,
+    organizationId: ctx.organizationId,
+    db: tenantDb(ctx.organizationId),
+  };
+}
+
 const companySchema = z.object({
   companyName: z.string().trim().min(2).max(120),
   gstin: z
@@ -51,13 +62,7 @@ export async function saveCompanyStep(input: {
 }): Promise<ActionResult> {
   const parsed = companySchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.errors[0].message };
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-
-  const organizationId = await resolveOrgIdFromProfile(user.id);
+  const { user, organizationId, db } = await requireOnboardingAdmin();
   await db.$transaction([
     db.organization.update({
       where: { id: organizationId },
@@ -115,14 +120,8 @@ export async function saveTeamStep(input: {
 }): Promise<ActionResult> {
   const parsed = teamSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.errors[0].message };
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-
-  const organizationId = await resolveOrgIdFromProfile(user.id);
-  const { createUserAction } = await import("../admin/users/actions");
+  const { organizationId, db } = await requireOnboardingAdmin();
+  const { createUserAction } = await import("@/app/(dashboard)/admin/users/actions");
   const errors: string[] = [];
 
   for (const m of parsed.data.members) {
@@ -160,13 +159,7 @@ export async function saveDataStep(input: {
 }): Promise<ActionResult> {
   const parsed = dataStepSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.errors[0].message };
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-
-  const organizationId = await resolveOrgIdFromProfile(user.id);
+  const { user, organizationId, db } = await requireOnboardingAdmin();
 
   if (parsed.data.choice === "SAMPLE") {
     try {
@@ -204,13 +197,7 @@ export async function saveDataStep(input: {
 }
 
 export async function completeOnboardingAction(): Promise<never> {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-
-  const organizationId = await resolveOrgIdFromProfile(user.id);
+  const { organizationId, db } = await requireOnboardingAdmin();
   await db.businessSettings.upsert({
     where: { organizationId },
     create: { organizationId, onboardingDone: true, onboardingStep: null },
@@ -225,13 +212,7 @@ export async function completeOnboardingAction(): Promise<never> {
 export async function saveOnboardingAction(input: {
   accountingTool: "TALLY" | "ZOHO" | "SAP" | "EXCEL" | "OTHER";
 }): Promise<{ error: string } | never> {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-
-  const organizationId = await resolveOrgIdFromProfile(user.id);
+  const { organizationId, db } = await requireOnboardingAdmin();
   await db.businessSettings.upsert({
     where: { organizationId },
     create: {

@@ -41,6 +41,7 @@ const MARKETING_ALLOW = [
   "/privacy",
   "/terms",
   "/refund-policy",
+  "/delete-account",
   "/login",
   "/signup",
 ];

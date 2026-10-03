@@ -1,4 +1,5 @@
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
+import { findOrderOrg } from "@/lib/platform/resolve";
 import { verifyStatusToken } from "@/lib/status-link";
 import { getOrderDocumentSignedUrl } from "@/lib/storage";
 import { ORDER_STATUS_LABELS, DOCUMENT_TYPE_LABELS } from "@/lib/orders/status";
@@ -67,7 +68,11 @@ export default async function CustomerStatusPage({
     return <GenericError message="This link is not valid." />;
   }
 
-  const order = await db.salesOrder.findUnique({
+  // SY32 — the signed token names the order; resolve its company,
+  // then read only through that company's tenantDb client.
+  const orderOrgId = await findOrderOrg(verified.orderId);
+  const order = orderOrgId
+    ? await tenantDb(orderOrgId).salesOrder.findUnique({
     where: { id: verified.orderId },
     select: {
       orderNumber: true,
@@ -91,7 +96,8 @@ export default async function CustomerStatusPage({
         },
       },
     },
-  });
+  })
+    : null;
   if (!order) {
     return <GenericError message="Order not found." />;
   }

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile, requireAdmin, canAccessParty } from "@/lib/authz";
 import { nextStage } from "@/lib/recovery/escalation";
 import { refreshRecommendation } from "@/lib/recovery/recommend";
@@ -16,6 +16,7 @@ type ActionResult = { error: string } | { ok: true };
 
 export async function openEscalation(input: EscalationOpenInput): Promise<ActionResult> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   const parsed = escalationOpenSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.errors[0].message };
 
@@ -45,6 +46,7 @@ export async function openEscalation(input: EscalationOpenInput): Promise<Action
 
 export async function advanceEscalation(input: EscalationNoteInput): Promise<ActionResult> {
   const profile = await requireAdmin();
+  const db = tenantDb(profile.organizationId);
   const parsed = escalationNoteSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.errors[0].message };
 
@@ -80,6 +82,7 @@ async function closeEscalation(
   status: "RESOLVED" | "DISMISSED"
 ): Promise<ActionResult> {
   const profile = await requireAdmin();
+  const db = tenantDb(profile.organizationId);
   const parsed = escalationNoteSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.errors[0].message };
 
@@ -117,16 +120,18 @@ export async function dismissEscalation(input: EscalationNoteInput): Promise<Act
 
 export async function refreshPartyRecommendation(partyId: string): Promise<ActionResult> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   const party = await db.party.findUnique({ where: { id: partyId } });
   if (!party || !canAccessParty(profile, party)) return { error: "Party not found." };
 
-  await refreshRecommendation(partyId);
+  await refreshRecommendation(db, partyId);
   revalidatePath(`/parties/${partyId}`);
   return { ok: true };
 }
 
 export async function addEscalationNote(input: EscalationNoteInput): Promise<ActionResult> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   const parsed = escalationNoteSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.errors[0].message };
 

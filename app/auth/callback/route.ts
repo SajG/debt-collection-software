@@ -1,28 +1,30 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { type NextRequest, NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { db } from "@/lib/db";
+import { pinActiveOrgClaim } from "@/lib/platform/active-org";
+import { ensureStubProfile } from "@/lib/platform/resolve";
+import { safePath } from "@/lib/safe-redirect";
 
 // SY23 — OAuth / magic-link return leg.
 //
 // Exchanges the `code` for a session, then:
-//   * Brand-new Google users get a stub Profile so /onboarding has
-//     something to render.
-//   * Members of one org get active_org_id pinned in the JWT.
+//   * Brand-new Google users get a stub Profile (role STAFF — the
+//     lowest; the real role lives on the Membership they get when
+//     they create or join a company) so /onboarding has something to
+//     render.
+//   * active_org_id is pinned to one of their own memberships.
 //   * Users with no active Membership land on /onboarding; everyone
 //     else on the requested `next` (defaults /dashboard).
 //
-// `next` is honoured only when it starts with `/` — an off-domain
-// value is discarded so a hostile callback cannot bounce elsewhere.
+// `next` goes through safePath() — "//evil.com" and friends fall back
+// to /dashboard so a hostile link cannot bounce off-domain.
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  const rawNext = searchParams.get("next") ?? "/dashboard";
-  const next = rawNext.startsWith("/") ? rawNext : "/dashboard";
+  const next = safePath(searchParams.get("next"), "/dashboard");
 
   if (!code) {
     return NextResponse.redirect(`${origin}/login?error=missing_code`);
@@ -52,39 +54,9 @@ export async function GET(request: NextRequest) {
   }
   const user = data.user;
 
-  const existing = await db.profile.findUnique({ where: { id: user.id } });
-  if (!existing) {
-    const displayName =
-      (user.user_metadata?.name as string | undefined)?.trim() ||
-      user.email?.split("@")[0] ||
-      "Owner";
-    await db.profile.create({
-      data: {
-        id: user.id,
-        businessName: "",
-        ownerName: displayName,
-        email: user.email ?? null,
-        role: "ADMIN",
-        isActive: true,
-      },
-    });
-  }
+  await ensureStubProfile(user);
 
-  const memberships = await db.membership.findMany({
-    where: { profileId: user.id, isActive: true },
-    select: { organizationId: true },
-    take: 2,
-  });
-
-  if (memberships.length >= 1) {
-    const admin = createAdminClient();
-    await admin.auth.admin.updateUserById(user.id, {
-      app_metadata: {
-        ...(user.app_metadata ?? {}),
-        active_org_id: memberships[0].organizationId,
-      },
-    });
-  }
+  const { membershipCount } = await pinActiveOrgClaim(user);
 
   cookieStore.set("syncit_auth_since", String(Date.now()), {
     httpOnly: true,
@@ -94,6 +66,6 @@ export async function GET(request: NextRequest) {
     maxAge: 60 * 60 * 24 * 90,
   });
 
-  const dest = memberships.length === 0 ? "/onboarding" : next;
+  const dest = membershipCount === 0 ? "/onboarding" : next;
   return NextResponse.redirect(`${origin}${dest}`);
 }

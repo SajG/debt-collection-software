@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile } from "@/lib/authz";
 import { PageHeader, Card } from "../../_components/ui";
 import { PromoteForm } from "./promote-form";
@@ -15,6 +15,7 @@ export const dynamic = "force-dynamic";
 // exact free-text name.
 export default async function NewCustomerNamesPage() {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   if (profile.role !== "ADMIN") redirect("/dashboard");
 
   const grouped = await db.salesOrder.groupBy({

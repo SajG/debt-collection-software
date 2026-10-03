@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireProfile } from "@/lib/authz";
 import { partyScopeWhere } from "@/lib/authz-scope";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { formatINR, formatDate } from "@/lib/format";
 import { PageHeader } from "../_components/ui";
 import { EscalationControls } from "./escalation-controls";
@@ -18,6 +18,7 @@ const STAGE_LABEL: Record<(typeof STAGE_ORDER)[number], string> = {
 
 export default async function EscalationsPage() {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   const escalations = await db.escalation.findMany({
     where: { status: "OPEN", party: partyScopeWhere(profile) },
     include: {

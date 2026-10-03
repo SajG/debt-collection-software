@@ -1,8 +1,10 @@
 import { redirect } from "next/navigation";
 import type { Role } from "@prisma/client";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile } from "@/lib/authz";
 import { createAdminClient } from "@/lib/supabase/admin";
+import Link from "next/link";
+import { checkSeatAvailable } from "@/lib/platform/billing";
 import { PageHeader, Card } from "../../_components/ui";
 import { CreateUserForm } from "./create-user-form";
 import { UserRowActions, EmailCell } from "./user-row-actions";
@@ -75,6 +77,7 @@ export default async function UsersAdminPage({
   searchParams: SearchParams;
 }) {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   if (profile.role !== "ADMIN") redirect("/dashboard");
 
   const roleFilter = ROLES.includes(searchParams.role as Role)
@@ -87,26 +90,51 @@ export default async function UsersAdminPage({
         ? false
         : null;
 
-  const profiles = await db.profile.findMany({
+  // SY31 — only people with a Membership in the active company. Role
+  // and active state are per-company (Membership), not Profile-wide.
+  const organizationId = profile.organizationId;
+  const memberRows = await db.membership.findMany({
     where: {
+      organizationId,
       ...(roleFilter ? { role: roleFilter } : {}),
-      ...(statusFilter !== null ? { isActive: statusFilter } : {}),
     },
-    orderBy: [{ isActive: "desc" }, { role: "asc" }, { ownerName: "asc" }],
     select: {
-      id: true,
-      ownerName: true,
-      phone: true,
-      email: true,
       role: true,
       isActive: true,
-      deactivatedAt: true,
-      createdAt: true,
-      invitedAt: true,
-      firstSignInAt: true,
-      _count: { select: { salesOrders: true } },
+      isOwner: true,
+      profile: {
+        select: {
+          id: true,
+          ownerName: true,
+          phone: true,
+          email: true,
+          isActive: true,
+          deactivatedAt: true,
+          createdAt: true,
+          invitedAt: true,
+          firstSignInAt: true,
+          _count: {
+            select: { salesOrders: { where: { organizationId } } },
+          },
+        },
+      },
     },
   });
+  const ROLE_ORDER: Record<Role, number> = { ADMIN: 0, STAFF: 1, FACTORY: 2 };
+  const profiles = memberRows
+    .map((m) => ({
+      ...m.profile,
+      role: m.role,
+      isOwner: m.isOwner,
+      isActive: m.isActive && m.profile.isActive,
+    }))
+    .filter((p) => statusFilter === null || p.isActive === statusFilter)
+    .sort(
+      (x, y) =>
+        Number(y.isActive) - Number(x.isActive) ||
+        ROLE_ORDER[x.role] - ROLE_ORDER[y.role] ||
+        x.ownerName.localeCompare(y.ownerName),
+    );
 
   // Last-sign-in from Supabase Auth. Uses service-role admin API; per
   // 50-user list this is one round-trip.
@@ -176,6 +204,7 @@ export default async function UsersAdminPage({
   const notifyStatus = await db.$queryRaw<{ ready: boolean }[]>`
     SELECT public.is_notification_config_ready() AS ready`;
   const notifyReady = notifyStatus[0]?.ready ?? false;
+  const seats = await checkSeatAvailable(organizationId);
 
   return (
     <div className="p-4 sm:p-8">
@@ -183,6 +212,23 @@ export default async function UsersAdminPage({
         title="Users"
         subtitle="Everyone who can sign in. Deactivation locks them out at the DB (RLS) and clears their push tokens. Data is never deleted."
       />
+
+      {!seats.ok && (
+        <div
+          role="status"
+          className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/60 px-4 py-3 text-sm"
+        >
+          <span>
+            <span className="font-semibold">
+              {seats.used} of {seats.limit} users
+            </span>{" "}
+            on your {seats.planName}. Upgrade to add more people.
+          </span>
+          <Link href="/settings/billing" className="font-medium text-primary hover:underline">
+            Upgrade plan
+          </Link>
+        </div>
+      )}
 
       {noEmailCount > 0 ? (
         <div
@@ -269,7 +315,14 @@ export default async function UsersAdminPage({
                       isActive={p.isActive}
                     />
                   </td>
-                  <td className="py-2 pr-3">{p.role}</td>
+                  <td className="py-2 pr-3">
+                    {p.role}
+                    {p.isOwner ? (
+                      <span className="ml-1 rounded bg-muted px-1.5 py-0.5 text-xs font-semibold text-muted-foreground">
+                        Owner
+                      </span>
+                    ) : null}
+                  </td>
                   <td className="py-2 pr-3">
                     {p.role !== "ADMIN" ? (
                       <span className="text-xs text-muted-foreground">—</span>
@@ -321,6 +374,7 @@ export default async function UsersAdminPage({
                         invitedAt: p.invitedAt,
                       }}
                       isSelf={p.id === profile.id}
+                      canMakeOwner={profile.isOwner && p.id !== profile.id && !p.isOwner}
                     />
                   </td>
                 </tr>

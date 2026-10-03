@@ -1,11 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { captureError } from "@/lib/monitoring";
 import { runAutoFlag, runRecommendationRefresh, assemblePlanParties } from "@/lib/recovery/run";
 import { buildDailyPlan } from "@/lib/recovery/plan";
 import { renderStaffDigest, renderAdminDigest } from "@/lib/recovery/digest";
 import { sendStaffWhatsApp } from "@/lib/messaging/internal";
 import { forEachActiveOrg } from "@/lib/platform/orgs";
+import { orgHasFeature } from "@/lib/platform/billing";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -17,11 +18,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   }
 
-  // SY22 — per-org pass. runAutoFlag / runRecommendationRefresh /
-  // assemblePlanParties still read tables globally; the org loop
-  // sends digests per tenant and stamps a per-org SyncLog row so
-  // one tenant's WhatsApp fault can't stop another's.
+  // SY32 — per-org pass. Every read/write goes through tenantDb(org.id),
+  // so auto-flags, recommendations and digests only ever see that
+  // company's parties, and digests go only to that company's members
+  // from that company's WhatsApp number. Per-org SyncLog row so one
+  // tenant's fault can't stop another's.
   const { ok } = await forEachActiveOrg("cron.recovery", async (org) => {
+    const db = tenantDb(org.id);
     const orgSummary = {
       orgId: org.id,
       orgSlug: org.slug,
@@ -43,7 +46,7 @@ export async function GET(request: NextRequest) {
     });
 
     try {
-      const r = await runAutoFlag();
+      const r = await runAutoFlag(db);
       orgSummary.flagged = r.flagged;
       orgSummary.checked = r.checked;
     } catch (e) {
@@ -54,7 +57,7 @@ export async function GET(request: NextRequest) {
     }
 
     try {
-      const r = await runRecommendationRefresh();
+      const r = await runRecommendationRefresh(db);
       orgSummary.recsRefreshed = r.refreshed;
     } catch (e) {
       orgSummary.errors.push(
@@ -63,51 +66,59 @@ export async function GET(request: NextRequest) {
       await captureError(e, { scope: "cron.recovery.recRefresh", orgId: org.id });
     }
 
-    try {
-      const now = new Date();
-      const plan = buildDailyPlan(await assemblePlanParties(now));
+    // SY34 — WhatsApp sending is a plan feature (lib/plans.ts). The
+    // digest stays visible at /recovery either way.
+    const canWhatsApp = await orgHasFeature(org.id, "whatsappSending");
+    if (!canWhatsApp) orgSummary.digestsSkipped++;
 
-      // SY22 — profiles scoped to this org via Membership.
-      const memberships = await db.membership.findMany({
-        where: { organizationId: org.id, isActive: true },
-        select: {
-          role: true,
-          profile: { select: { id: true, ownerName: true, phone: true } },
-        },
-      });
-      const staffNames = new Map(memberships.map((m) => [m.profile.id, m.profile.ownerName]));
+    if (canWhatsApp) {
+      try {
+        const now = new Date();
+        const plan = buildDailyPlan(await assemblePlanParties(db, now));
 
-      for (const [staffId, entries] of Array.from(plan.byStaff.entries())) {
-        const member = memberships.find((m) => m.profile.id === staffId);
-        if (!member?.profile.phone) {
-          orgSummary.digestsSkipped++;
-          continue;
+        // SY22 — profiles scoped to this org via Membership.
+        const memberships = await db.membership.findMany({
+          where: { isActive: true },
+          select: {
+            role: true,
+            profile: { select: { id: true, ownerName: true, phone: true } },
+          },
+        });
+        const staffNames = new Map(memberships.map((m) => [m.profile.id, m.profile.ownerName]));
+
+        for (const [staffId, entries] of Array.from(plan.byStaff.entries())) {
+          const member = memberships.find((m) => m.profile.id === staffId);
+          if (!member?.profile.phone) {
+            orgSummary.digestsSkipped++;
+            continue;
+          }
+          const sent = await sendStaffWhatsApp(
+            org.id,
+            member.profile.phone,
+            renderStaffDigest(member.profile.ownerName, entries, now),
+          );
+          if (sent.ok) orgSummary.digestsSent++;
+          else {
+            orgSummary.digestsFailed++;
+            orgSummary.errors.push(`digest ${member.profile.ownerName}: ${sent.error}`);
+          }
         }
-        const sent = await sendStaffWhatsApp(
-          member.profile.phone,
-          renderStaffDigest(member.profile.ownerName, entries, now),
+
+        const adminText = renderAdminDigest(plan, staffNames, now);
+        for (const m of memberships.filter((x) => x.role === "ADMIN" && x.profile.phone)) {
+          const sent = await sendStaffWhatsApp(org.id, m.profile.phone!, adminText);
+          if (sent.ok) orgSummary.digestsSent++;
+          else {
+            orgSummary.digestsFailed++;
+            orgSummary.errors.push(`admin digest: ${sent.error}`);
+          }
+        }
+      } catch (e) {
+        orgSummary.errors.push(
+          `digest: ${e instanceof Error ? e.message : String(e)}`,
         );
-        if (sent.ok) orgSummary.digestsSent++;
-        else {
-          orgSummary.digestsFailed++;
-          orgSummary.errors.push(`digest ${member.profile.ownerName}: ${sent.error}`);
-        }
+        await captureError(e, { scope: "cron.recovery.digest", orgId: org.id });
       }
-
-      const adminText = renderAdminDigest(plan, staffNames, now);
-      for (const m of memberships.filter((x) => x.role === "ADMIN" && x.profile.phone)) {
-        const sent = await sendStaffWhatsApp(m.profile.phone!, adminText);
-        if (sent.ok) orgSummary.digestsSent++;
-        else {
-          orgSummary.digestsFailed++;
-          orgSummary.errors.push(`admin digest: ${sent.error}`);
-        }
-      }
-    } catch (e) {
-      orgSummary.errors.push(
-        `digest: ${e instanceof Error ? e.message : String(e)}`,
-      );
-      await captureError(e, { scope: "cron.recovery.digest", orgId: org.id });
     }
 
     await db.syncLog.update({

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile, partyScopeWhere } from "@/lib/authz";
 import { formatINR } from "@/lib/format";
 import { PAGE_SIZES, parsePageParams, pageArgs, pageResult } from "@/lib/pagination";
@@ -23,6 +23,7 @@ export default async function PartiesPage({
   searchParams: { q?: string; cursor?: string; size?: string };
 }) {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   const q = searchParams.q?.trim() ?? "";
   const page = parsePageParams(searchParams);
 

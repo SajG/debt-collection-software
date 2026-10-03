@@ -1,11 +1,11 @@
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireAdmin } from "@/lib/authz";
 import { formatINR } from "@/lib/format";
 import { PageHeader } from "../../_components/ui";
 import { AssignClient, type AssignableParty } from "./assign-client";
 
 export default async function BulkAssignPage() {
-  await requireAdmin();
+  const db = tenantDb((await requireAdmin()).organizationId);
 
   const [parties, staff] = await Promise.all([
     db.party.findMany({

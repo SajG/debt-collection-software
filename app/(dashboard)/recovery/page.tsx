@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireProfile } from "@/lib/authz";
 import { buildPlanForProfile } from "@/lib/recovery/run";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { formatINR } from "@/lib/format";
 import { PageHeader } from "../_components/ui";
 import type { PlanParty, PlanReason } from "@/lib/recovery/plan";
@@ -45,7 +45,8 @@ function ChaseList({ title, entries }: { title: string; entries: PlanParty[] }) 
 
 export default async function RecoveryPage() {
   const profile = await requireProfile();
-  const plan = await buildPlanForProfile(profile);
+  const db = tenantDb(profile.organizationId);
+  const plan = await buildPlanForProfile(db, profile);
   const profiles = profile.role === "ADMIN" ? await db.profile.findMany() : [profile];
   const names = new Map(profiles.map((p) => [p.id, p.ownerName]));
 

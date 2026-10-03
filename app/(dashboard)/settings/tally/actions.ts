@@ -2,9 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireAdmin } from "@/lib/authz";
-import { resolveOrgIdFromProfile } from "@/lib/tenancy";
+import { orgHasFeature } from "@/lib/platform/billing";
 import { generatePairingCode, hashSecret } from "@/lib/tally/pairing";
 
 // SY27 — Settings → Tally actions.
@@ -24,7 +24,15 @@ export async function generatePairingCodeAction(): Promise<
   ActionResult<{ code: string; expiresAt: string }>
 > {
   const admin = await requireAdmin();
-  const organizationId = await resolveOrgIdFromProfile(admin.id);
+  const db = tenantDb(admin.organizationId);
+  const organizationId = admin.organizationId;
+
+  // SY28 — Tally live sync is a plan feature.
+  if (!(await orgHasFeature(organizationId, "tallyLiveSync"))) {
+    return {
+      error: "Tally live sync isn't on your plan. Upgrade in Settings → Billing, or use Excel import.",
+    };
+  }
 
   const code = generatePairingCode();
   const expiresAt = new Date(Date.now() + PAIRING_TTL_MIN * 60 * 1000);
@@ -48,7 +56,8 @@ export async function revokeConnectorAction(input: {
   connectorId: string;
 }): Promise<ActionResult> {
   const admin = await requireAdmin();
-  const organizationId = await resolveOrgIdFromProfile(admin.id);
+  const db = tenantDb(admin.organizationId);
+  const organizationId = admin.organizationId;
 
   const parsed = revokeSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.errors[0].message };

@@ -14,7 +14,8 @@ import { PageHeader } from "@/components/PageHeader";
 import { useAuth } from "@/auth/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { theme } from "@/theme";
-import { getLocale, setLocale, type Language } from "@/lib/i18n";
+import { getLocale, setLocale, t, type Language } from "@/lib/i18n";
+import { router } from "expo-router";
 
 type Prefs = {
   notifyStatusChanges: boolean;
@@ -122,6 +123,15 @@ export default function SettingsScreen() {
                 />
               </>
             )}
+            <SectionTitle>{t("account.title")}</SectionTitle>
+            <Pressable
+              onPress={() => router.push("/account")}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.accountRow, pressed && { opacity: 0.7 }]}
+            >
+              <Text style={styles.accountRowText}>{t("account.open")}</Text>
+              <Text style={styles.accountRowText}>›</Text>
+            </Pressable>
           </>
         )}
       </ScrollView>
@@ -256,4 +266,14 @@ const styles = StyleSheet.create({
     fontSize: theme.type.bodySmall - 2,
     color: theme.colors.textMuted,
   },
+  accountRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: theme.colors.surface,
+  },
+  accountRowText: { fontSize: 16, color: theme.colors.text, fontWeight: "600" },
 });

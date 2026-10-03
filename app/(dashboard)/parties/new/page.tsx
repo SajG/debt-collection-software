@@ -1,10 +1,11 @@
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile } from "@/lib/authz";
 import { PageHeader } from "../../_components/ui";
 import { PartyForm } from "../party-form";
 
 export default async function NewPartyPage() {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const assignees =
     profile.role === "ADMIN"

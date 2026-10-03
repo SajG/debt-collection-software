@@ -278,8 +278,11 @@ describe.runIf(required)("create_sales_order — rule matrix (P0-A)", () => {
     if (rows.length === 0) {
       // SY21 — BusinessSettings pivoted to organizationId; resolve
       // from the admin's Profile via Membership.
-      const { resolveOrgIdFromProfile } = await import("@/lib/tenancy");
-      const organizationId = await resolveOrgIdFromProfile(adminSession.userId);
+      const membership = await db.membership.findFirstOrThrow({
+        where: { profileId: adminSession.userId, isActive: true },
+        select: { organizationId: true },
+      });
+      const organizationId = membership.organizationId;
       await db.businessSettings.create({
         data: {
           organizationId,

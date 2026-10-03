@@ -1,4 +1,7 @@
-import { db } from "@/lib/db";
+import type { TenantClient } from "@/lib/tenant";
+
+// SY32 — every helper takes a tenantDb client; results are one
+// company's data only.
 
 // F2 — Analytics queries. Kept in one module so /admin/analytics
 // (page) and /api/admin/analytics/export (CSV) render identical data.
@@ -16,7 +19,7 @@ export function defaultRange(now = new Date()): AnalyticsRange {
   return { from, to };
 }
 
-export async function ordersBySalesperson(range: AnalyticsRange) {
+export async function ordersBySalesperson(db: TenantClient, range: AnalyticsRange) {
   const grouped = await db.salesOrder.groupBy({
     by: ["salespersonId"],
     where: {
@@ -42,7 +45,7 @@ export async function ordersBySalesperson(range: AnalyticsRange) {
     .sort((a, b) => b.totalValue - a.totalValue);
 }
 
-export async function ordersByProduct(range: AnalyticsRange) {
+export async function ordersByProduct(db: TenantClient, range: AnalyticsRange) {
   const grouped = await db.salesOrder.groupBy({
     by: ["productId"],
     where: {
@@ -69,7 +72,7 @@ export async function ordersByProduct(range: AnalyticsRange) {
     .sort((a, b) => b.totalValue - a.totalValue);
 }
 
-export async function ordersByBrand(range: AnalyticsRange) {
+export async function ordersByBrand(db: TenantClient, range: AnalyticsRange) {
   const grouped = await db.salesOrder.groupBy({
     by: ["brand"],
     where: {
@@ -88,7 +91,7 @@ export async function ordersByBrand(range: AnalyticsRange) {
     .sort((a, b) => b.totalValue - a.totalValue);
 }
 
-export async function ordersByMonth(range: AnalyticsRange) {
+export async function ordersByMonth(db: TenantClient, range: AnalyticsRange) {
   // Groups by year-month in server timezone. Simpler than
   // date_trunc'ing in raw SQL and fine for a ≤12-month rolling
   // window used by a couple of admins.
@@ -112,7 +115,7 @@ export async function ordersByMonth(range: AnalyticsRange) {
     .sort((a, b) => a.month.localeCompare(b.month));
 }
 
-export async function topCustomers(range: AnalyticsRange, limit = 10) {
+export async function topCustomers(db: TenantClient, range: AnalyticsRange, limit = 10) {
   const grouped = await db.salesOrder.groupBy({
     by: ["partyId"],
     where: {
@@ -140,7 +143,7 @@ export async function topCustomers(range: AnalyticsRange, limit = 10) {
     .slice(0, limit);
 }
 
-export async function avgOrderToDispatchHours(range: AnalyticsRange): Promise<{
+export async function avgOrderToDispatchHours(db: TenantClient, range: AnalyticsRange): Promise<{
   count: number;
   avgHours: number | null;
 }> {
@@ -177,7 +180,7 @@ export async function avgOrderToDispatchHours(range: AnalyticsRange): Promise<{
   };
 }
 
-export async function currentHoldOrders() {
+export async function currentHoldOrders(db: TenantClient) {
   const orders = await db.salesOrder.findMany({
     where: { currentStatus: "ON_HOLD" },
     orderBy: { updatedAt: "asc" },

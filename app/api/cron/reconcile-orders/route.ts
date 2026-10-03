@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { reconcileNewCustomerOrders } from "@/lib/orders/reconcile";
 import { captureError } from "@/lib/monitoring";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { verifyBearer } from "@/lib/auth/verify-bearer";
 import { isTallyEnabled } from "@/lib/settings";
 import { forEachActiveOrg } from "@/lib/platform/orgs";
@@ -32,11 +32,9 @@ export async function GET(request: NextRequest) {
   // the sole settings row; per-org gating below skips orgs whose
   // BusinessSettings.tallyEnabled is false.
   const { ok } = await forEachActiveOrg("cron.reconcile-orders", async (org) => {
-    const settings = await db.businessSettings.findFirst({
-      where: { organizationId: org.id },
-      select: { tallyEnabled: true },
-    });
-    if (!settings?.tallyEnabled) {
+    // SY32 — scoped to this one company.
+    const db = tenantDb(org.id);
+    if (!(await isTallyEnabled(db))) {
       return { orgId: org.id, orgSlug: org.slug, skipped: true as const };
     }
 
@@ -49,7 +47,7 @@ export async function GET(request: NextRequest) {
       },
     });
     try {
-      const result = await reconcileNewCustomerOrders();
+      const result = await reconcileNewCustomerOrders(db);
       await db.syncLog.update({
         where: { id: sync.id },
         data: {

@@ -3,10 +3,17 @@
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import {
+  countRecentSignupAttempts,
+  markSignupAttemptsSuccessful,
+  profileExistsForEmail,
+  provisionCompany,
+  recordSignupAttempt,
+} from "@/lib/platform/signup";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { captureError } from "@/lib/monitoring";
+import { ONBOARDING_ONE_BY_ONE_MESSAGE, isSignupEnabled } from "@/lib/signup-flag";
 
 // SY23 — self-serve signup.
 //
@@ -45,6 +52,8 @@ const verifySchema = z.object({
   token: z.string().trim().regex(/^\d{6}$/, "Enter the 6-digit code."),
 });
 
+const SIGNUP_CLOSED = `${ONBOARDING_ONE_BY_ONE_MESSAGE}.`;
+
 const IP_LIMIT_PER_HOUR = 5;
 const DOMAIN_LIMIT_PER_HOUR = 20;
 
@@ -67,6 +76,7 @@ export async function requestSignupCodeAction(input: {
   email: string;
   phone: string;
 }): Promise<Result> {
+  if (!isSignupEnabled()) return { error: SIGNUP_CLOSED };
   const parsed = requestSchema.safeParse(input);
   if (!parsed.success) {
     return { error: parsed.error.errors[0].message };
@@ -80,12 +90,11 @@ export async function requestSignupCodeAction(input: {
   const ip = clientIp();
   const windowStart = new Date(Date.now() - 60 * 60 * 1000);
 
-  const [ipCount, domainCount] = await Promise.all([
-    db.signupAttempt.count({ where: { ip, createdAt: { gte: windowStart } } }),
-    db.signupAttempt.count({
-      where: { emailDomain: domain, createdAt: { gte: windowStart } },
-    }),
-  ]);
+  const { ip: ipCount, domain: domainCount } = await countRecentSignupAttempts(
+    ip,
+    domain,
+    windowStart,
+  );
   if (ipCount >= IP_LIMIT_PER_HOUR) {
     return {
       error: "Too many sign-up attempts from this network. Try again in an hour.",
@@ -97,18 +106,12 @@ export async function requestSignupCodeAction(input: {
     };
   }
 
-  await db.signupAttempt.create({
-    data: { ip, emailDomain: domain, successful: false },
-  });
+  await recordSignupAttempt(ip, domain);
 
   // If an active Membership already exists for this email, quietly
   // redirect the user to /login instead of creating a duplicate auth
   // user. Response is still {ok:true} so the code page renders.
-  const existingProfile = await db.profile.findUnique({
-    where: { email },
-    select: { id: true },
-  });
-  if (existingProfile) {
+  if (await profileExistsForEmail(email)) {
     // Fire an OTP for the existing user via the normal login flow —
     // shouldCreateUser stays false to avoid creating a duplicate.
     const supabase = createClient();
@@ -141,6 +144,7 @@ export async function verifySignupCodeAction(input: {
   phone: string;
   token: string;
 }): Promise<Result> {
+  if (!isSignupEnabled()) return { error: SIGNUP_CLOSED };
   const parsed = verifySchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.errors[0].message };
   const { ownerName, companyName, email, phone, token } = parsed.data;
@@ -163,49 +167,14 @@ export async function verifySignupCodeAction(input: {
   const orgSlug = slugify(companyName) + "-" + userId.slice(0, 6);
   const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
 
-  const existing = await db.profile.findUnique({ where: { id: userId } });
-  const org = await db.$transaction(async (tx) => {
-    if (!existing) {
-      await tx.profile.create({
-        data: {
-          id: userId,
-          businessName: companyName,
-          ownerName,
-          phone,
-          email,
-          role: "ADMIN",
-          isActive: true,
-        },
-      });
-    }
-    const created = await tx.organization.create({
-      data: {
-        name: companyName,
-        slug: orgSlug,
-        plan: "TRIAL",
-        trialEndsAt,
-        status: "ACTIVE",
-      },
-      select: { id: true },
-    });
-    await tx.membership.create({
-      data: {
-        organizationId: created.id,
-        profileId: userId,
-        role: "ADMIN",
-        isOwner: true,
-        isActive: true,
-      },
-    });
-    await tx.businessSettings.create({
-      data: {
-        organizationId: created.id,
-        onboardingDone: false,
-        onboardingStep: "company",
-        requireManagement2fa: false,
-      },
-    });
-    return created;
+  const org = await provisionCompany({
+    userId,
+    companyName,
+    ownerName,
+    phone,
+    email,
+    slug: orgSlug,
+    trialEndsAt,
   });
 
   // Pin active_org_id on the JWT so the very next request lands
@@ -233,16 +202,7 @@ export async function verifySignupCodeAction(input: {
       await captureError(e, { scope: "signup.welcome-email", email });
     }
   })();
-  await db.signupAttempt
-    .updateMany({
-      where: {
-        emailDomain: domainOf(email),
-        ip: clientIp(),
-        successful: false,
-      },
-      data: { successful: true },
-    })
-    .catch(() => undefined);
+  await markSignupAttemptsSuccessful(clientIp(), domainOf(email));
 
   // Same 90-day absolute session cookie as verifyEmailCodeAction.
   cookies().set("syncit_auth_since", String(Date.now()), {

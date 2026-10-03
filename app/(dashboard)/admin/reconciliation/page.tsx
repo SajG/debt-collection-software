@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { Prisma } from "@prisma/client";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile } from "@/lib/authz";
 import { isTallyEnabled } from "@/lib/settings";
 import { PageHeader, Card } from "../../_components/ui";
@@ -53,12 +53,13 @@ function timeAgo(d: Date | null): string {
 
 export default async function ReconciliationPage() {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   if (profile.role !== "ADMIN") redirect("/dashboard");
 
   // With Tally deferred there's nothing to reconcile — every row would
   // read "no snapshot" and imply the sync is broken. Show an honest
   // stub instead of a scary table of empty rows.
-  if (!(await isTallyEnabled())) {
+  if (!(await isTallyEnabled(db))) {
     return (
       <div className="p-4 sm:p-8">
         <PageHeader

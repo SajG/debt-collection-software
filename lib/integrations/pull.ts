@@ -4,7 +4,7 @@
 // tallyRef doubles as the cross-system dedupe key: "zoho:contact:123".
 
 import type { AccountingProvider } from "@prisma/client";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import {
   ingestPartyRows,
   ingestInvoiceRows,
@@ -189,9 +189,10 @@ export type SyncSummary = {
 
 export async function syncProvider(
   provider: AccountingProvider,
-  triggeredById: string
+  triggeredById: string,
+  organizationId: string
 ): Promise<SyncSummary | { error: string }> {
-  const access = await getAccessToken(provider);
+  const access = await getAccessToken(provider, organizationId);
   if ("error" in access) return access;
   if (!access.orgId) {
     return {
@@ -213,14 +214,12 @@ export async function syncProvider(
   if ("error" in pulled) return pulled;
 
   const source = provider.toLowerCase();
-  const parties = await ingestPartyRows(pulled.parties, { triggeredById, source });
+  const parties = await ingestPartyRows(pulled.parties, { triggeredById, source, organizationId });
   if ("error" in parties) return parties;
-  const invoices = await ingestInvoiceRows(pulled.invoices, { triggeredById, source });
+  const invoices = await ingestInvoiceRows(pulled.invoices, { triggeredById, source, organizationId });
   if ("error" in invoices) return invoices;
 
-  const { getDefaultOrgId } = await import("@/lib/tenancy");
-  const organizationId = await getDefaultOrgId();
-  await db.accountingConnection.update({
+  await tenantDb(organizationId).accountingConnection.update({
     where: { organizationId_provider: { organizationId, provider } },
     data: { lastSyncAt: new Date() },
   });

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile } from "@/lib/authz";
 import { refreshOverdueStatuses } from "@/lib/ar/balance";
 
@@ -12,7 +12,7 @@ import { refreshOverdueStatuses } from "@/lib/ar/balance";
  * Kept out of the render path so page loads never wait on writes.
  */
 export async function refreshStatusesAction(): Promise<{ updated: number }> {
-  await requireProfile();
+  const db = tenantDb((await requireProfile()).organizationId);
   const updated = await db.$transaction((tx) => refreshOverdueStatuses(tx));
   revalidatePath("/dashboard");
   revalidatePath("/worklist");

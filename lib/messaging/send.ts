@@ -6,7 +6,7 @@
 
 import { subDays, subHours } from "date-fns";
 import type { MessageChannel, Party, BusinessSettings } from "@prisma/client";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { decryptSecret } from "@/lib/crypto";
 import { captureError } from "@/lib/monitoring";
 import { formatINR, formatDate } from "@/lib/format";
@@ -14,10 +14,13 @@ import { getOrCreatePaymentLink, razorpayConfigured } from "@/lib/payments/razor
 import { evaluateGate } from "./gate";
 import type { ChannelProvider } from "./types";
 import { createWhatsAppProvider } from "./providers/whatsapp";
+import { orgHasFeature } from "@/lib/platform/billing";
 import { createSmsProvider } from "./providers/sms";
 import { createEmailProvider } from "./providers/email";
 
 export type SendReminderParams = {
+  /** SY32 — the company sending. Every read/write below is scoped to it. */
+  organizationId: string;
   partyId: string;
   channel: MessageChannel;
   /** Attach the reminder to a specific invoice (payment link + template params). */
@@ -72,6 +75,7 @@ export async function sendReminder(
   if (params.document && params.channel !== "EMAIL") {
     return { status: "failed", error: "Documents can only be sent by email" };
   }
+  const db = tenantDb(params.organizationId);
 
   const [party, settings] = await Promise.all([
     db.party.findUnique({ where: { id: params.partyId } }),
@@ -79,6 +83,18 @@ export async function sendReminder(
   ]);
   if (!party) return { status: "failed", error: "Party not found" };
   if (!settings) return { status: "failed", error: "Business settings missing" };
+
+  // SY28 — WhatsApp sending is a plan feature. Refused before the gate
+  // and without a Message row: nothing was attempted.
+  if (
+    params.channel === "WHATSAPP" &&
+    !(await orgHasFeature(party.organizationId, "whatsappSending"))
+  ) {
+    return {
+      status: "blocked",
+      reason: "WhatsApp reminders aren't on your plan. Upgrade in Settings → Billing, or send by SMS/email.",
+    };
+  }
 
   const invoice = params.invoiceId
     ? await db.invoice.findUnique({ where: { id: params.invoiceId } })
@@ -88,7 +104,7 @@ export async function sendReminder(
   }
 
   const businessName =
-    (await db.profile.findFirst({ where: { role: "ADMIN" } }))?.businessName ??
+    (await db.organization.findFirst({ select: { name: true } }))?.name ??
     "your supplier";
 
   // ── The gate. No caller can skip this. ─────────────────────────
@@ -178,7 +194,7 @@ export async function sendReminder(
   let paymentLinkUrl: string | null = null;
   const wantsLink = !params.document || params.document.type === "INVOICE";
   if (wantsLink && razorpayConfigured() && pending > 0) {
-    const link = await getOrCreatePaymentLink({
+    const link = await getOrCreatePaymentLink(db, {
       partyId: party.id,
       invoiceId: invoice?.id ?? null,
       amount: pending,

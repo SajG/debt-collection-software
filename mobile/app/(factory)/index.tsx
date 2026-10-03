@@ -92,6 +92,15 @@ export default function FactoryHome() {
           <Text style={styles.subtitle}>{t("factory.subtitle")}</Text>
         </View>
         <Pressable
+          onPress={() => router.push("/account")}
+          hitSlop={8}
+          style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.7 }]}
+          accessibilityRole="button"
+          accessibilityLabel={t("account.title")}
+        >
+          <Text style={styles.signOutGlyph}>⚙</Text>
+        </Pressable>
+        <Pressable
           onPress={() =>
             confirm({
               title: t("confirm.signOut.title"),

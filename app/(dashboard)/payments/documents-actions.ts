@@ -2,7 +2,7 @@
 
 import type { PaymentDocumentType } from "@prisma/client";
 import { revalidatePath } from "next/cache";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile, canAccessParty } from "@/lib/authz";
 import {
   uploadPaymentDocument,
@@ -24,6 +24,7 @@ export async function uploadPaymentDocumentAction(
   formData: FormData
 ): Promise<UploadPaymentDocResult> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const paymentId = String(formData.get("paymentId") || "");
   const typeRaw = String(formData.get("type") || "");

@@ -2,12 +2,12 @@
   "extends": "next/core-web-vitals",
   "rules": {
     "no-restricted-imports": [
-      "warn",
+      "error",
       {
         "patterns": [
           {
             "group": ["@/lib/db", "**/lib/db"],
-            "message": "SY22: prefer tenantDb/requireMembership from '@/lib/tenant'. Raw db bypasses tenant scoping; only lib/tenant.ts, lib/platform/**, scripts/**, prisma/** should import it directly. Existing importers migrate opportunistically."
+            "message": "SY32: use requireMembership() + tenantDb(organizationId) from '@/lib/tenant'. Raw db bypasses tenant scoping; only lib/tenant.ts, lib/platform/**, scripts/**, prisma/** may import it. Machine contexts resolve the company via lib/platform/resolve.ts first."
           }
         ]
       }
@@ -28,7 +28,6 @@
     {
       "files": [
         "lib/tenant.ts",
-        "lib/tenancy.ts",
         "lib/platform/**",
         "scripts/**",
         "prisma/**"

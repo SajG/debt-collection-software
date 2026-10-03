@@ -1,5 +1,5 @@
 import { subMonths } from "date-fns";
-import { db } from "@/lib/db";
+import type { TenantClient } from "@/lib/tenant";
 import { buildRiskInput } from "@/lib/ar/refresh";
 import { riskScore } from "@/lib/ar/risk";
 import { daysOverdue } from "@/lib/ar/aging";
@@ -9,13 +9,16 @@ import { rulesFallback } from "@/lib/ai/fallback";
 const HISTORY_MONTHS = 6;
 const HISTORY_LIMIT = 10;
 
-export async function refreshRecommendation(partyId: string): Promise<void> {
+export async function refreshRecommendation(
+  db: TenantClient,
+  partyId: string,
+): Promise<void> {
   const party = await db.party.findUnique({ where: { id: partyId } });
   if (!party) return;
 
   const since = subMonths(new Date(), HISTORY_MONTHS);
   const [riskInput, invoices, payments, actions] = await Promise.all([
-    buildRiskInput(party),
+    buildRiskInput(db, party),
     db.invoice.findMany({
       where: { partyId, status: { in: ["UNPAID", "PARTIAL", "OVERDUE"] } },
       orderBy: { dueDate: "asc" },

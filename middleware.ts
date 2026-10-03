@@ -16,6 +16,7 @@ const PUBLIC_PATHS = new Set([
   "/privacy",
   "/terms",
   "/refund-policy",
+  "/delete-account",
   "/contact",
   "/account-disabled",
   "/robots.txt",
@@ -52,11 +53,42 @@ const PUBLIC_PREFIXES = [
   // still leave a trail in access logs but hide the shape of the
   // scan.
   "/api/v1/",
+  // SY35 — the mobile app calls this with a Bearer access token and no
+  // cookies; the route verifies the token itself.
+  "/api/account/",
+  // SY35 — /platform answers 404 (not a login redirect) to anyone who
+  // isn't a platform admin, so its existence isn't advertised. The
+  // layout checks session + PLATFORM_ADMINS + aal2 itself.
+  "/platform",
 ];
+
+// SY28 — paths that may still be written to while the caller's org is
+// LOCKED (read-only). Billing is how they unlock; auth/session keep
+// sign-in and org switching working; machine-authed routes gate
+// themselves.
+const LOCKED_WRITE_ALLOWED_PREFIXES = [
+  "/settings/billing",
+  // SY35 — owners can cancel a scheduled company deletion, and anyone
+  // can delete their own account, while the company is read-only.
+  "/settings/company",
+  "/api/account/",
+  "/auth/",
+  "/login",
+  "/api/webhooks/",
+  "/api/cron/",
+  "/api/sync/",
+  "/api/session/",
+  "/api/auth/",
+  "/api/csp-report",
+];
+
+function isWrite(method: string): boolean {
+  return method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
+}
 
 function isPublic(pathname: string): boolean {
   if (PUBLIC_PATHS.has(pathname)) return true;
-  // /login sub-flows (/login/email-code, /login/password) must be
+  // /login sub-flows (/login/email-code) must be
   // reachable while signed out — otherwise the redirect from /login
   // loops back to /login. /login/challenge is the exception: it is
   // the aal1 → aal2 TOTP step and MUST require a session; a signed-
@@ -236,6 +268,37 @@ export async function middleware(request: NextRequest) {
   // Logged-in users don't need to see the auth pages.
   if (user && pathname === "/login") {
     return NextResponse.redirect(new URL("/dashboard", request.url));
+  }
+
+  // SY28 — LOCKED orgs are read-only. Web writes go through Prisma
+  // (bypasses RLS), so refuse them here with a clear answer instead of
+  // letting the DB guard trigger surface as a generic error. The
+  // trigger + RLS policies remain the real enforcement.
+  if (
+    user &&
+    isWrite(request.method) &&
+    !LOCKED_WRITE_ALLOWED_PREFIXES.some((p) => pathname.startsWith(p))
+  ) {
+    const { data: orgStatus } = await supabase.rpc("current_org_status");
+    if (orgStatus === "LOCKED" || orgStatus === "DELETING" || orgStatus === "DELETED") {
+      const billingPath = "/settings/billing?locked=1";
+      if (request.headers.get("next-action")) {
+        // Server action: Next's client follows x-action-redirect with a
+        // full navigation, landing the user on "Choose a plan".
+        return new NextResponse(null, {
+          status: 200,
+          headers: { "x-action-redirect": billingPath, "cache-control": "no-store" },
+        });
+      }
+      return NextResponse.json(
+        {
+          error: "This workspace is read-only until a plan is chosen.",
+          code: "org_locked",
+          billingUrl: billingPath,
+        },
+        { status: 423, headers: { "cache-control": "no-store" } },
+      );
+    }
   }
 
   // Also mirror the nonce onto the response header so downstream

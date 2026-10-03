@@ -6,15 +6,17 @@
 // Meta caveat: free-form text only lands inside the 24h service window —
 // each staff member must message the business number once to open it.
 // Delivery failure is acceptable: the digest is always visible at /recovery.
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { decryptSecret } from "@/lib/crypto";
 import { createWhatsAppProvider } from "./providers/whatsapp";
 
 export async function sendStaffWhatsApp(
+  organizationId: string,
   to: string,
   body: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const settings = await db.businessSettings.findFirst();
+  // SY32 — sent from THIS company's WhatsApp number only.
+  const settings = await tenantDb(organizationId).businessSettings.findFirst();
   if (!settings) return { ok: false, error: "Business settings missing" };
 
   const provider = createWhatsAppProvider({

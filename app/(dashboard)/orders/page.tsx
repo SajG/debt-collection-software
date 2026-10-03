@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Prisma, OrderStatus } from "@prisma/client";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile } from "@/lib/authz";
 import { formatDate, formatINR, toNumber } from "@/lib/format";
 import {
@@ -40,6 +40,7 @@ export default async function OrdersPage({
   searchParams: { status?: string };
 }) {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const active = (STATUS_TABS.find((t) => t.key === searchParams.status)?.key ??
     "open") as StatusFilter;

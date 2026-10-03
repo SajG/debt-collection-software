@@ -19,6 +19,10 @@
     {
       "path": "/api/cron/trial-reminders",
       "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/company-deletion",
+      "schedule": "30 4 * * *"
     }
   ]
 }

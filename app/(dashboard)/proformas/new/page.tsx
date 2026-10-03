@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile, partyScopeWhere } from "@/lib/authz";
 import { PageHeader } from "../../_components/ui";
 import { ProformaForm } from "../proforma-form";
@@ -9,6 +9,7 @@ export default async function NewProformaPage({
   searchParams: { partyId?: string };
 }) {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const parties = await db.party.findMany({
     where: { ...partyScopeWhere(profile), isActive: true },

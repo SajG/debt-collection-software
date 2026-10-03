@@ -17,7 +17,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: { provider: string } }
 ) {
-  const { failure } = await requireProfileApi({ adminOnly: true });
+  const { failure, organizationId } = await requireProfileApi({ adminOnly: true });
   if (failure) return failure;
 
   const slug = params.provider as ProviderSlug;
@@ -53,6 +53,6 @@ export async function GET(
       ? search.get("realmId")
       : await discoverOrgId(provider, tokens.access_token);
 
-  await saveConnection({ provider, tokens, externalOrgId });
+  await saveConnection({ provider, tokens, externalOrgId, organizationId });
   return back(`connected=${slug}`);
 }

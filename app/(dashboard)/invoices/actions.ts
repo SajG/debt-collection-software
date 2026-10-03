@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { Prisma } from "@prisma/client";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile, canAccessParty } from "@/lib/authz";
 import { invoiceSchema, type InvoiceInput } from "@/lib/validation";
 import {
@@ -19,6 +19,7 @@ export async function createInvoiceAction(
   input: InvoiceInput
 ): Promise<ActionResult> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const parsed = invoiceSchema.safeParse(input);
   if (!parsed.success) {
@@ -71,6 +72,7 @@ export async function updateInvoiceAction(
   input: InvoiceInput
 ): Promise<ActionResult> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const existing = await db.invoice.findUnique({
     where: { id },
@@ -139,6 +141,7 @@ export async function emailInvoicePdfAction(
   id: string
 ): Promise<{ error: string } | { ok: true }> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const invoice = await db.invoice.findUnique({
     where: { id },
@@ -151,10 +154,11 @@ export async function emailInvoicePdfAction(
     return { error: "Cancelled invoices cannot be emailed." };
   }
 
-  const pdf = await buildInvoicePdf(id);
+  const pdf = await buildInvoicePdf(db, id);
   if ("error" in pdf) return { error: pdf.error };
 
   const result = await sendReminder({
+    organizationId: profile.organizationId,
     partyId: invoice.partyId,
     channel: "EMAIL",
     invoiceId: id,
@@ -176,6 +180,7 @@ export async function emailInvoicePdfAction(
 
 export async function cancelInvoiceAction(id: string): Promise<ActionResult> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const existing = await db.invoice.findUnique({
     where: { id },

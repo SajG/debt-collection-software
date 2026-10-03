@@ -9,6 +9,7 @@ import {
   inviteUserAction,
   resendInviteAction,
   setUserEmailAction,
+  makeOwnerAction,
 } from "./actions";
 
 // Client-side action buttons + confirmations, one row's worth. Kept
@@ -24,6 +25,7 @@ import {
 export function UserRowActions({
   profile,
   isSelf = false,
+  canMakeOwner = false,
 }: {
   profile: {
     id: string;
@@ -38,6 +40,8 @@ export function UserRowActions({
    *  Send invite still shows so an admin can email themselves a fresh
    *  sign-in code for mobile. */
   isSelf?: boolean;
+  /** SY35 — viewer is the owner and this row is another active ADMIN. */
+  canMakeOwner?: boolean;
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -106,6 +110,21 @@ export function UserRowActions({
     });
   }
 
+  function runMakeOwner() {
+    if (
+      !window.confirm(
+        `Make ${profile.ownerName} the owner? They will manage billing and can delete the company. You stay an admin.`,
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    startTransition(async () => {
+      const res = await makeOwnerAction({ profileId: profile.id });
+      if ("error" in res) setError(res.error);
+    });
+  }
+
   const inviteLabel = hasInvitedBefore ? "Resend invite" : "Send invite";
 
   return (
@@ -141,6 +160,16 @@ export function UserRowActions({
                 title={`Email a 6-digit sign-in code to ${profile.email}`}
               >
                 {inviteLabel}
+              </button>
+            ) : null}
+            {canMakeOwner && profile.role === "ADMIN" ? (
+              <button
+                type="button"
+                onClick={runMakeOwner}
+                disabled={pending}
+                className="rounded border border-border bg-background px-2 py-1 text-xs font-semibold text-foreground disabled:opacity-60"
+              >
+                Make owner
               </button>
             ) : null}
             {isSelf ? null : (

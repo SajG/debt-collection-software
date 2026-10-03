@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile, partyScopeWhere, canAccessParty } from "@/lib/authz";
 import { PageHeader } from "../../_components/ui";
 import { InvoiceForm } from "../invoice-form";
@@ -22,6 +22,7 @@ export default async function NewInvoicePage({
   searchParams: { partyId?: string; from?: string };
 }) {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const parties = await db.party.findMany({
     where: { ...partyScopeWhere(profile), isActive: true },

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { requireProfile } from "@/lib/authz";
 import { formatINR } from "@/lib/format";
 import { PageHeader, Card, Badge, EmptyState } from "../../_components/ui";
@@ -17,6 +17,7 @@ export const dynamic = "force-dynamic";
 // Old /admin/rate-approvals route redirects here.
 export default async function ApprovalsPage() {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   if (profile.role !== "ADMIN") redirect("/dashboard");
 
   const orders = await db.salesOrder.findMany({

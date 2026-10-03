@@ -2,7 +2,7 @@
 
 import type { DocumentType, OrderStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
-import { db } from "@/lib/db";
+import { tenantDb, type TenantDb } from "@/lib/tenant";
 import { requireProfile, requireFactoryOrAdmin } from "@/lib/authz";
 import { nextOrderStatus } from "@/lib/orders/status";
 import {
@@ -30,7 +30,8 @@ export async function advanceOrderStatusAction(
   // requireFactoryOrAdmin so the redirect-to-/dashboard happens for a
   // STAFF caller before we hit Supabase, and so the pre-flight
   // "expected next status still matches" refresh check still runs.
-  await requireFactoryOrAdmin();
+  const { organizationId } = await requireFactoryOrAdmin();
+  const db = tenantDb(organizationId);
 
   const order = await db.salesOrder.findUnique({
     where: { id: orderId },
@@ -70,7 +71,7 @@ export async function advanceOrderStatusAction(
       const { sendDispatchConfirmation } = await import(
         "@/lib/messaging/dispatch-confirmation"
       );
-      await sendDispatchConfirmation(orderId);
+      await sendDispatchConfirmation(organizationId, orderId);
     } catch (e) {
       // Never blocks status advance; logged inside the module.
       console.warn("dispatch-confirmation failed", e);
@@ -87,7 +88,7 @@ export async function setExpectedProductionDateAction(
   orderId: string,
   ymd: string | null,
 ): Promise<ActionResult> {
-  await requireFactoryOrAdmin();
+  const db = tenantDb((await requireFactoryOrAdmin()).organizationId);
   const order = await db.salesOrder.findUnique({ where: { id: orderId } });
   if (!order) return { error: "Order not found." };
 
@@ -113,6 +114,7 @@ export async function uploadOrderDocumentAction(
   formData: FormData
 ): Promise<ActionResult> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
 
   const orderId = String(formData.get("orderId") || "");
   const typeRaw = String(formData.get("type") || "");
@@ -206,6 +208,7 @@ export async function putOrderOnHoldAction(input: {
   reason: string;
 }): Promise<ActionResult> {
   const profile = await requireFactoryOrAdmin();
+  const db = tenantDb(profile.organizationId);
   if (!HOLD_CATEGORIES.includes(input.category)) {
     return { error: "Choose a hold reason category." };
   }
@@ -258,6 +261,7 @@ export async function releaseOrderHoldAction(input: {
   note?: string;
 }): Promise<ActionResult> {
   const profile = await requireFactoryOrAdmin();
+  const db = tenantDb(profile.organizationId);
 
   const order = await db.salesOrder.findUnique({ where: { id: input.orderId } });
   if (!order) return { error: "Order not found." };
@@ -315,6 +319,7 @@ export async function revertOrderStatusAction(input: {
 }): Promise<ActionResult> {
   const { requireAdmin } = await import("@/lib/authz");
   const profile = await requireAdmin();
+  const db = tenantDb(profile.organizationId);
   const reason = input.reason?.trim().slice(0, 1000) ?? "";
   if (!reason) return { error: "A reason is required for a backwards move." };
   if (!REVERTIBLE_STATUSES.includes(input.target)) {
@@ -373,6 +378,7 @@ export async function addDispatchLotAction(input: {
   dispatchedAt?: Date | string | null;
 }): Promise<ActionResult> {
   const profile = await requireFactoryOrAdmin();
+  const db = tenantDb(profile.organizationId);
   const qty = Number(input.quantity);
   if (!Number.isFinite(qty) || qty <= 0) {
     return { error: "Quantity must be a positive number." };
@@ -418,6 +424,7 @@ export async function addOrderCommentAction(input: {
   body: string;
 }): Promise<ActionResult> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   const body = input.body?.trim() ?? "";
   if (!body) return { error: "Say something before sending." };
   if (body.length > 4000) return { error: "Comment is too long (4000 char max)." };
@@ -477,6 +484,7 @@ export async function recordOrderInvoiceAction(input: {
   notes?: string;
 }): Promise<ActionResult> {
   const profile = await requireFactoryOrAdmin();
+  const db = tenantDb(profile.organizationId);
 
   const parsed = orderInvoiceSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.errors[0].message };
@@ -582,6 +590,7 @@ type OrderEdit = {
 const EDITABLE_KEYS = ["quantity", "productRate", "expectedDeliveryDate"] as const;
 
 async function applyOrderEdit(
+  db: TenantDb,
   actorId: string,
   input: OrderEdit,
   allowAfterProduction: boolean,
@@ -697,6 +706,7 @@ export async function editOrderBeforeProductionAction(
   input: OrderEdit,
 ): Promise<ActionResult> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   const order = await db.salesOrder.findUnique({
     where: { id: input.orderId },
     select: { salespersonId: true },
@@ -708,7 +718,7 @@ export async function editOrderBeforeProductionAction(
   if (profile.role !== "STAFF" && profile.role !== "ADMIN") {
     return { error: "Only STAFF or ADMIN may edit orders." };
   }
-  return applyOrderEdit(profile.id, input, /* allowAfterProduction */ false);
+  return applyOrderEdit(db, profile.id, input, /* allowAfterProduction */ false);
 }
 
 export async function adminEditOrderAction(
@@ -716,7 +726,8 @@ export async function adminEditOrderAction(
 ): Promise<ActionResult> {
   const { requireAdmin } = await import("@/lib/authz");
   const admin = await requireAdmin();
-  return applyOrderEdit(admin.id, input, /* allowAfterProduction */ true);
+  const db = tenantDb(admin.organizationId);
+  return applyOrderEdit(db, admin.id, input, /* allowAfterProduction */ true);
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -730,6 +741,7 @@ export async function confirmOrderDeliveryAction(input: {
   note?: string;
 }): Promise<ActionResult> {
   const profile = await requireProfile();
+  const db = tenantDb(profile.organizationId);
   const order = await db.salesOrder.findUnique({
     where: { id: input.orderId },
     select: {
@@ -791,6 +803,7 @@ export async function approveOrderRateAction(input: {
 }): Promise<ActionResult> {
   const { requireAdmin } = await import("@/lib/authz");
   const admin = await requireAdmin();
+  const db = tenantDb(admin.organizationId);
 
   const order = await db.salesOrder.findUnique({
     where: { id: input.orderId },
@@ -847,7 +860,7 @@ export async function approveOrderAction(input: {
   note?: string;
 }): Promise<ActionResult> {
   const { requireAdmin } = await import("@/lib/authz");
-  await requireAdmin();
+  const db = tenantDb((await requireAdmin()).organizationId);
   const { createClient } = await import("@/lib/supabase/server");
   const supabase = createClient();
   const { error } = await supabase.rpc("approve_order", {
@@ -868,7 +881,7 @@ export async function rejectOrderAction(input: {
   reason: string;
 }): Promise<ActionResult> {
   const { requireAdmin } = await import("@/lib/authz");
-  await requireAdmin();
+  const db = tenantDb((await requireAdmin()).organizationId);
   const { createClient } = await import("@/lib/supabase/server");
   const supabase = createClient();
   const { error } = await supabase.rpc("reject_order", {
@@ -935,7 +948,7 @@ export async function bulkApproveOrdersAction(input: {
   note?: string;
 }): Promise<BulkResult> {
   const { requireAdmin } = await import("@/lib/authz");
-  await requireAdmin();
+  const db = tenantDb((await requireAdmin()).organizationId);
   const res = await runBulk(input.orderIds, (id) =>
     approveOrderAction({ orderId: id, note: input.note }),
   );
@@ -949,7 +962,7 @@ export async function bulkRejectOrdersAction(input: {
   reason: string;
 }): Promise<BulkResult> {
   const { requireAdmin } = await import("@/lib/authz");
-  await requireAdmin();
+  const db = tenantDb((await requireAdmin()).organizationId);
   const reason = input.reason.trim();
   if (reason.length === 0) {
     return {
@@ -973,7 +986,7 @@ export async function bulkApproveRatesAction(input: {
   note?: string;
 }): Promise<BulkResult> {
   const { requireAdmin } = await import("@/lib/authz");
-  await requireAdmin();
+  const db = tenantDb((await requireAdmin()).organizationId);
   const res = await runBulk(input.orderIds, (id) =>
     approveOrderRateAction({ orderId: id, note: input.note }),
   );

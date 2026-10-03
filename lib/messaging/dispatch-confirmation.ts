@@ -1,5 +1,6 @@
-import { db } from "@/lib/db";
+import { tenantDb } from "@/lib/tenant";
 import { statusLinkUrl } from "@/lib/status-link";
+import { orgHasFeature } from "@/lib/platform/billing";
 
 // F7 — WhatsApp dispatch confirmation to the customer.
 //
@@ -47,17 +48,25 @@ function requireConfig(): {
  * (production/actions.ts).
  */
 export async function sendDispatchConfirmation(
+  organizationId: string,
   orderId: string,
 ): Promise<SendResult> {
+  // SY32 — the order must belong to the caller's company.
+  const db = tenantDb(organizationId);
   const order = await db.salesOrder.findUnique({
     where: { id: orderId },
     select: {
       id: true,
+      organizationId: true,
       orderNumber: true,
       party: { select: { phone: true, name: true } },
     },
   });
   if (!order) return { skipped: true, reason: "order-not-found" };
+  // SY28 — WhatsApp sending is a plan feature.
+  if (!(await orgHasFeature(order.organizationId, "whatsappSending"))) {
+    return { skipped: true, reason: "plan-excludes-whatsapp" };
+  }
   const phone = order.party?.phone;
   if (!phone) return { skipped: true, reason: "no-party-phone" };
 
