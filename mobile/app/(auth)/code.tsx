@@ -1,20 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  Platform,
   Pressable,
   StyleSheet,
   View,
 } from "react-native";
 import { Text } from "@/components/Text";
 import { router, useLocalSearchParams } from "expo-router";
-import Constants from "expo-constants";
-import * as Device from "expo-device";
 import { Screen } from "@/components/Screen";
 import { TextField } from "@/components/TextField";
 import { Button } from "@/components/Button";
 import { supabase } from "@/lib/supabase";
 import { isNetworkError } from "@/lib/errors";
-import { setDeviceId } from "@/auth/device-lock";
+import { registerThisDevice } from "@/auth/register-device";
 import { requestEmailCode } from "@/lib/request-code";
 import {
   DEV_TEST_EMAIL,
@@ -41,21 +38,16 @@ const genericError = () => t("authCode.genericError");
 
 const RESEND_COOLDOWN_S = 30;
 
-function deviceLabel(): string {
-  const model = Device.modelName ?? Device.deviceName ?? "device";
-  return model.slice(0, 60);
-}
-function platformString(): string {
-  if (Platform.OS === "ios") return "ios";
-  if (Platform.OS === "android") return "android";
-  return Platform.OS;
-}
-
 export default function CodeScreen() {
-  const { email, phone } = useLocalSearchParams<{
+  const { email, phone, mode } = useLocalSearchParams<{
     email?: string;
     phone?: string;
+    mode?: string;
   }>();
+  // SY42 — "password" mode: same screen, a password instead of the
+  // emailed code; everything after the session exists is shared.
+  const usePassword = mode === "password";
+  const [password, setPassword] = useState("");
   const identifier = email ?? phone ?? "";
   const isDevPhone = !!phone;
   const [code, setCode] = useState("");
@@ -78,8 +70,10 @@ export default function CodeScreen() {
 
   const verify = useCallback(async () => {
     setError(null);
-    if (code.length !== 6) {
-      setError(t("authCode.enterThe6DigitCode"));
+    if (usePassword ? password.length === 0 : code.length !== 6) {
+      setError(
+        usePassword ? t("authCode.enterYourPassword") : t("authCode.enterThe6DigitCode"),
+      );
       return;
     }
     if (!identifier) {
@@ -103,6 +97,19 @@ export default function CodeScreen() {
         if (pwErr) {
           setError(
             __DEV__ ? t("authCode.dev", { error: genericError(), message: pwErr.message }) : genericError(),
+          );
+          return;
+        }
+      } else if (usePassword) {
+        const { error: pwErr } = await supabase.auth.signInWithPassword({
+          email: identifier,
+          password,
+        });
+        if (pwErr) {
+          setError(
+            isNetworkError(pwErr)
+              ? t("authCode.networkError")
+              : t("authCode.wrongPassword"),
           );
           return;
         }
@@ -136,44 +143,15 @@ export default function CodeScreen() {
       }
       // Session established. register_device is authenticated-only
       // so it runs as the user we just verified.
-      const {
-        data: reg,
-        error: regErr,
-      } = await (
-        supabase.rpc as unknown as (
-          fn: string,
-          args: Record<string, unknown>,
-        ) => Promise<{
-          data: { device_id: string }[] | null;
-          error: { message: string } | null;
-        }>
-      )("register_device", {
-        p_device: {
-          label: deviceLabel(),
-          platform: platformString(),
-          osVersion: Device.osVersion ?? null,
-          appVersion:
-            (Constants.expoConfig?.version as string | undefined) ?? null,
-        },
-      });
-      if (regErr || !reg?.[0]) {
-        // SY15.9. register_device raises 'Account disabled' when
-        // Profile.isActive is false. The user just successfully
-        // verified an OTP so they hold a live session — leave it
-        // in place and they can hit any RLS-gated read as an
-        // active-role zombie. Force sign-out before showing the
-        // error.
-        if (regErr?.message?.includes("Account disabled")) {
-          await supabase.auth.signOut();
-        }
+      const reg = await registerThisDevice();
+      if (!reg.ok) {
         setError(
-          __DEV__ && regErr?.message
-            ? t("authCode.dev", { error: genericError(), message: regErr.message })
+          __DEV__ && reg.message
+            ? t("authCode.dev", { error: genericError(), message: reg.message })
             : genericError(),
         );
         return;
       }
-      await setDeviceId(reg[0].device_id);
       router.replace("/set-up-lock");
     } catch (e) {
       const base = isNetworkError(e) ? t("authCode.networkError") : genericError();
@@ -185,7 +163,7 @@ export default function CodeScreen() {
     } finally {
       setVerifying(false);
     }
-  }, [code, email]);
+  }, [code, email, password, usePassword]);
 
   async function resend() {
     if (cooldownLeft > 0 || !identifier) return;
@@ -207,29 +185,66 @@ export default function CodeScreen() {
   return (
     <Screen scroll>
       <View style={styles.header}>
-        <Text style={styles.title}>{t("authCode.enterYourCode")}</Text>
+        <Text style={styles.title}>
+          {usePassword ? t("authCode.enterYourPasswordTitle") : t("authCode.enterYourCode")}
+        </Text>
         <Text style={styles.subtitle}>
-          {isDevPhone
+          {usePassword
+            ? identifier
+            : isDevPhone
             ? t("authCode.devPhoneEnterDevOtp", { identifier })
             : t("authCode.ifIsRegisteredA6", { identifier })}
         </Text>
       </View>
 
-      <TextField
-        label={t("authCode.6DigitCode")}
-        error={error}
-        keyboardType="number-pad"
-        autoComplete="one-time-code"
-        textContentType="oneTimeCode"
-        maxLength={6}
-        value={code}
-        onChangeText={(v) => setCode(v.replace(/\D/g, ""))}
-        style={{ fontSize: 28, letterSpacing: 8, textAlign: "center" }}
+      {usePassword ? (
+        <TextField
+          label={t("authCode.password")}
+          error={error}
+          secureTextEntry
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="current-password"
+          textContentType="password"
+          returnKeyType="go"
+          onSubmitEditing={verify}
+          value={password}
+          onChangeText={setPassword}
+        />
+      ) : (
+        <TextField
+          label={t("authCode.6DigitCode")}
+          error={error}
+          keyboardType="number-pad"
+          autoComplete="one-time-code"
+          textContentType="oneTimeCode"
+          maxLength={6}
+          value={code}
+          onChangeText={(v) => setCode(v.replace(/\D/g, ""))}
+          style={{ fontSize: 28, letterSpacing: 8, textAlign: "center" }}
+        />
+      )}
+
+      <Button
+        label={usePassword ? t("authEmail.signIn") : t("authCode.verify")}
+        loading={verifying}
+        onPress={verify}
       />
 
-      <Button label={t("authCode.verify")} loading={verifying} onPress={verify} />
-
       <View style={styles.footer}>
+        {usePassword ? (
+          <Pressable
+            accessibilityLabel={t("authCode.useCodeInstead")}
+            onPress={() => {
+              void requestEmailCode(email!);
+              router.replace({ pathname: "/(auth)/code", params: { email } });
+            }}
+            style={{ minHeight: theme.tap, justifyContent: "center" }}
+            accessibilityRole="button"
+          >
+            <Text style={styles.link}>{t("authCode.useCodeInstead")}</Text>
+          </Pressable>
+        ) : (
         <Pressable
           accessibilityLabel={cooldownLeft > 0
               ? t("authCode.resendInS", { cooldownLeft })
@@ -250,6 +265,7 @@ export default function CodeScreen() {
               : t("authCode.resendCode")}
           </Text>
         </Pressable>
+        )}
         <Pressable
           accessibilityLabel={isDevPhone ? t("authCode.changePhone") : t("authCode.changeEmail")}
           onPress={() => router.back()}

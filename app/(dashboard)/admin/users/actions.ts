@@ -11,6 +11,14 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient as createSsrClient } from "@/lib/supabase/server";
 import { capture } from "@/lib/analytics-events/posthog";
 import { syncMilestonesQuietly } from "@/lib/platform/milestones";
+import {
+  createInvitation,
+  revokeInvitation,
+  rotateInvitation,
+} from "@/lib/platform/invitations";
+import { sendEmail } from "@/lib/email/send";
+import { staffInvitationEmail } from "@/lib/email/templates";
+import { inviteExpiry } from "@/lib/invite-token";
 
 export type ActionResult = { ok: true; profileId?: string } | { error: string };
 
@@ -725,5 +733,139 @@ export async function makeOwnerAction(input: {
 
   revalidatePath("/admin/users");
   revalidatePath("/settings/billing");
+  return { ok: true };
+}
+
+// ─────────────────────────────────────────────────────────────────
+// SY42 — invitations. The invitee gets a link to /join/<token>, picks
+// a password and joins THIS company with the role chosen here. No auth
+// user or Membership exists until they accept, so a pending invite
+// never occupies a seat.
+// ─────────────────────────────────────────────────────────────────
+
+const ROLE_LABEL: Record<Role, string> = {
+  ADMIN: "Management",
+  STAFF: "Sales",
+  FACTORY: "Factory",
+};
+
+const inviteSchema = z.object({
+  email: emailSchema,
+  role: roleEnum,
+  ownerName: z.string().trim().max(120).optional(),
+  phone: z
+    .string()
+    .trim()
+    .regex(phoneRegex, "Enter a 10-digit Indian mobile number")
+    .optional()
+    .or(z.literal("").transform(() => undefined)),
+});
+
+export type InviteMemberResult =
+  | { ok: true; email: string; emailed: boolean }
+  | { error: string };
+
+async function emailInvitation(params: {
+  to: string;
+  token: string;
+  companyName: string;
+  inviterName: string | null;
+  role: Role;
+  inviteeName: string | null;
+}): Promise<boolean> {
+  const tmpl = staffInvitationEmail({
+    inviteeName: params.inviteeName,
+    companyName: params.companyName,
+    inviterName: params.inviterName,
+    roleLabel: ROLE_LABEL[params.role],
+    joinUrl: `${appUrl()}/join/${params.token}`,
+    expiresAt: inviteExpiry(),
+  });
+  const res = await sendEmail({ to: params.to, ...tmpl });
+  return res.ok;
+}
+
+async function companyNameOf(db: TenantClient, organizationId: string): Promise<string> {
+  const org = await db.organization.findUnique({
+    where: { id: organizationId },
+    select: { name: true },
+  });
+  return org?.name ?? "your company";
+}
+
+export async function inviteMemberAction(input: {
+  email: string;
+  role: Role;
+  ownerName?: string;
+  phone?: string;
+}): Promise<InviteMemberResult> {
+  const { admin, organizationId, db } = await requireAdminInOrg();
+  const parsed = inviteSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.errors[0].message };
+  const { email, role, ownerName, phone } = parsed.data;
+
+  const res = await createInvitation({
+    organizationId,
+    invitedById: admin.id,
+    email,
+    role,
+    ownerName,
+    phone,
+  });
+  if (!res.ok) return { error: res.message };
+
+  const emailed = await emailInvitation({
+    to: res.email,
+    token: res.token,
+    companyName: await companyNameOf(db, organizationId),
+    inviterName: admin.ownerName,
+    role,
+    inviteeName: ownerName ?? null,
+  });
+
+  await capture({
+    event: "user_invited",
+    profileId: admin.id,
+    organizationId,
+    properties: { role: role.toLowerCase() },
+  });
+  await syncMilestonesQuietly(organizationId, { actorId: admin.id, source: "web" });
+  revalidatePath("/admin/users");
+  return { ok: true, email: res.email, emailed };
+}
+
+export async function resendInvitationAction(input: {
+  invitationId: string;
+}): Promise<InviteMemberResult> {
+  const { admin, organizationId, db } = await requireAdminInOrg();
+  const res = await rotateInvitation(organizationId, input.invitationId);
+  if (!res.ok) {
+    const message =
+      res.error === "throttled"
+        ? "That invite was just sent. Wait a few minutes before resending."
+        : res.error === "seat_limit"
+          ? "Your plan has no free seat. Upgrade in Settings → Billing."
+          : "Invitation not found.";
+    return { error: message };
+  }
+  const emailed = await emailInvitation({
+    to: res.email,
+    token: res.token,
+    companyName: await companyNameOf(db, organizationId),
+    inviterName: admin.ownerName,
+    role: res.role,
+    inviteeName: res.ownerName,
+  });
+  revalidatePath("/admin/users");
+  return { ok: true, email: res.email, emailed };
+}
+
+export async function revokeInvitationAction(input: {
+  invitationId: string;
+}): Promise<{ ok: true } | { error: string }> {
+  const { organizationId } = await requireAdminInOrg();
+  const res = await revokeInvitation(organizationId, input.invitationId);
+  if (!res.ok) return { error: "Invitation not found." };
+  revalidatePath("/admin/users");
   return { ok: true };
 }

@@ -6,25 +6,22 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { captureError } from "@/lib/monitoring";
-import { orgRequiresManagement2fa } from "@/lib/authz";
-import { pinActiveOrgClaim } from "@/lib/platform/active-org";
 import { safePath } from "@/lib/safe-redirect";
+import { finishSignIn } from "@/lib/auth/finish-sign-in";
+import { passwordSchema } from "@/lib/auth/password";
 import {
   checkEmailOtpSendLimit,
   checkLoginRateLimit,
   recordLoginAttempt,
 } from "@/lib/platform/rate-limit";
-import {
-  currentAssuranceLevel,
-  getMfaFactorState,
-  tryConsumeRecoveryCode,
-} from "@/lib/auth/mfa";
+import { getMfaFactorState, tryConsumeRecoveryCode } from "@/lib/auth/mfa";
 
 type ActionResult = { error: string } | never;
 
-// SY31 — web sign-in is emailed 6-digit code or Google only. The
-// password path (loginAction, /login/password) was removed: no way to
-// set or reset a password exists.
+// SY42 — web sign-in: email + password, Google, or an emailed 6-digit
+// code (the fallback for invited staff who have not set a password).
+// SY31 had removed passwords because no set/reset path existed; the
+// forgot/reset actions below and the invite-accept page now provide it.
 
 // ── Challenge action — used by /login/challenge ──────────────────
 
@@ -199,67 +196,93 @@ export async function verifyEmailCodeAction(input: {
   }
   await recordLoginAttempt(email, true, "EMAIL_OTP");
 
-  // Stamp the absolute-session cookie so middleware enforces 90-day
-  // absolute lifetime on this path too.
-  cookies().set("syncit_auth_since", String(Date.now()), {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 90,
-  });
+  // SY42 — shared post-auth routing (disabled / no company / MFA).
+  return finishSignIn(supabase, callbackUrl);
+}
 
-  // Post-OTP routing (SY31) — the same rule requireAdmin() applies:
-  //   * role = the ACTIVE Membership's role (never Profile.role);
-  //   * no membership → /onboarding;
-  //   * FACTORY → /production, STAFF → /dashboard;
-  //   * ADMIN → MFA screens ONLY when the active company has
-  //     BusinessSettings.requireManagement2fa on: no factor →
-  //     /settings/security?first=1, aal1 → /login/challenge.
-  // callbackUrl, when safePath() accepts it, wins over the role default.
+// ─────────────────────────────────────────────────────────────────
+// Password path (SY42). Returns the same generic message for unknown
+// email and wrong password, and shares the per-email failure budget
+// with every other PASSWORD attempt.
+// ─────────────────────────────────────────────────────────────────
+
+const passwordLoginSchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(254),
+  password: z.string().min(1).max(200),
+  callbackUrl: z.string().optional(),
+});
+
+export async function passwordLoginAction(input: {
+  email: string;
+  password: string;
+  callbackUrl?: string;
+}): Promise<ActionResult> {
+  const parsed = passwordLoginSchema.safeParse(input);
+  if (!parsed.success) return { error: "Enter your email and password." };
+  const { email, password, callbackUrl } = parsed.data;
+
+  const { limited, retryAfterMinutes } = await checkLoginRateLimit(email, "PASSWORD");
+  if (limited) {
+    return {
+      error: `Too many attempts. Wait ${retryAfterMinutes} minutes and try again, or use "Email me a code".`,
+    };
+  }
+
+  const supabase = createClient();
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) {
+    await recordLoginAttempt(email, false, "PASSWORD");
+    const unconfirmed = /not confirmed/i.test(error.message);
+    return {
+      error: unconfirmed
+        ? "Please confirm your email first — check your inbox for the link."
+        : "Email or password is incorrect.",
+    };
+  }
+  await recordLoginAttempt(email, true, "PASSWORD");
+  return finishSignIn(supabase, callbackUrl);
+}
+
+// Always {ok:true}: never reveals whether the address is registered.
+export async function forgotPasswordAction(input: {
+  email: string;
+}): Promise<{ ok: true } | { error: string }> {
+  const parsed = z
+    .object({ email: z.string().trim().toLowerCase().email().max(254) })
+    .safeParse(input);
+  if (!parsed.success) return { error: "Enter a valid email address." };
+  const { email } = parsed.data;
+
+  const { limited, retryAfterMinutes } = await checkEmailOtpSendLimit(email);
+  if (limited) {
+    return { error: `Too many requests. Try again in ${retryAfterMinutes} minutes.` };
+  }
+  const base = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/+$/, "");
+  const supabase = createClient();
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: base ? `${base}/auth/callback?next=/reset-password` : undefined,
+  });
+  if (error) {
+    await captureError(error, { where: "forgotPasswordAction", supabaseMessage: error.message });
+  }
+  await recordLoginAttempt(email, !error, "EMAIL_OTP");
+  return { ok: true };
+}
+
+// Called from /reset-password with the recovery session the callback
+// established. Also used by invited staff / Google users to add a
+// password from settings later.
+export async function setPasswordAction(input: {
+  password: string;
+}): Promise<{ ok: true } | { error: string }> {
+  const parsed = passwordSchema.safeParse(input.password);
+  if (!parsed.success) return { error: parsed.error.errors[0].message };
+  const supabase = createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return { error: "That code didn't work. Try requesting a fresh one." };
-
-  const admin = createAdminClient();
-  const profile = await admin
-    .from("Profile")
-    .select("isActive")
-    .eq("id", user.id)
-    .maybeSingle();
-  const isActive = profile.data?.isActive ?? true;
-
-  if (!isActive) {
-    await supabase.auth.signOut();
-    redirect("/account-disabled");
-  }
-
-  const { active } = await pinActiveOrgClaim(user);
-  if (!active) redirect("/onboarding");
-
-  const roleHome = active.role === "FACTORY" ? "/production" : "/dashboard";
-  const safeCallback = safePath(callbackUrl, roleHome);
-
-  if (active.role !== "ADMIN") redirect(safeCallback);
-
-  // Pilot escape hatch — mirrors requireAdmin.
-  if (process.env.AUTH_SKIP_MFA === "1") redirect(safeCallback);
-
-  if (!(await orgRequiresManagement2fa(active.organizationId))) {
-    redirect(safeCallback);
-  }
-
-  const factor = await getMfaFactorState(supabase);
-  if (factor.kind !== "verified") {
-    redirect("/settings/security?first=1");
-  }
-
-  const aal = await currentAssuranceLevel(supabase);
-  if (aal === "aal2") {
-    redirect(safeCallback);
-  }
-
-  const q = new URLSearchParams({ next: safeCallback });
-  redirect(`/login/challenge?${q.toString()}`);
+  if (!user) return { error: "That reset link has expired. Request a new one." };
+  const { error } = await supabase.auth.updateUser({ password: parsed.data });
+  if (error) return { error: error.message };
+  return { ok: true };
 }

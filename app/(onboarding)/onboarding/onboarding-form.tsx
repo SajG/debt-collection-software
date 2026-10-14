@@ -259,13 +259,13 @@ function TeamStep({
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <Field
                 compact
-                label="Name"
+                label="Name (optional)"
                 value={row.ownerName}
                 onChange={(v) => updateRow(i, { ownerName: v })}
               />
               <Field
                 compact
-                label="Mobile (10-digit)"
+                label="Mobile (optional)"
                 value={row.phone}
                 onChange={(v) => updateRow(i, { phone: v.replace(/\D/g, "").slice(-10) })}
               />
@@ -320,7 +320,7 @@ function TeamStep({
         <button
           type="button"
           disabled={pending}
-          onClick={() => onSubmit(rows.filter((r) => r.ownerName && r.email && r.phone))}
+          onClick={() => onSubmit(rows.filter((r) => r.email.trim()))}
           className="flex items-center gap-2 rounded-md bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
         >
           {pending && <Loader2 size={14} className="animate-spin" />}

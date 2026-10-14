@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Linking, Platform, Pressable, StyleSheet, View } from "react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { Screen } from "@/components/Screen";
 import { Text } from "@/components/Text";
 import { TextField } from "@/components/TextField";
@@ -42,7 +42,14 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SIGNUP_URL = "https://getsyncit.app";
 
 export default function EmailScreen() {
-  const [email, setEmail] = useState("");
+  // SY42 — `syncit://email?email=…` from the invite page prefills the
+  // address so a new staff member only has to type their password.
+  const params = useLocalSearchParams<{ email?: string }>();
+  const [email, setEmail] = useState(
+    typeof params.email === "string" && EMAIL_RE.test(params.email.trim())
+      ? params.email.trim().toLowerCase()
+      : "",
+  );
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [revoked, setRevoked] = useState(false);
@@ -103,6 +110,18 @@ export default function EmailScreen() {
     }
   }
 
+  // SY42 — password sign-in: same code screen in "password" mode, so
+  // the password is typed there and never travels in route params.
+  function usePassword() {
+    setError(null);
+    const clean = email.trim().toLowerCase();
+    if (!EMAIL_RE.test(clean)) {
+      setError(t("auth.email.invalid"));
+      return;
+    }
+    router.push({ pathname: "/(auth)/code", params: { email: clean, mode: "password" } });
+  }
+
   return (
     <Screen scroll>
       {revoked ? (
@@ -148,6 +167,15 @@ export default function EmailScreen() {
         onPress={send}
         accessibilityLabel={t("authEmail.sendCode")}
       />
+
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={t("authEmail.usePassword")}
+        onPress={usePassword}
+        style={{ minHeight: theme.tap, alignItems: "center", justifyContent: "center" }}
+      >
+        <Text style={styles.link}>{t("authEmail.usePassword")}</Text>
+      </Pressable>
 
       {Platform.OS === "ios" ? (
         // App Store Review 3.1.1/3.1.3: an app whose accounts are

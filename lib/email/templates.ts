@@ -442,3 +442,46 @@ function escape(v: string): string {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
+// SY42 — invitation to join a company. Sent by our own transport, not
+// Supabase, so it can name the real company, role and inviter.
+export function staffInvitationEmail(input: {
+  inviteeName?: string | null;
+  companyName: string;
+  inviterName: string | null;
+  roleLabel: string;
+  joinUrl: string;
+  expiresAt: Date;
+}): Template {
+  const who = input.inviterName ?? "Your manager";
+  const expires = input.expiresAt.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+  const subject = `${who} invited you to ${input.companyName} on Syncit`;
+  const hello = input.inviteeName ? `Hi ${escape(input.inviteeName)},` : "Hi,";
+  const bodyHtml = `
+    <h1 style="margin:0 0 12px;font-size:20px;line-height:1.3;color:#1C1917;">Join ${escape(input.companyName)}</h1>
+    <p style="margin:0 0 12px;font-size:15px;line-height:1.5;">
+      ${hello} <strong>${escape(who)}</strong> invited you to <strong>${escape(input.companyName)}</strong> on Syncit as <strong>${escape(input.roleLabel)}</strong>.
+    </p>
+    <p style="margin:0 0 20px;font-size:15px;line-height:1.5;">
+      Choose a password to get started. Then sign in on the web or in the Syncit app on your phone with the same email.
+      Need the app? <a href="${APP_URL}/download" style="color:#0D5C4A;">Get Syncit for your phone</a>.
+    </p>
+    <a href="${input.joinUrl}" style="display:inline-block;background:#0D5C4A;color:#fff;text-decoration:none;padding:10px 20px;border-radius:8px;font-weight:600;font-size:14px;">Accept invitation</a>
+    <p style="margin:18px 0 0;font-size:13px;line-height:1.5;color:#57534E;">
+      This link works until ${expires} and can be used once. If you weren't expecting it, ignore this email.
+    </p>
+  `;
+  const hindiLine = `${escape(input.companyName)} में शामिल होने के लिए आपको आमंत्रित किया गया है।`;
+  const text = `${who} invited you to ${input.companyName} on Syncit as ${input.roleLabel}.
+
+Accept the invitation (valid until ${expires}): ${input.joinUrl}
+
+If you weren't expecting this, ignore this email.
+
+— Syncit team`;
+  return { subject, html: shell(bodyHtml, hindiLine), text };
+}

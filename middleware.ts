@@ -1,5 +1,11 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
+import {
+  ATTRIBUTION_COOKIE,
+  ATTRIBUTION_MAX_AGE_S,
+  attributionFromRequest,
+  serializeAttribution,
+} from "@/lib/attribution";
 
 // Routes that do NOT require a session.
 // /signup is listed pre-emptively — no self-registration page exists
@@ -78,6 +84,9 @@ const PUBLIC_PREFIXES = [
   "/api/t",
   "/r/",
   "/unsubscribe/",
+  // SY42 — staff invitation accept page. The 256-bit token in the URL
+  // is the credential; the page and its action verify it themselves.
+  "/join/",
   "/help",
   "/blog/",
   "/tools/",
@@ -363,6 +372,30 @@ export async function middleware(request: NextRequest) {
         },
         { status: 423, headers: { "cache-control": "no-store" } },
       );
+    }
+  }
+
+  // SY42 — first-touch attribution for the sign-up lead. Only on page
+  // GETs, only when no cookie exists yet, and only when the request
+  // actually carries a signal (utm / gclid / external referrer / /r/).
+  if (
+    request.method === "GET" &&
+    !request.cookies.get(ATTRIBUTION_COOKIE) &&
+    !pathname.startsWith("/api/") &&
+    !pathname.startsWith("/_next/")
+  ) {
+    const attr = attributionFromRequest({
+      url: request.nextUrl,
+      referer: request.headers.get("referer"),
+    });
+    if (attr) {
+      supabaseResponse.cookies.set(ATTRIBUTION_COOKIE, serializeAttribution(attr), {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: ATTRIBUTION_MAX_AGE_S,
+      });
     }
   }
 

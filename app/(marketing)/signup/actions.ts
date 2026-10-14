@@ -6,61 +6,37 @@ import { z } from "zod";
 import {
   countRecentSignupAttempts,
   markSignupAttemptsSuccessful,
-  profileExistsForEmail,
-  provisionCompany,
   recordSignupAttempt,
 } from "@/lib/platform/signup";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { createLead } from "@/lib/platform/leads";
+import { provisionFromLead } from "@/lib/platform/provision-from-lead";
+import { ensureStubProfile } from "@/lib/platform/resolve";
+import { countActiveMemberships } from "@/lib/platform/identity";
 import { createClient } from "@/lib/supabase/server";
 import { captureError } from "@/lib/monitoring";
 import { ONBOARDING_ONE_BY_ONE_MESSAGE, isSignupEnabled } from "@/lib/signup-flag";
-import { capture } from "@/lib/analytics-events/posthog";
-import { recordOnce } from "@/lib/platform/milestones";
-import { attachReferral } from "@/lib/platform/referrals";
+import { ATTRIBUTION_COOKIE, parseAttribution } from "@/lib/attribution";
+import { companyDetailsSchema, type CompanyDetailsInput } from "@/lib/validation/company-details";
+import { passwordSchema } from "@/lib/auth/password";
 
-// SY23 — self-serve signup.
+// SY42 — self-serve signup with a password (or Google).
 //
-// The signup path is the ONLY place where signInWithOtp fires with
-// shouldCreateUser:true. Everywhere else keeps the allowlist gate.
+//   signUpWithPasswordAction
+//     validate → rate limit → auth.signUp (Supabase emails a confirm
+//     link) → SignupLead(PENDING_VERIFY). The company is created in
+//     /auth/callback once the link is clicked, from the stored lead.
+//   completeGoogleSignupAction
+//     a Google user with no company submits the same details → lead →
+//     company → /onboarding.
 //
-// Two-step:
-//   1. requestSignupCodeAction — creates a rate-limit row (per IP +
-//      per email domain), asks Supabase to send the OTP.
-//   2. verifySignupCodeAction  — verifies the code, then in one
-//      transaction: Organization + BusinessSettings + Membership
-//      (ADMIN, isOwner=true) + Profile fields. Pins the JWT's
-//      active_org_id claim so the very first request lands scoped.
-//
-// Rate limits (SignupAttempt table, prisma/schema.prisma):
-//   * 5 per IP per hour
-//   * 20 per email domain per hour (blunts a domain-wide flood)
-
-const FAKE_DOMAIN_RE = /\.(local|test|invalid|internal|localhost|example)$/i;
-
-const requestSchema = z.object({
-  ownerName: z.string().trim().min(2).max(120),
-  companyName: z.string().trim().min(2).max(120),
-  email: z.string().trim().toLowerCase().email().max(254),
-  phone: z
-    .string()
-    .trim()
-    .regex(/^[6-9]\d{9}$/, "Enter a 10-digit Indian mobile number"),
-});
-
-const verifySchema = z.object({
-  ownerName: z.string().trim().min(2).max(120),
-  companyName: z.string().trim().min(2).max(120),
-  email: z.string().trim().toLowerCase().email().max(254),
-  phone: z.string().trim().regex(/^[6-9]\d{9}$/),
-  token: z.string().trim().regex(/^\d{6}$/, "Enter the 6-digit code."),
-  /** SY38 — code from a /r/<code> "Invite another business" link. */
-  ref: z.string().trim().max(16).optional(),
-});
+// An address that is already registered gets the same "check your
+// email" answer as a new one — no enumeration oracle.
 
 const SIGNUP_CLOSED = `${ONBOARDING_ONE_BY_ONE_MESSAGE}.`;
-
 const IP_LIMIT_PER_HOUR = 5;
 const DOMAIN_LIMIT_PER_HOUR = 20;
+
+const refSchema = z.string().trim().regex(/^[A-Za-z0-9]{1,16}$/).optional();
 
 function clientIp(): string {
   const h = headers();
@@ -73,173 +49,132 @@ function domainOf(email: string): string {
   return email.split("@")[1] ?? "";
 }
 
-type Result = { error: string } | { ok: true } | never;
-
-export async function requestSignupCodeAction(input: {
-  ownerName: string;
-  companyName: string;
-  email: string;
-  phone: string;
-}): Promise<Result> {
-  if (!isSignupEnabled()) return { error: SIGNUP_CLOSED };
-  const parsed = requestSchema.safeParse(input);
-  if (!parsed.success) {
-    return { error: parsed.error.errors[0].message };
-  }
-  const { email } = parsed.data;
-  const domain = domainOf(email);
-  if (FAKE_DOMAIN_RE.test(email)) {
-    return { error: "Use a real deliverable email address." };
-  }
-
-  const ip = clientIp();
-  const windowStart = new Date(Date.now() - 60 * 60 * 1000);
-
-  const { ip: ipCount, domain: domainCount } = await countRecentSignupAttempts(
-    ip,
-    domain,
-    windowStart,
-  );
-  if (ipCount >= IP_LIMIT_PER_HOUR) {
-    return {
-      error: "Too many sign-up attempts from this network. Try again in an hour.",
-    };
-  }
-  if (domainCount >= DOMAIN_LIMIT_PER_HOUR) {
-    return {
-      error: "Too many sign-ups from this domain today. Contact us if you need help.",
-    };
-  }
-
-  await recordSignupAttempt(ip, domain);
-
-  // If an active Membership already exists for this email, quietly
-  // redirect the user to /login instead of creating a duplicate auth
-  // user. Response is still {ok:true} so the code page renders.
-  if (await profileExistsForEmail(email)) {
-    // Fire an OTP for the existing user via the normal login flow —
-    // shouldCreateUser stays false to avoid creating a duplicate.
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { shouldCreateUser: false },
-    });
-    if (error) await captureError(error, { where: "requestSignupCodeAction/existing" });
-    return { ok: true };
-  }
-
-  const supabase = createClient();
-  const { error } = await supabase.auth.signInWithOtp({
-    email,
-    options: { shouldCreateUser: true },
-  });
-  if (error) {
-    await captureError(error, {
-      where: "requestSignupCodeAction",
-      supabaseMessage: error.message,
-    });
-  }
-  return { ok: true };
+function attributionFor(ref?: string) {
+  const a = parseAttribution(cookies().get(ATTRIBUTION_COOKIE)?.value);
+  const code = refSchema.safeParse(ref);
+  if (code.success && code.data) a.referralCode = code.data.toUpperCase();
+  return a;
 }
 
-export async function verifySignupCodeAction(input: {
-  ownerName: string;
-  companyName: string;
-  email: string;
-  phone: string;
-  token: string;
+type Result = { error: string } | { ok: true; checkEmail: true };
+
+async function underRateLimit(email: string): Promise<string | null> {
+  const ip = clientIp();
+  const domain = domainOf(email);
+  const since = new Date(Date.now() - 60 * 60 * 1000);
+  const { ip: ipCount, domain: domainCount } = await countRecentSignupAttempts(ip, domain, since);
+  if (ipCount >= IP_LIMIT_PER_HOUR) {
+    return "Too many sign-up attempts from this network. Try again in an hour.";
+  }
+  if (domainCount >= DOMAIN_LIMIT_PER_HOUR) {
+    return "Too many sign-ups from this domain today. Contact us if you need help.";
+  }
+  await recordSignupAttempt(ip, domain);
+  return null;
+}
+
+export async function signUpWithPasswordAction(input: {
+  details: CompanyDetailsInput;
+  password: string;
   ref?: string;
 }): Promise<Result> {
   if (!isSignupEnabled()) return { error: SIGNUP_CLOSED };
-  const parsed = verifySchema.safeParse(input);
-  if (!parsed.success) return { error: parsed.error.errors[0].message };
-  const { ownerName, companyName, email, phone, token, ref } = parsed.data;
+  const details = companyDetailsSchema.safeParse(input.details);
+  if (!details.success) return { error: details.error.errors[0].message };
+  const password = passwordSchema.safeParse(input.password);
+  if (!password.success) return { error: password.error.errors[0].message };
 
+  const limited = await underRateLimit(details.data.email);
+  if (limited) return { error: limited };
+
+  const base = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/+$/, "");
   const supabase = createClient();
-  const { error, data } = await supabase.auth.verifyOtp({
-    email,
-    token,
-    type: "email",
-  });
-  if (error || !data.user) {
-    return { error: "That code didn't work. Ask for a fresh one." };
-  }
-  const userId = data.user.id;
-
-  const admin = createAdminClient();
-  // Bulk provisioning inside a single transaction so a failure
-  // between Profile / Organization / Membership doesn't leave a
-  // half-baked tenant behind.
-  const orgSlug = slugify(companyName) + "-" + userId.slice(0, 6);
-  const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
-
-  const org = await provisionCompany({
-    userId,
-    companyName,
-    ownerName,
-    phone,
-    email,
-    slug: orgSlug,
-    trialEndsAt,
-  });
-
-  // Pin active_org_id on the JWT so the very next request lands
-  // scoped. Also mark the signup attempt successful for audit.
-  await admin.auth.admin.updateUserById(userId, {
-    app_metadata: {
-      ...(data.user.app_metadata ?? {}),
-      active_org_id: org.id,
+  const { data, error } = await supabase.auth.signUp({
+    email: details.data.email,
+    password: password.data,
+    options: {
+      emailRedirectTo: base ? `${base}/auth/callback?next=/onboarding` : undefined,
+      data: { name: details.data.ownerName },
     },
   });
-
-  // SY38 — who referred this company (if anyone), and the first two
-  // product events. None of this may fail a sign-up.
-  try {
-    const referred = await attachReferral(org.id, ref);
-    await recordOnce(org.id, "milestone:company_created");
-    await capture({ event: "signup_completed", profileId: userId, organizationId: org.id, properties: { referred } });
-    await capture({ event: "company_created", profileId: userId, organizationId: org.id, properties: { plan: "trial", referred } });
-    // The welcome email goes out just below; mark it so the lifecycle
-    // cron does not send a second one.
-    await recordOnce(org.id, "email:day0_welcome");
-  } catch (e) {
-    await captureError(e, { scope: "signup.analytics" });
+  if (error) {
+    await captureError(error, { where: "signUpWithPasswordAction", supabaseMessage: error.message });
+    if (/password/i.test(error.message)) {
+      return { error: "That password is too weak or has appeared in a data breach. Choose another." };
+    }
+    return { ok: true, checkEmail: true };
+  }
+  // Supabase returns an obfuscated user with no identities when the
+  // address is already registered. Say nothing different.
+  if (!data.user || (data.user.identities ?? []).length === 0) {
+    return { ok: true, checkEmail: true };
   }
 
-  // Fire-and-forget welcome email. sendEmail is a no-op when
-  // RESEND_API_KEY is missing so preview envs stay silent.
-  void (async () => {
-    try {
-      const { sendEmail } = await import("@/lib/email/send");
-      const { welcomeEmail } = await import("@/lib/email/templates");
-      const tmpl = welcomeEmail({
-        ownerName,
-        companyName,
-        trialEndsAt,
-      });
-      await sendEmail({ to: email, ...tmpl });
-    } catch (e) {
-      await captureError(e, { scope: "signup.welcome-email", email });
-    }
-  })();
-  await markSignupAttemptsSuccessful(clientIp(), domainOf(email));
-
-  // Same 90-day absolute session cookie as verifyEmailCodeAction.
-  cookies().set("syncit_auth_since", String(Date.now()), {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 90,
+  const lead = await createLead({
+    authMethod: "password",
+    profileId: data.user.id,
+    details: details.data,
+    attribution: attributionFor(input.ref),
+    ip: clientIp(),
+    userAgent: headers().get("user-agent"),
   });
 
-  redirect("/onboarding");
+  // Project has "Confirm email" off: a session exists already, so the
+  // company can be created straight away.
+  if (data.session) {
+    await ensureStubProfile(data.user);
+    await provisionFromLead({
+      userId: data.user.id,
+      lead,
+      appMetadata: data.user.app_metadata,
+    });
+    await markSignupAttemptsSuccessful(clientIp(), domainOf(details.data.email));
+    cookies().set("syncit_auth_since", String(Date.now()), {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 90,
+    });
+    redirect("/onboarding");
+  }
+  await markSignupAttemptsSuccessful(clientIp(), domainOf(details.data.email));
+  return { ok: true, checkEmail: true };
 }
 
-function slugify(input: string): string {
-  return input
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40) || "org";
+export async function completeGoogleSignupAction(input: {
+  details: CompanyDetailsInput;
+  ref?: string;
+}): Promise<{ error: string } | never> {
+  if (!isSignupEnabled()) return { error: SIGNUP_CLOSED };
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Your session expired. Sign in again." };
+
+  const parsed = companyDetailsSchema.safeParse({
+    ...input.details,
+    // The Google-verified address is authoritative.
+    email: user.email ?? input.details.email,
+  });
+  if (!parsed.success) return { error: parsed.error.errors[0].message };
+
+  if ((await countActiveMemberships(user.id)) > 0) redirect("/dashboard");
+
+  await ensureStubProfile(user);
+  const lead = await createLead({
+    authMethod: "google",
+    profileId: user.id,
+    details: parsed.data,
+    attribution: attributionFor(input.ref),
+    ip: clientIp(),
+    userAgent: headers().get("user-agent"),
+  });
+  await provisionFromLead({
+    userId: user.id,
+    lead,
+    appMetadata: user.app_metadata,
+  });
+  redirect("/onboarding");
 }

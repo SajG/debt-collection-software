@@ -285,3 +285,26 @@ burden. Backed by `redeem_and_mint_session`, an anon-callable RPC
 that wrote directly to `auth.users.encrypted_password` — see
 SECURITY.md for the exposure record. Replaced by the current
 email-OTP flow above.
+
+## SY42 — password sign-in, invitations, lead capture
+
+Web sign-in is now email + password, Google, or the emailed code (fallback).
+Supabase dashboard settings that must be on before `SIGNUP_ENABLED=true`:
+
+- **Authentication → Providers → Email**: enabled, **Confirm email ON**,
+  minimum password length **10**, **Prevent use of leaked passwords ON**.
+- **Authentication → URL configuration**: Site URL = `NEXT_PUBLIC_APP_URL`;
+  allow `…/auth/callback` in redirect URLs (sign-up confirmation, password
+  reset and invite-accept all return through it).
+- **Email templates**: "Confirm signup" and "Reset password" should use the
+  Syncit wording (`docs/EMAIL-TEMPLATES.md`). Staff invites are NOT sent from
+  Supabase any more — they are our own Resend email (`teamInviteEmail`).
+
+Account recovery: a user who forgot their password uses
+`/login/forgot`; invited staff who never set one can use "Email me a code".
+Password attempts share the 5-failures-per-15-minutes budget per email.
+
+Lead data lives in `SignupLead` (platform table, service role only) — query
+it from the Supabase SQL editor; the company-level fields are also on
+`Organization` (`gstin`, `address`, `city`, `state`, `pincode`, `teamSize`,
+`signupSource`).

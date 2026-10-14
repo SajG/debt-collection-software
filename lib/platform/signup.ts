@@ -48,11 +48,28 @@ export async function provisionCompany(params: {
   email: string;
   slug: string;
   trialEndsAt: Date;
+  /** SY42 — company details captured on the sign-up form. */
+  company?: {
+    gstin?: string | null;
+    address?: string | null;
+    city?: string | null;
+    state?: string | null;
+    pincode?: string | null;
+    industry?: string | null;
+    teamSize?: string | null;
+    signupSource?: string | null;
+  };
 }): Promise<{ id: string }> {
-  const { userId, companyName, ownerName, phone, email, slug, trialEndsAt } = params;
+  const { userId, companyName, ownerName, phone, email, slug, trialEndsAt, company } = params;
   const existing = await db.profile.findUnique({ where: { id: userId }, select: { id: true } });
   return db.$transaction(async (tx) => {
-    if (!existing) {
+    if (existing) {
+      // Google users arrive with a stub profile (no name / phone).
+      await tx.profile.update({
+        where: { id: userId },
+        data: { businessName: companyName, ownerName, phone },
+      });
+    } else {
       await tx.profile.create({
         data: {
           id: userId,
@@ -68,7 +85,21 @@ export async function provisionCompany(params: {
       });
     }
     const created = await tx.organization.create({
-      data: { name: companyName, slug, plan: "TRIAL", trialEndsAt, status: "ACTIVE" },
+      data: {
+        name: companyName,
+        slug,
+        plan: "TRIAL",
+        trialEndsAt,
+        status: "ACTIVE",
+        gstin: company?.gstin ?? null,
+        address: company?.address ?? null,
+        city: company?.city ?? null,
+        state: company?.state ?? null,
+        pincode: company?.pincode ?? null,
+        industry: company?.industry ?? null,
+        teamSize: company?.teamSize ?? null,
+        signupSource: company?.signupSource ?? null,
+      },
       select: { id: true },
     });
     await tx.membership.create({

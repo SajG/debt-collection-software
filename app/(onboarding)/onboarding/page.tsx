@@ -8,6 +8,8 @@ import {
   ONBOARDING_WHATSAPP_URL,
   isSignupEnabled,
 } from "@/lib/signup-flag";
+import { pendingInvitesForEmail } from "@/lib/platform/invitations";
+import { createClient } from "@/lib/supabase/server";
 import { OnboardingForm } from "./onboarding-form";
 import { CompanyPicker } from "./company-picker";
 
@@ -131,6 +133,22 @@ async function NoCompany({ membershipCount }: { membershipCount: number }) {
           You belong to more than one company. Pick the one to open.
         </p>
         <CompanyPicker memberships={memberships} />
+      </Shell>
+    );
+  }
+
+  // SY42 — invited but arrived without the link.
+  const {
+    data: { user: authUser },
+  } = await createClient().auth.getUser();
+  const invites = authUser?.email ? await pendingInvitesForEmail(authUser.email) : [];
+  if (invites.length > 0) {
+    return (
+      <Shell title="You have an invitation">
+        <p className="text-sm text-muted-foreground">
+          {invites.map((i) => i.companyName).join(", ")} invited {authUser?.email}. Open the
+          invitation email and click &quot;Accept invitation&quot; to join.
+        </p>
       </Shell>
     );
   }

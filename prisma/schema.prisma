@@ -257,6 +257,11 @@ model Organization {
   city        String?
   state       String?
   industry    String?
+  // SY42 — captured at sign-up.
+  address      String?
+  pincode      String?
+  teamSize     String?
+  signupSource String?
   logoUrl     String?
   plan        OrgPlan   @default(TRIAL)
   trialEndsAt DateTime? @db.Timestamptz
@@ -334,6 +339,7 @@ model Organization {
   tallyConnectors       TallyConnector[]
   billingInvoices       BillingInvoice[]
   platformAuditLogs     PlatformAuditLog[]
+  invitations           Invitation[]
 
   @@index([status])
   @@index([status, pastDueSince])
@@ -1800,4 +1806,83 @@ model CronRun {
 
   @@index([job, startedAt])
   @@index([startedAt])
+}
+
+// SY42 — self-serve sign-up lead. Platform table (no tenant scope, no
+// foreign keys on purpose: a lead outlives the company it created).
+enum SignupLeadStatus {
+  PENDING_VERIFY
+  COMPLETED
+}
+
+model SignupLead {
+  id             String           @id @default(cuid())
+  status         SignupLeadStatus @default(PENDING_VERIFY)
+  /// "password" | "google"
+  authMethod     String
+  profileId      String?          @db.Uuid
+  organizationId String?          @db.Uuid
+  ownerName      String
+  email          String
+  phone          String?
+  designation    String?
+  companyName    String
+  gstin          String?
+  address        String?
+  city           String?
+  state          String?
+  pincode        String?
+  industry       String?
+  teamSize       String?
+  utmSource      String?
+  utmMedium      String?
+  utmCampaign    String?
+  utmTerm        String?
+  utmContent     String?
+  gclid          String?
+  fbclid         String?
+  referrer       String?
+  landingPath    String?
+  referralCode   String?
+  firstSeenAt    DateTime?        @db.Timestamptz
+  ip             String?
+  userAgent      String?
+  createdAt      DateTime         @default(now()) @db.Timestamptz
+  completedAt    DateTime?        @db.Timestamptz
+
+  @@index([email])
+  @@index([profileId])
+  @@index([status, createdAt])
+}
+
+// SY42 — staff invitation. Only the SHA-256 of the emailed token is
+// stored. At most one PENDING row per (organizationId, lower(email)) —
+// a partial unique index in the migration enforces it.
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+model Invitation {
+  id                String           @id @default(cuid())
+  organizationId    String           @db.Uuid
+  email             String
+  role              Role
+  ownerName         String?
+  phone             String?
+  tokenHash         String           @unique
+  status            InvitationStatus @default(PENDING)
+  invitedById       String           @db.Uuid
+  expiresAt         DateTime         @db.Timestamptz
+  lastSentAt        DateTime         @default(now()) @db.Timestamptz
+  sendCount         Int              @default(1)
+  acceptedAt        DateTime?        @db.Timestamptz
+  acceptedProfileId String?          @db.Uuid
+  createdAt         DateTime         @default(now()) @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status])
 }

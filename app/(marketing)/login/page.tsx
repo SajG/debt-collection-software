@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { EmailCodeForm } from "./email-code/email-code-form";
+import { PasswordForm } from "./password-form";
 import { GoogleSignInButton } from "./google-button";
 import { isSignupEnabled } from "@/lib/signup-flag";
 import { safePath } from "@/lib/safe-redirect";
@@ -9,17 +9,18 @@ export const metadata: Metadata = {
   title: "Sign in — Syncit",
 };
 
-// SY23 — web sign-in options: Google OAuth OR emailed 6-digit code.
-// Password auth is fully removed (SY31); the Supabase project should
-// have email+password disabled (docs/LOGIN-RUNBOOK.md). The Google
-// button only shows while SIGNUP_ENABLED=true.
+// SY42 — web sign-in: email + password (primary), Google OAuth, and an
+// emailed 6-digit code as the fallback for staff with no password yet.
+// The Supabase project needs the email provider ON with leaked-password
+// protection (docs/LOGIN-RUNBOOK.md). The Google button only shows while
+// SIGNUP_ENABLED=true.
 
 export const dynamic = "force-dynamic";
 
 export default function LoginPage({
   searchParams,
 }: {
-  searchParams: { callbackUrl?: string; error?: string; recovered?: string };
+  searchParams: { callbackUrl?: string; error?: string; recovered?: string; email?: string; code?: string };
 }) {
   const signupEnabled = isSignupEnabled();
   const callbackUrl = searchParams.callbackUrl
@@ -31,7 +32,7 @@ export default function LoginPage({
         <div className="mb-8 text-center">
           <h1 className="text-2xl font-bold tracking-tight">Syncit</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Enter your email — we&apos;ll send you a 6-digit code.
+            Sign in to your company workspace.
           </p>
         </div>
 
@@ -78,7 +79,13 @@ export default function LoginPage({
               </div>
             </>
           )}
-          <EmailCodeForm callbackUrl={callbackUrl} />
+          <PasswordForm
+            callbackUrl={callbackUrl}
+            defaultEmail={
+              /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(searchParams.email ?? "") ? searchParams.email : undefined
+            }
+            startWithCode={searchParams.code === "1"}
+          />
         </div>
 
         <p className="mt-6 text-center text-sm text-muted-foreground">

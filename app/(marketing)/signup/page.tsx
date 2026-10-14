@@ -39,7 +39,7 @@ export default function SignupPage({
         </div>
 
         <div className="rounded-xl border border-border bg-card p-8 shadow-sm space-y-4">
-          <GoogleSignInButton label="Continue with Google" next="/onboarding" />
+          <GoogleSignInButton label="Continue with Google" next="/signup/complete" />
           <Divider />
           {referralCode ? (
             <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">

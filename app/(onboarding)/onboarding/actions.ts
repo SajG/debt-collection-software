@@ -100,8 +100,13 @@ export async function saveCompanyStep(input: {
 }
 
 const teamMemberSchema = z.object({
-  ownerName: z.string().trim().min(2).max(120),
-  phone: z.string().trim().regex(/^[6-9]\d{9}$/, "10-digit Indian mobile"),
+  ownerName: z.string().trim().max(120).optional(),
+  phone: z
+    .string()
+    .trim()
+    .regex(/^[6-9]\d{9}$/, "10-digit Indian mobile")
+    .optional()
+    .or(z.literal("").transform(() => undefined)),
   email: z.string().trim().toLowerCase().email().max(254),
   role: z.enum(["ADMIN", "STAFF", "FACTORY"]),
 });
@@ -112,8 +117,8 @@ const teamSchema = z.object({
 
 export async function saveTeamStep(input: {
   members: {
-    ownerName: string;
-    phone: string;
+    ownerName?: string;
+    phone?: string;
     email: string;
     role: "ADMIN" | "STAFF" | "FACTORY";
   }[];
@@ -121,11 +126,11 @@ export async function saveTeamStep(input: {
   const parsed = teamSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.errors[0].message };
   const { organizationId, db } = await requireOnboardingAdmin();
-  const { createUserAction } = await import("@/app/(dashboard)/admin/users/actions");
+  const { inviteMemberAction } = await import("@/app/(dashboard)/admin/users/actions");
   const errors: string[] = [];
 
   for (const m of parsed.data.members) {
-    const res = await createUserAction({
+    const res = await inviteMemberAction({
       ownerName: m.ownerName,
       phone: m.phone,
       email: m.email,

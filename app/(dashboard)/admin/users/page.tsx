@@ -8,6 +8,8 @@ import { checkSeatAvailable } from "@/lib/platform/billing";
 import { PageHeader, Card } from "../../_components/ui";
 import { CreateUserForm } from "./create-user-form";
 import { UserRowActions, EmailCell } from "./user-row-actions";
+import { PendingInvites, type PendingInvite } from "./pending-invites";
+import { listInvitations } from "@/lib/platform/invitations";
 
 export const dynamic = "force-dynamic";
 
@@ -187,6 +189,17 @@ export default async function UsersAdminPage({
     }),
   );
 
+  // SY42 — invitations not yet accepted (pending or lapsed).
+  const pendingInvites: PendingInvite[] = (await listInvitations(organizationId)).map((i) => ({
+    id: i.id,
+    email: i.email,
+    role: i.role,
+    ownerName: i.ownerName,
+    state: i.state,
+    sentLabel: `${timeAgo(i.lastSentAt)} ago`,
+    sendCount: i.sendCount,
+  }));
+
   const activeAdminCount = profiles.filter(
     (p) => p.role === "ADMIN" && p.isActive,
   ).length;
@@ -243,9 +256,13 @@ export default async function UsersAdminPage({
         </div>
       ) : null}
 
-      <Card title="Add user" className="mb-6">
+      <Card title="Invite a team member" className="mb-6">
         <CreateUserForm />
       </Card>
+
+      <div className="mb-6">
+        <PendingInvites invites={pendingInvites} />
+      </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
         <span className="text-muted-foreground">Filter:</span>

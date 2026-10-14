@@ -52,3 +52,8 @@ export async function listOwnMemberships(profileId: string) {
   });
   return rows;
 }
+
+/** How many companies this person is an active member of. */
+export async function countActiveMemberships(profileId: string): Promise<number> {
+  return db.membership.count({ where: { profileId, isActive: true } });
+}

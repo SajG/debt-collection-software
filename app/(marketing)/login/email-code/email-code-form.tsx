@@ -23,9 +23,15 @@ type Stage =
   | { name: "email" }
   | { name: "code"; email: string; sentAt: number };
 
-export function EmailCodeForm({ callbackUrl }: { callbackUrl?: string }) {
+export function EmailCodeForm({
+  callbackUrl,
+  defaultEmail,
+}: {
+  callbackUrl?: string;
+  defaultEmail?: string;
+}) {
   const [stage, setStage] = useState<Stage>({ name: "email" });
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(defaultEmail ?? "");
   const [token, setToken] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();

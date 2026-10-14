@@ -4,6 +4,9 @@ import { type NextRequest, NextResponse } from "next/server";
 import { pinActiveOrgClaim } from "@/lib/platform/active-org";
 import { ensureStubProfile } from "@/lib/platform/resolve";
 import { safePath } from "@/lib/safe-redirect";
+import { findPendingLead } from "@/lib/platform/leads";
+import { provisionFromLead } from "@/lib/platform/provision-from-lead";
+import { isSignupEnabled } from "@/lib/signup-flag";
 
 // SY23 — OAuth / magic-link return leg.
 //
@@ -56,7 +59,21 @@ export async function GET(request: NextRequest) {
 
   await ensureStubProfile(user);
 
-  const { membershipCount } = await pinActiveOrgClaim(user);
+  let { membershipCount } = await pinActiveOrgClaim(user);
+
+  // SY42 — a password sign-up whose confirmation link was just clicked:
+  // build the company from the lead stored at sign-up.
+  if (membershipCount === 0) {
+    const lead = await findPendingLead(user.id);
+    if (lead) {
+      await provisionFromLead({
+        userId: user.id,
+        lead,
+        appMetadata: user.app_metadata,
+      });
+      membershipCount = 1;
+    }
+  }
 
   cookieStore.set("syncit_auth_since", String(Date.now()), {
     httpOnly: true,
@@ -66,6 +83,13 @@ export async function GET(request: NextRequest) {
     maxAge: 60 * 60 * 24 * 90,
   });
 
-  const dest = membershipCount === 0 ? "/onboarding" : next;
+  // Password reset links carry next=/reset-password and must reach it.
+  const dest = next.startsWith("/reset-password") || next.startsWith("/join/")
+    ? next
+    : membershipCount === 0
+      ? isSignupEnabled()
+        ? "/signup/complete"
+        : "/onboarding"
+      : next;
   return NextResponse.redirect(`${origin}${dest}`);
 }
