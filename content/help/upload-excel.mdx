@@ -1,0 +1,37 @@
+---
+title: "Upload Excel"
+description: "Bring customers, unpaid bills and payments into Syncit from a spreadsheet when you do not use Tally."
+order: 6
+updated: "2026-10-09"
+---
+
+If your books are in Excel, Busy, Marg or another package that can export a sheet, you can upload it.
+
+## Steps
+
+1. On the web, open **Import** in the sidebar.
+2. Choose what you are uploading: **Customers** first, then **Invoices** — an invoice needs its customer to exist.
+3. Download the CSV template for that type, or use your own sheet saved as **CSV** (in Excel: *File → Save As → CSV*).
+4. Upload. Syncit shows which column it matched to which field. Fix any that are wrong.
+5. Check the preview, then confirm.
+
+## Columns
+
+**Customers:** name (required), code, GSTIN, phone, email, contact person, address, city, state, credit days.
+
+**Invoices:** customer name (must match exactly), invoice number, invoice date, due date, amount, and the amount already received if any.
+
+Payments are not uploaded — record them as they arrive (below).
+
+## Tips
+
+- Dates as `DD-MM-YYYY` or `YYYY-MM-DD`. Amounts as plain numbers — no ₹ sign, no commas.
+- One row per invoice. If an invoice appears twice, the second row is skipped and reported.
+- Uploading the same file again does not create duplicates: rows are matched on customer + invoice number.
+- Rows with a problem are listed with the reason. The good rows still go in; fix the rest and upload again.
+
+Do not have an ageing sheet yet? Start from our free [outstanding ageing template](/tools/outstanding-ageing-template).
+
+## Keeping it up to date
+
+A sheet is a snapshot. Record payments in Syncit as they arrive (see [Record a payment](/help/record-payment)) and upload new invoices weekly, or [connect Tally](/help/connect-tally) to make it automatic.

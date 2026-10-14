@@ -21,6 +21,8 @@ export type SendEmailInput = {
   html: string;
   text?: string;
   replyTo?: string;
+  /** Extra mail headers, e.g. List-Unsubscribe for lifecycle mail. */
+  headers?: Record<string, string>;
   /** Base64 file contents (Resend `attachments`). */
   attachments?: { filename: string; content: string }[];
 };
@@ -53,6 +55,7 @@ export async function sendEmail(input: SendEmailInput): Promise<
         html: input.html,
         text: input.text,
         reply_to: input.replyTo,
+        ...(input.headers ? { headers: input.headers } : {}),
         ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       }),
     });

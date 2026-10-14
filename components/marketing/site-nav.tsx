@@ -5,6 +5,7 @@ const NAV = [
   { label: "Features", href: "/features" },
   { label: "Tally", href: "/tally" },
   { label: "Pricing", href: "/pricing" },
+  { label: "Help", href: "/help" },
 ] as const;
 
 export function SiteNav() {

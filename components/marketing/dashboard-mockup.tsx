@@ -52,7 +52,7 @@ export function DashboardMockup() {
             style={{ backgroundColor: "rgba(255,255,255,0.25)" }}
           />
         ))}
-        <span className="ml-auto text-xs" style={{ color: "rgba(255,255,255,0.65)" }}>
+        <span className="ml-auto text-xs" style={{ color: "rgba(255,255,255,0.8)" }}>
           Syncit Dashboard
         </span>
       </div>

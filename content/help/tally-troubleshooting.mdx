@@ -1,0 +1,40 @@
+---
+title: "Tally troubleshooting"
+description: "Fixes for the common reasons the Tally connector does not sync."
+order: 5
+updated: "2026-10-09"
+---
+
+Work down this list. Most problems are one of the first three.
+
+## "Cannot reach Tally"
+
+- Tally must be **open**, with the right **company loaded**. The connector cannot read a closed company.
+- Tally must be listening: `F1` → **Settings** → **Connectivity** → *acts as* **Both**, port **9000**. Restart Tally after changing this.
+- Another program may be using port 9000. Change the port in Tally and in the connector's settings to the same number (for example 9001).
+
+## "Pairing code is not valid"
+
+Codes last 15 minutes and work once. Generate a new one in **Settings → Tally** and type it again. Check you are generating it in the right company if you belong to more than one.
+
+## "Not authorised" after it used to work
+
+The connector was revoked in **Settings → Tally**, or the PC was replaced. Generate a new pairing code and pair again.
+
+## Sync runs but the outstanding does not match Tally
+
+- Bills must be maintained **bill-wise** in Tally (ledger → *Maintain balances bill-by-bill: Yes*). Without it Tally has only a ledger total and Syncit cannot show individual bills. See [bill-wise outstanding explained](/blog/bill-wise-outstanding-in-tally-explained).
+- "On account" receipts in Tally are shown in Syncit as unallocated payments. They reduce the customer's total but not any one bill.
+- Open **Reconciliation** in the sidebar: it lists every customer where Syncit's total and Tally's total differ, so you can see which ledger to check.
+
+## Customers appear but with no salesperson
+
+Set each salesperson's **Cost centre name** under **Team** to match Tally exactly, or assign by hand from **Unassigned**.
+
+## Sync is slow or stops
+
+The PC went to sleep, or the internet dropped. The connector resumes by itself. In Windows power settings, stop the PC from sleeping during working hours.
+
+## Still stuck
+
+Send us a screenshot of the connector window and the time it last synced — see [Contact support](/help/contact-support).

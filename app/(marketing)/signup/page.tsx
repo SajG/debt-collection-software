@@ -18,8 +18,16 @@ export const metadata: Metadata = {
 // no Google button: companies are onboarded by the Syncit team.
 export const dynamic = "force-dynamic";
 
-export default function SignupPage() {
+export default function SignupPage({
+  searchParams,
+}: {
+  searchParams?: { ref?: string };
+}) {
   if (!isSignupEnabled()) return <SignupClosed />;
+  // SY38 — arrived through a company's "Invite another business" link.
+  const referralCode = /^[A-Za-z0-9]{8}$/.test(searchParams?.ref ?? "")
+    ? searchParams!.ref!.toUpperCase()
+    : undefined;
   return (
     <main className="flex min-h-screen flex-col items-center justify-center px-6 py-12 bg-muted/30">
       <div className="w-full max-w-md">
@@ -33,7 +41,13 @@ export default function SignupPage() {
         <div className="rounded-xl border border-border bg-card p-8 shadow-sm space-y-4">
           <GoogleSignInButton label="Continue with Google" next="/onboarding" />
           <Divider />
-          <SignupForm />
+          {referralCode ? (
+            <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+              You were invited by another business. When you choose a plan, you both get one
+              month free.
+            </p>
+          ) : null}
+          <SignupForm referralCode={referralCode} />
         </div>
 
         <p className="mt-6 text-center text-sm text-muted-foreground">

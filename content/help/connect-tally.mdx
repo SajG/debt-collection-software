@@ -1,0 +1,37 @@
+---
+title: "Connect Tally"
+description: "Pair the Syncit connector with Tally so customers, bills and receipts flow in automatically."
+order: 4
+updated: "2026-10-09"
+---
+
+The connector is a small Windows program. It runs in the background on the PC where Tally runs, reads your ledgers and bills, and sends them to your company in Syncit. It is read-only unless you separately switch on posting payments back to Tally.
+
+Supported: Tally.ERP 9 release 6.6 and later, Tally Prime and Tally Prime Server, on Windows 10 or 11.
+
+## Before you start
+
+- Tally open, with your company loaded, on a Windows PC that is on during working hours.
+- You are a manager in Syncit.
+
+## Steps
+
+1. **Download the connector** from [getsyncit.app/download](/download) and install it on the Tally PC.
+2. **In Tally**, make sure the company you want is open, and that Tally is set to act as a server: press `F1` (Help) → **Settings** → **Connectivity** → *Client/Server configuration* → **Tally Prime acts as: Both**, port **9000**.
+3. **In Syncit on the web**, open **Settings → Tally** and click **Generate pairing code**. The code is valid for 15 minutes and works once.
+4. **In the connector**, type the pairing code and click **Pair**. It shows your company name when it succeeds.
+
+The first sync starts straight away. For a few thousand bills it takes a few minutes. After that the connector syncs on its own through the day.
+
+## What comes in
+
+- Customers (your customer ledgers in Tally) with phone, GSTIN and credit period
+- Unpaid bills, bill by bill, with due dates
+- Receipts, matched against the bills they settle
+- Stock items and closing quantity
+
+## Assigning customers to salespeople
+
+If you use cost centres or a sales-executive field in Tally, set each salesperson's **Cost centre name** under **Team** to the same text. Their customers are then assigned automatically.
+
+Something not working? See [Tally troubleshooting](/help/tally-troubleshooting).

@@ -16,6 +16,10 @@ const interBody = localFont({
   ],
   variable: "--font-body",
   display: "swap",
+  // SY38 — not preloaded: three files, ~1 MB, were fetched ahead of
+  // everything else on every page, including marketing pages that use
+  // Lora / DM Sans instead. They load when first used.
+  preload: false,
   fallback: ["system-ui", "-apple-system", "Segoe UI", "sans-serif"],
 });
 
@@ -25,6 +29,7 @@ const interTightDisplay = localFont({
   ],
   variable: "--font-display",
   display: "swap",
+  preload: false,
   fallback: ["system-ui", "sans-serif"],
 });
 

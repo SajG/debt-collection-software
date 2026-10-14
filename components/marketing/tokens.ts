@@ -20,13 +20,13 @@ export const mkt = {
   // Text
   ink: "#1C1917",
   ink2: "#57534E",
-  ink3: "#A8A29E",
+  ink3: "#6B645E",      // tertiary — 4.5:1 or better on white, bg and bgAlt
 
   // Brand
   teal: "#0D5C4A",     // primary CTA
   tealDark: "#093D30",
   tealLight: "#E8F4F0",
-  amber: "#9C6C0A",
+  amber: "#8A5F00",     // 5:1 on amberLight
   amberLight: "#FEF3C7",
   fault: "#B42318",
   faultLight: "#FEE4E2",

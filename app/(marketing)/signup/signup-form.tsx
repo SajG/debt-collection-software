@@ -18,7 +18,7 @@ type Stage =
 const PHONE_RE = /^[6-9]\d{9}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export function SignupForm() {
+export function SignupForm({ referralCode }: { referralCode?: string }) {
   const [stage, setStage] = useState<Stage>({ name: "form" });
   const [ownerName, setOwnerName] = useState("");
   const [companyName, setCompanyName] = useState("");
@@ -64,7 +64,7 @@ export function SignupForm() {
     setError(null);
     if (stage.name !== "code") return;
     startTransition(async () => {
-      const res = await verifySignupCodeAction({ ...stage, token });
+      const res = await verifySignupCodeAction({ ...stage, token, ref: referralCode });
       if (res && "error" in res) setError(res.error);
     });
   }

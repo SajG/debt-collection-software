@@ -1,0 +1,57 @@
+---
+title: "Bill-wise outstanding in Tally explained"
+description: "What bill-wise details are, how to switch them on, the four reference types, and how to fix the on-account mess that makes ageing reports wrong."
+date: "2026-10-08"
+updated: "2026-10-08"
+author: "Syncit team"
+---
+
+"Party says he has paid everything up to March. Tally says he owes ₹2.3 lakh. Which bills?" If you cannot answer that in ten seconds, bill-wise details are either off or not being used properly.
+
+## Ledger balance versus bill-wise
+
+Without bill-wise details, Tally keeps one running balance per customer. You know the total owed. You do not know which invoices make it up, or how old they are.
+
+With bill-wise details, every invoice is a separate reference with its own due date, and every receipt is set against specific invoices. That is what makes an ageing report possible.
+
+## Switching it on
+
+1. **For the company:** press `F11` and set **Enable Bill-wise entry** to *Yes*. (In Tally.ERP 9: `F11` → Accounting Features → *Maintain bill-wise details*.)
+2. **For each customer ledger:** alter the ledger and set **Maintain balances bill-by-bill** to *Yes*. Enter the **default credit period** — for example `30 Days`. Tally uses it to work out each bill's due date.
+
+Customer and supplier ledgers (the two "Sundry" groups in Tally) get this option automatically once the company feature is on.
+
+## The four reference types
+
+When you enter a sales invoice or a receipt, Tally asks for the *method of adjustment*:
+
+| Type | Use it when |
+|---|---|
+| **New Ref** | Raising a new invoice. Creates a bill with a due date. |
+| **Agst Ref** | A receipt settles one or more existing bills. Tally lists the pending bills to choose from. |
+| **Advance** | Money received before any invoice exists. |
+| **On Account** | You do not know which bill the money is for. |
+
+## Why "On Account" ruins the report
+
+On Account is the easy option, so it gets used for everything. The result: the customer's old invoices stay open for ever, with a lump of unallocated money sitting beside them. The ageing report shows bills at 120 days that were in fact paid in week three.
+
+Fix it once:
+
+1. Open **Outstandings → Ledger** for the customer.
+2. For each On Account receipt, alter the voucher and change it to **Agst Ref**, picking the bills it actually paid — normally oldest first unless the customer said otherwise.
+3. Going forward, ask the customer which bills a payment is for. If they will not say, apply it to the oldest.
+
+## Partial payments
+
+A ₹1,00,000 invoice paid ₹60,000: choose Agst Ref, select the bill, enter 60,000. The bill stays open with ₹40,000 pending and keeps its original due date. That is correct — do not create a new reference for the balance.
+
+## Credit notes
+
+A return or rate difference should be a credit note set **Agst Ref** to the original invoice. Then the invoice's pending amount drops, and the ageing stays honest.
+
+## Checking your work
+
+Run **Outstandings → Receivables**, press `F6` for age-wise. Sort by the oldest bucket. For the top ten customers, ask: is each bill there genuinely unpaid? If not, you have allocation to fix.
+
+Once the data is right, you can [see it on your phone](/blog/tally-outstanding-report-on-your-phone), measure how long customers really take with a [DSO calculator](/tools/dso-calculator), and remind people about the right bill — not just "your balance".

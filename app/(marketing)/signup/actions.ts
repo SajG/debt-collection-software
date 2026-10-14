@@ -14,6 +14,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { captureError } from "@/lib/monitoring";
 import { ONBOARDING_ONE_BY_ONE_MESSAGE, isSignupEnabled } from "@/lib/signup-flag";
+import { capture } from "@/lib/analytics-events/posthog";
+import { recordOnce } from "@/lib/platform/milestones";
+import { attachReferral } from "@/lib/platform/referrals";
 
 // SY23 — self-serve signup.
 //
@@ -50,6 +53,8 @@ const verifySchema = z.object({
   email: z.string().trim().toLowerCase().email().max(254),
   phone: z.string().trim().regex(/^[6-9]\d{9}$/),
   token: z.string().trim().regex(/^\d{6}$/, "Enter the 6-digit code."),
+  /** SY38 — code from a /r/<code> "Invite another business" link. */
+  ref: z.string().trim().max(16).optional(),
 });
 
 const SIGNUP_CLOSED = `${ONBOARDING_ONE_BY_ONE_MESSAGE}.`;
@@ -143,11 +148,12 @@ export async function verifySignupCodeAction(input: {
   email: string;
   phone: string;
   token: string;
+  ref?: string;
 }): Promise<Result> {
   if (!isSignupEnabled()) return { error: SIGNUP_CLOSED };
   const parsed = verifySchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.errors[0].message };
-  const { ownerName, companyName, email, phone, token } = parsed.data;
+  const { ownerName, companyName, email, phone, token, ref } = parsed.data;
 
   const supabase = createClient();
   const { error, data } = await supabase.auth.verifyOtp({
@@ -185,6 +191,20 @@ export async function verifySignupCodeAction(input: {
       active_org_id: org.id,
     },
   });
+
+  // SY38 — who referred this company (if anyone), and the first two
+  // product events. None of this may fail a sign-up.
+  try {
+    const referred = await attachReferral(org.id, ref);
+    await recordOnce(org.id, "milestone:company_created");
+    await capture({ event: "signup_completed", profileId: userId, organizationId: org.id, properties: { referred } });
+    await capture({ event: "company_created", profileId: userId, organizationId: org.id, properties: { plan: "trial", referred } });
+    // The welcome email goes out just below; mark it so the lifecycle
+    // cron does not send a second one.
+    await recordOnce(org.id, "email:day0_welcome");
+  } catch (e) {
+    await captureError(e, { scope: "signup.analytics" });
+  }
 
   // Fire-and-forget welcome email. sendEmail is a no-op when
   // RESEND_API_KEY is missing so preview envs stay silent.

@@ -13,6 +13,15 @@ const nextConfig = {
   // Custom webpack() disables the build worker unless this is set.
   experimental: {
     webpackBuildWorker: true,
+    // SY38 — help articles and blog posts are read from /content with
+    // fs; make sure the files ship with the functions that read them.
+    outputFileTracingIncludes: {
+      "/help": ["./content/help/**"],
+      "/help/[slug]": ["./content/help/**"],
+      "/blog": ["./content/blog/**"],
+      "/blog/[slug]": ["./content/blog/**"],
+      "/sitemap.xml": ["./content/**"],
+    },
   },
   webpack(config) {
     // @supabase/ssr pulls GoTrueClient (~250kiB) and storage-js (~106kiB)
