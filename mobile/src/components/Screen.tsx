@@ -3,6 +3,7 @@ import { SafeAreaView, type Edge } from "react-native-safe-area-context";
 import type { ReactNode } from "react";
 import { OfflineBanner } from "./OfflineBanner";
 import { BillingBanner } from "./BillingBanner";
+import { TallySyncBanner } from "./TallySyncBanner";
 import { BackBar } from "./BackBar";
 import { useHardwareBack } from "@/lib/back";
 import { theme } from "@/theme";
@@ -50,6 +51,8 @@ export function Screen({
     <SafeAreaView style={styles.safe} edges={edges}>
       <OfflineBanner />
       <BillingBanner />
+      {/* Top-level screens only; detail pages keep the space. */}
+      {back ? null : <TallySyncBanner />}
       {back ? <BackBar title={backTitle} fallback={backFallback} /> : null}
       <KeyboardAvoidingView
         style={styles.flex}

@@ -74,6 +74,7 @@ const AUTHENTICATED_ALLOW_LIST = [
   "create_sales_order",
   "create_sales_order_v2",
   "get_management_summary",
+  "get_tally_sync_status",
   "register_device",
   "touch_device_seen",
   "count_active_recovery_codes",
@@ -350,6 +351,27 @@ describe("SY33 — scoped RPCs refuse company A ids for company B's ADMIN", () =
     await expect(
       as(STAFF_B, ORG_B, () => db.query(`SELECT get_management_summary()`)),
     ).rejects.toThrow(/Only ADMIN/);
+  });
+});
+
+describe("SY41 — get_tally_sync_status", () => {
+  it("returns only the caller's company and ignores CSV imports", async () => {
+    await db.exec(`
+      INSERT INTO "SyncLog" (id, "syncType", status, "completedAt", details, "organizationId") VALUES
+        ('sl-a', 'IMPORT_PARTIES', 'COMPLETED', '2026-10-14 09:00', '{"source":"tally-connector"}', '${ORG_A}'),
+        ('sl-b', 'IMPORT_PARTIES', 'COMPLETED', '2026-10-14 08:00', '{"source":"tally-connector"}', '${ORG_B}'),
+        ('sl-b-csv', 'IMPORT_PARTIES', 'COMPLETED', '2026-10-14 10:00', '{"source":"csv"}', '${ORG_B}');
+      INSERT INTO "TallyConnector" (id, "organizationId", name, "tokenHash", "lastError", "lastSeenAt") VALUES
+        ('tc-a', '${ORG_A}', 'A PC', 'hash-a', 'Tally not running', now());
+    `);
+    const b = await asAdminB(() => rows<{ s: Record<string, unknown> }>(`SELECT get_tally_sync_status() AS s`));
+    expect(new Date(b[0]!.s.lastSyncAt as string).toISOString()).toBe("2026-10-14T08:00:00.000Z");
+    expect(b[0]!.s.hasConnector).toBe(false);
+    expect(b[0]!.s.lastError).toBeNull();
+
+    const a = await as(ADMIN_A, ORG_A, () => rows<{ s: Record<string, unknown> }>(`SELECT get_tally_sync_status() AS s`));
+    expect(a[0]!.s.hasConnector).toBe(true);
+    expect(a[0]!.s.lastError).toBe("Tally not running");
   });
 });
 

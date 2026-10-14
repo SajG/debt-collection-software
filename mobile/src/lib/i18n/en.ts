@@ -47,6 +47,12 @@ export const en = {
   "billing.locked.other": "This workspace is read-only — choose a plan to keep adding orders. Your data is safe.",
   "billing.pastDue": "Your last payment didn't go through. Pay by {date} to keep adding orders. Your data is safe.",
   "billing.ownerHint": "The account owner can choose a plan in Settings → Billing on the web.",
+  "tallySync.lastSynced": "Last synced with Tally: {time} ({ago})",
+  "tallySync.never": "Tally connector is set up but hasn't synced yet.",
+  "tallySync.stale": "Tally hasn't synced for a while. Is the Tally PC on with the Syncit connector running?",
+  "tallySync.failing": "Tally sync is failing. Check the Syncit connector on the Tally PC.",
+  "tallySync.refreshHint": "Tap to check again",
+  "splash.trust": "Your data is encrypted and private to your company",
 
   "account.title": "Account",
   "account.open": "Account & delete account",

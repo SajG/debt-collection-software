@@ -12,6 +12,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { initObservability, setUserRoleTag } from "@/lib/observability";
 import { useAuth } from "@/auth/AuthContext";
 import { ToastHost } from "@/components/Toast";
+import { BrandSplash } from "@/components/BrandSplash";
 import { initLanguage, useLanguage } from "@/lib/i18n";
 import { resetAnalytics, trackAppOpened } from "@/lib/analytics";
 // Imported for its side effect: records the JS start time used by the
@@ -63,6 +64,7 @@ export default function RootLayout() {
               <Stack key={language} screenOptions={{ headerShown: false }} />
             </ErrorBoundary>
             <ToastHost />
+            <BrandSplash />
           </AuthProvider>
         </ConnectivityProvider>
       </SafeAreaProvider>
