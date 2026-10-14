@@ -530,3 +530,103 @@ describe("SY34 — seat limit on mobile reactivation", () => {
     }
   });
 });
+
+describe("SY36 — follow-ups recorded from the phone", () => {
+  beforeAll(async () => {
+    // The SY28 test above installs a permissive stand-in policy on
+    // "Action"; remove it so only the real SY36 policies decide.
+    await db.exec(`DROP POLICY IF EXISTS test_member_all ON "Action"`);
+  });
+
+  const insertAction = (id: string, party: string, by: string, org?: string) =>
+    db.query(
+      `INSERT INTO "Action" (id, "partyId", "performedById", type, outcome, "promiseAmount",
+                             "promiseDate", "updatedAt"${org ? ', "organizationId"' : ""})
+       VALUES ($1, $2, $3::uuid, 'CALL', 'PROMISE_TO_PAY', 5000, now() + interval '2 days', now()${org ? `, '${org}'` : ""})`,
+      [id, party, by],
+    );
+
+  it("STAFF can record a promise for an assigned customer; the company is stamped", async () => {
+    await as(STAFF_A, ORG_A, () => insertAction("act-a1", "party-a", STAFF_A));
+    const r = await rows<{ organizationId: string; outcome: string }>(
+      `SELECT "organizationId", outcome FROM "Action" WHERE id = 'act-a1'`,
+    );
+    expect(r).toEqual([{ organizationId: ORG_A, outcome: "PROMISE_TO_PAY" }]);
+  });
+
+  it("refuses another company's customer", async () => {
+    await expect(
+      as(STAFF_A, ORG_A, () => insertAction("act-x1", "party-b", STAFF_A)),
+    ).rejects.toThrow(/row-level security/);
+  });
+
+  it("refuses a row stamped with another company", async () => {
+    await expect(
+      as(STAFF_A, ORG_A, () => insertAction("act-x2", "party-a", STAFF_A, ORG_B)),
+    ).rejects.toThrow(/row-level security/);
+  });
+
+  it("refuses recording as someone else", async () => {
+    await expect(
+      as(STAFF_A, ORG_A, () => insertAction("act-x3", "party-a", ADMIN_A)),
+    ).rejects.toThrow(/row-level security/);
+  });
+
+  it("STAFF cannot record for a customer assigned to someone else; ADMIN can", async () => {
+    await db.exec(`
+      INSERT INTO "Party" (id, name, "organizationId", "totalOutstanding", "assignedToId", "updatedAt")
+        VALUES ('party-a2', 'Alpha Other', '${ORG_A}', 100, '${ADMIN_A}', now());
+    `);
+    await expect(
+      as(STAFF_A, ORG_A, () => insertAction("act-x4", "party-a2", STAFF_A)),
+    ).rejects.toThrow(/row-level security/);
+    await as(ADMIN_A, ORG_A, () => insertAction("act-a2", "party-a2", ADMIN_A));
+    expect(await rows(`SELECT id FROM "Action" WHERE id = 'act-a2'`)).toHaveLength(1);
+  });
+
+  it("FACTORY cannot record follow-ups", async () => {
+    const FACTORY_A = "aaaaaaaa-0000-0000-0000-0000000000a3";
+    await db.exec(`
+      INSERT INTO "Profile" (id, "businessName", "ownerName", role, "isActive", "updatedAt")
+        VALUES ('${FACTORY_A}', 'Alpha', 'Anil', 'FACTORY', true, now());
+      INSERT INTO "Membership" (id, "organizationId", "profileId", role, "isActive", "createdAt")
+        VALUES ('m-a3', '${ORG_A}', '${FACTORY_A}', 'FACTORY', true, now());
+    `);
+    await expect(
+      as(FACTORY_A, ORG_A, () => insertAction("act-x5", "party-a", FACTORY_A)),
+    ).rejects.toThrow(/row-level security/);
+  });
+
+  it("a payment recorded from the phone gets the caller's company", async () => {
+    await as(STAFF_A, ORG_A, () =>
+      db.query(
+        `INSERT INTO "Payment" (id, "partyId", amount, "paymentDate", method, "recordedById", "updatedAt")
+         VALUES ('pay-a-mobile', 'party-a', 100, now(), 'UPI', $1::uuid, now())`,
+        [STAFF_A],
+      ),
+    );
+    const r = await rows<{ organizationId: string }>(
+      `SELECT "organizationId" FROM "Payment" WHERE id = 'pay-a-mobile'`,
+    );
+    expect(r[0]!.organizationId).toBe(ORG_A);
+  });
+
+  it("payment links are visible only inside the company", async () => {
+    await db.exec(`
+      INSERT INTO "PaymentLink" (id, "partyId", "providerLinkId", "shortUrl", amount, "organizationId", "updatedAt")
+        VALUES ('pl-a', 'party-a', 'plink_a', 'https://rzp.io/a', 100, '${ORG_A}', now()),
+               ('pl-b', 'party-b', 'plink_b', 'https://rzp.io/b', 100, '${ORG_B}', now());
+    `);
+    const mine = await as(STAFF_A, ORG_A, () => rows<{ id: string }>(`SELECT id FROM "PaymentLink"`));
+    expect(mine.map((x) => x.id)).toEqual(["pl-a"]);
+    const adminB = await asAdminB(() => rows<{ id: string }>(`SELECT id FROM "PaymentLink"`));
+    expect(adminB.map((x) => x.id)).toEqual(["pl-b"]);
+  });
+
+  it("stamp_org_id is not callable by clients", async () => {
+    const r = await rows<{ ok: boolean }>(
+      `SELECT has_function_privilege('authenticated', 'public.stamp_org_id()', 'EXECUTE') AS ok`,
+    );
+    expect(r[0]!.ok).toBe(false);
+  });
+});

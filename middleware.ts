@@ -19,6 +19,13 @@ const PUBLIC_PATHS = new Set([
   "/delete-account",
   "/contact",
   "/account-disabled",
+  // SY40 — uptime monitor + public service status. /status/<token>
+  // (signed order link) is covered separately by the "/status/" prefix.
+  "/api/health",
+  // Bearer CRON_SECRET inside the route; deliberate test error for Sentry.
+  "/api/ops/sentry-test",
+  "/status",
+  "/tools",
   "/robots.txt",
   "/sitemap.xml",
 ]);
@@ -37,6 +44,10 @@ const PUBLIC_PREFIXES = [
   // in the URL IS the auth; the page shows only status + docs for
   // that one order. Verified in lib/status-link.ts.
   "/status/",
+  // SY29 — customer-facing statement of account. Same model as
+  // /status/: the signed 7-day token in the URL is the auth
+  // (lib/statement-link.ts); the route returns one customer's PDF.
+  "/statement/",
   // Anonymous — the browser POSTs violation reports here with no
   // credentials; we accept, log, and drop the body's PII.
   "/api/csp-report",
@@ -56,6 +67,21 @@ const PUBLIC_PREFIXES = [
   // SY35 — the mobile app calls this with a Bearer access token and no
   // cookies; the route verifies the token itself.
   "/api/account/",
+  // SY29 — endpoints the mobile app calls with a Bearer access token
+  // and no cookies. Each route authenticates through
+  // requireProfileApi({ bearer }) → Membership; nothing under here may
+  // skip that.
+  "/api/mobile/",
+  // SY38 — public content and its helpers. /api/t receives anonymous
+  // marketing page views; /r/<code> is a referral link; /unsubscribe/
+  // carries its own signed token.
+  "/api/t",
+  "/r/",
+  "/unsubscribe/",
+  "/help",
+  "/blog/",
+  "/tools/",
+  "/industries/",
   // SY35 — /platform answers 404 (not a login redirect) to anyone who
   // isn't a platform admin, so its existence isn't advertised. The
   // layout checks session + PLATFORM_ADMINS + aal2 itself.
@@ -81,6 +107,34 @@ const LOCKED_WRITE_ALLOWED_PREFIXES = [
   "/api/auth/",
   "/api/csp-report",
 ];
+
+// SY38 — pages search engines may index. Keep in step with
+// MARKETING_ALLOW in app/robots.ts and with app/sitemap.ts. Exact
+// paths plus the content sections; /login and /signup are crawlable
+// but not worth indexing, so they are left out.
+const INDEXABLE_PATHS = new Set([
+  "/",
+  "/features",
+  "/tally",
+  "/pricing",
+  "/download",
+  "/contact",
+  "/blog",
+  "/help",
+  "/tools",
+  "/privacy",
+  "/terms",
+  "/refund-policy",
+  "/delete-account",
+]);
+const INDEXABLE_PREFIXES = ["/blog/", "/help/", "/tools/", "/industries/"];
+
+function isIndexable(pathname: string): boolean {
+  if (INDEXABLE_PATHS.has(pathname)) return true;
+  // The Excel download is a file, not a page.
+  if (pathname.endsWith("/download") && pathname.startsWith("/tools/")) return false;
+  return INDEXABLE_PREFIXES.some((p) => pathname.startsWith(p));
+}
 
 function isWrite(method: string): boolean {
   return method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
@@ -164,13 +218,24 @@ export async function middleware(request: NextRequest) {
   // minute. Bearer-authed and cron endpoints skip this — they
   // authenticate on their own and are not scan targets in the same
   // way. See RATE_LIMIT above.
+  // SY40 — /signup form posts (server actions) get the same per-IP
+  // burst cap, in its own bucket. Page views of /signup are not
+  // counted. The hourly caps (5 per IP, 20 per email domain) stay in
+  // the signup action; this only stops a burst reaching the database.
+  const isSignupPost =
+    pathnameForRate === "/signup" && request.method === "POST";
   const isRateGated =
+    isSignupPost ||
     pathnameForRate === "/login" ||
     pathnameForRate.startsWith("/login/") ||
     pathnameForRate.startsWith("/api/auth/");
   if (isRateGated) {
     const bucket = `${clientIp(request)}::${
-      pathnameForRate.startsWith("/login") ? "login" : "auth"
+      isSignupPost
+        ? "signup"
+        : pathnameForRate.startsWith("/login")
+          ? "login"
+          : "auth"
     }`;
     if (overRateLimit(bucket)) {
       // 429 with Retry-After so a well-behaved client backs off.
@@ -312,9 +377,15 @@ export async function middleware(request: NextRequest) {
   // Block reputable AND AI crawlers even on the login page. Belt-and-
   // braces with app/robots.ts — scrapers that ignore robots.txt still
   // see this per-response directive.
+  // SY38 — the marketing pages listed in app/robots.ts are meant to be
+  // found on Google; sending noindex on them kept the whole site out of
+  // search. They keep only the AI-corpus opt-out. Every other response
+  // (login, dashboard, signed links, APIs) is unchanged.
   supabaseResponse.headers.set(
     "X-Robots-Tag",
-    "noindex, nofollow, noarchive, nosnippet, noimageindex, noai, noimageai",
+    isIndexable(pathname)
+      ? "noai, noimageai"
+      : "noindex, nofollow, noarchive, nosnippet, noimageindex, noai, noimageai",
   );
   supabaseResponse.headers.set(
     "Referrer-Policy",

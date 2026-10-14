@@ -8,6 +8,7 @@ import {
   hashSecret,
   normalizePairingCode,
 } from "@/lib/tally/pairing";
+import { syncMilestonesQuietly } from "@/lib/platform/milestones";
 
 // SY27 — POST /api/sync/tally/pair
 //
@@ -101,6 +102,8 @@ export async function POST(request: NextRequest) {
         select: { id: true, name: true, organizationId: true },
       });
     });
+
+    await syncMilestonesQuietly(connector.organizationId, { source: "tally" });
 
     return NextResponse.json({
       token,

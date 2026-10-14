@@ -14,6 +14,7 @@ import {
   razorpayPlanIdFor,
 } from "@/lib/billing/razorpay";
 import { getOrgBilling, updateOrgBilling } from "@/lib/platform/billing";
+import { capture } from "@/lib/analytics-events/posthog";
 
 // SY28 — owner-only billing actions. Middleware lets POSTs to
 // /settings/billing through while an org is LOCKED, so these are the
@@ -99,6 +100,13 @@ export async function subscribeAction(input: { planId: string; cycle: string }):
     // sub's `cancelled` webhook is ignored as superseded.
     if (replaceId) await cancelSubscription(replaceId, false).catch(() => undefined);
 
+    await capture({
+      event: "plan_selected",
+      profileId: ctx.profile.id,
+      organizationId: ctx.organizationId,
+      properties: { plan: planId, cycle, change: "subscribe" },
+    });
+
     revalidatePath("/settings/billing");
     return { ok: true, checkoutUrl: sub.short_url };
   } catch (e) {
@@ -132,6 +140,12 @@ export async function changePlanAction(input: { planId: string }): Promise<Billi
     }
 
     await changeSubscriptionPlan(billing.razorpaySubscriptionId, razorpayPlanId, upgrade ? "now" : "cycle_end");
+    await capture({
+      event: "plan_selected",
+      profileId: ctx.profile.id,
+      organizationId: ctx.organizationId,
+      properties: { plan: target, cycle, change: upgrade ? "upgrade" : "downgrade" },
+    });
 
     await updateOrgBilling(
       ctx.organizationId,

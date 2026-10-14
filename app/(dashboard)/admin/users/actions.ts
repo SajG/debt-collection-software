@@ -9,6 +9,8 @@ import { requireAdmin } from "@/lib/authz";
 import { checkSeatAvailable } from "@/lib/platform/billing";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient as createSsrClient } from "@/lib/supabase/server";
+import { capture } from "@/lib/analytics-events/posthog";
+import { syncMilestonesQuietly } from "@/lib/platform/milestones";
 
 export type ActionResult = { ok: true; profileId?: string } | { error: string };
 
@@ -197,6 +199,14 @@ export async function createUserAction(input: {
   // for the admin. Best-effort — a mail failure here does not roll
   // back the user; the "Resend invite" button covers it.
   await inviteUserAction({ profileId: userId }).catch(() => undefined);
+
+  await capture({
+    event: "user_invited",
+    profileId: admin.id,
+    organizationId,
+    properties: { role: role.toLowerCase() },
+  });
+  await syncMilestonesQuietly(organizationId, { actorId: admin.id, source: "web" });
 
   revalidatePath("/admin/users");
   return { ok: true, profileId: userId };

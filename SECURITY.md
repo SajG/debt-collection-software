@@ -106,7 +106,66 @@ and SY-email is on that list.
 above.
 
 
+## Companies are isolated from each other (SY21–SY35)
+
+Syncit is multi-company: one database, every business row stamped with
+`organizationId`. Everything in "Who can access what" below applies
+**inside one company**. Across companies the answer is always: nothing.
+
+- **Identity vs role.** `Profile` is the person. `Membership`
+  (profile × organization) holds the role (`ADMIN` / `STAFF` / `FACTORY`),
+  `isActive` and `isOwner`. One person may hold different roles in
+  different companies. `Profile.role` is legacy and is never used for a
+  permission decision.
+- **Active company.** A session works in exactly one company at a time:
+  the `active_org_id` claim in the JWT's `app_metadata`, which
+  `public.current_org_id()` reads in the database and
+  `requireMembership()` reads on the server. With one membership it is
+  implied; with several the person picks (company switcher), and the
+  claim is only ever set to a company they hold an active membership in.
+  There is no default company — no membership means `/onboarding`.
+- **Server.** Company and role come only from `requireMembership()`
+  (`lib/tenant.ts`); data access only through
+  `tenantDb(organizationId)`, which adds the company to every query and
+  stamps it on every insert. ESLint refuses the raw Prisma client outside
+  `lib/tenant.ts`, `lib/platform/**`, `scripts/**`.
+- **Database.** RLS policies on every table compare `organizationId`
+  with `current_org_id()`. Every `SECURITY DEFINER` function checks the
+  caller's company and Membership role itself (SY33), and `EXECUTE` is
+  revoked from `anon` / `authenticated` unless granted by name.
+  `lib/__tests__/rpc-tenant-isolation.test.ts` replays the real
+  migrations and proves company A cannot read or change company B.
+- **Machine callers** (crons, webhooks, the Tally connector, signed
+  customer links) have no session. They resolve the company from the
+  thing they were given — a signed token, a pairing token, a stored
+  payment link — in `lib/platform/resolve.ts`, then use `tenantDb`.
+  Crons loop company by company (`forEachActiveOrg`); one company's
+  failure never stops the next.
+- **Per-company secrets** (WhatsApp token, Razorpay keys, bank account,
+  Tally pairing) are AES-256-GCM encrypted columns on `BusinessSettings`
+  and are never selected into a client payload.
+- **Company state.** `LOCKED` (trial ended / unpaid after the 7-day
+  grace) and `DELETING` are read-only — enforced in middleware, by the
+  `guard_org_writable` trigger and by restrictive RLS policies. Reading
+  and exporting always work. Owners can delete the company (30-day
+  soft delete, then purge); anyone can delete their own account.
+- **Syncit staff.** `/platform` is the operator console. Access =
+  signed-in + email listed in `PLATFORM_ADMINS` + TOTP passed in that
+  session; everyone else gets a 404. It shows operational data about
+  Syncit (scheduled-job runs) — no company's business data. Platform
+  tables (`PlatformAuditLog`, `CronRun`, `OrgLifecycleEvent`,
+  `ReferralReward`) have RLS on and no client grants.
+- **Store-review accounts** (`review-*@getsyncit.app`) can sign in with
+  a fixed code only while `REVIEW_LOGIN_EMAILS` / `REVIEW_LOGIN_CODE`
+  are set, only into the invented demo company, and every use is
+  written to `PlatformAuditLog`. Clear both variables when no review is
+  open.
+
 ## Who can access what
+
+Roles below are **Membership roles within the active company**.
+"Everything" means everything belonging to that company.
+
 
 | Role | Sees | Writes |
 |---|---|---|
@@ -312,7 +371,38 @@ repo root; the workflow reads it automatically.
 - `style-src 'self' 'unsafe-inline'` remains — Tailwind emits inline
   style attributes; there is no XSS surface via style alone.
 
+### Response headers — verified 2026-10-07
+
+Checked on `https://www.getsyncit.app/login` (`curl -sI`); all set by
+`middleware.ts` on every response it handles:
+
+| Header | Value |
+|---|---|
+| `Content-Security-Policy` | as above, fresh nonce per request, `report-uri /api/csp-report` |
+| `Strict-Transport-Security` | `max-age=63072000; includeSubDomains; preload` |
+| `X-Frame-Options` | `DENY` (and `frame-ancestors 'none'`) |
+| `X-Content-Type-Options` | `nosniff` |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=()` |
+| `Cache-Control` | `private, no-store` |
+| `X-Robots-Tag` | `noindex, nofollow, …, noai` — except the public marketing pages, which send `noai, noimageai` only (SY38) |
+
+Two consequences of the nonce-only script policy worth knowing:
+
+- A page prerendered at build time has no nonce on its script tags, so
+  the browser blocks its scripts. Every page that needs JavaScript must
+  render per request. The marketing layout does (`force-dynamic`, SY38).
+- `connect-src` is `'self'` plus Supabase. Third-party browser calls
+  (analytics) go through a first-party route (`/api/t`), not a CSP
+  exception.
+
 ## Site access
+
+Preview deployments additionally must not reach production data: see
+docs/ENVIRONMENTS.md and `lib/platform/env-guard.ts` (a Preview whose
+Supabase or database URL contains the production project ref refuses
+to start).
+
 
 The old `SITE_ACCESS_TOKEN` middleware gate (a shared secret in a
 30-day cookie with no per-person revocation) was **removed in SY7**.
@@ -414,7 +504,13 @@ the data private:
 ### Rate limit at the edge
 
 Middleware runs a best-effort token bucket keyed by IP × coarse
-route (`login` or `auth`) — 10 requests per 60 seconds per IP.
+route (`login`, `auth` — every `/api/auth/*` including
+`/api/auth/request-code` — and, since SY40, `signup` for form posts
+to `/signup`) — 10 requests per 60 seconds per IP per bucket. The
+durable limits sit behind it in the database: sign-up 5 per IP and 20
+per email domain per hour (`SignupAttempt`), sign-in codes 3 per email
+per 15 minutes, wrong codes 5 per email per 15 minutes. Supabase Auth's
+own limits are listed in docs/RUNBOOK.md → "Supabase Auth settings".
 Over-limit requests get a 429 with `Retry-After: 60`. This is
 in-memory per V8 isolate so a distributed attack can still hit
 harder; **the correct defence against distributed abuse is Vercel's

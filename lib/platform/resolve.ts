@@ -43,6 +43,15 @@ export async function findOrderOrg(orderId: string): Promise<string | null> {
   return row?.organizationId ?? null;
 }
 
+/** Company of a customer named in a signed statement link (SY29). */
+export async function findPartyOrg(partyId: string): Promise<string | null> {
+  const row = await db.party.findUnique({
+    where: { id: partyId },
+    select: { organizationId: true },
+  });
+  return row?.organizationId ?? null;
+}
+
 /** First sign-in (OAuth): make sure a Profile row exists. Role STAFF,
  *  the lowest — the real role is the Membership's (SY31). */
 export async function ensureStubProfile(user: User): Promise<void> {

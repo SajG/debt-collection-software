@@ -1,77 +1,101 @@
-# Syncit — AR & Payment Follow-up for MSME Distributors
+# Syncit — order-to-cash for manufacturers and distributors
 
-A B2B accounts-receivable tool for Indian MSME distributors who sell goods on credit. Tracks buyers, outstanding invoices, payment history, and drives follow-up workflows.
+Syncit is a multi-company web and mobile app for Indian manufacturers and
+distributors who sell on credit: orders, factory progress, dispatch
+documents, outstanding invoices, payment follow-up and payments — one
+place for sales, the factory and management.
 
-## Deploy model
+- **Web** — Next.js 14 (App Router), this directory. Live at `getsyncit.app`.
+- **Mobile** — Expo SDK 54, [`mobile/`](./mobile). English, Hindi, Marathi.
+- **Data** — one Supabase project (Postgres + Auth + Storage) for every
+  company; Prisma on the server; row-level security in the database.
 
-**Shared multi-tenant (SY21).** One Supabase project runs every
-customer as an `Organization` row. Every business table carries an
-`organizationId`; membership of a Profile in an Organization is
-recorded in `Membership` (role + isActive live there — Profile keeps
-identity fields only). Row-level isolation is enforced by RLS
-scoped on `Organization` (SY22 — RLS policies land in a follow-up
-migration; SY21 is schema + backfill only).
+## How companies are kept apart
 
-Legacy note: earlier releases ran "one Supabase project = one
-distributor" with no shared DB. The SY21 migration
-(`20260929030000_multi_tenant_orgs`) creates the `synergy` org and
-attaches every existing row to it; RLS enforcement arrives in SY22.
-Per-tenant secrets (WhatsApp, Razorpay, Tally sync token) now live
-in encrypted columns on `BusinessSettings` — env vars remain for
-platform-level keys only (Supabase, Resend, Anthropic, CRON_SECRET,
-APP_ENCRYPTION_KEY).
+One database, many companies. Every business row carries an
+`organizationId`. A person (`Profile`) belongs to a company through a
+`Membership` row, which holds their **role in that company** (ADMIN =
+Management, STAFF = Sales, FACTORY) and whether they are its owner. One
+person can belong to several companies with different roles.
+
+Three layers enforce it; each works if another has a bug:
+
+| Layer | Rule |
+|---|---|
+| Server code | The caller's company and role come **only** from `requireMembership()` (`lib/tenant.ts`). Data is read and written **only** through `tenantDb(organizationId)`, which scopes every query. Importing the raw Prisma client anywhere except `lib/tenant.ts`, `lib/platform/**` and `scripts/**` is a lint error. |
+| Database | RLS on every table keyed on `current_org_id()`; every `SECURITY DEFINER` function checks the caller's company and Membership role; functions are not executable by default. |
+| Billing state | A company that is `LOCKED` (trial ended / unpaid) or `DELETING` is read-only at the middleware, by trigger and by RLS. |
+
+`Profile.role` is a legacy column — never use it for permissions. There
+is no "default company": someone with no membership lands on
+`/onboarding`. Per-company secrets (WhatsApp, Razorpay, Tally pairing)
+are encrypted columns on `BusinessSettings`; environment variables hold
+platform-level keys only. Details: [SECURITY.md](./SECURITY.md).
 
 ## Tech stack
 
 | Layer | Choice |
 |---|---|
-| Framework | Next.js 14 (App Router) |
-| Language | TypeScript |
-| Styling | Tailwind CSS + shadcn/ui |
-| ORM | Prisma → Supabase Postgres |
-| Auth | Supabase Auth (SSR cookie sessions via `@supabase/ssr`) |
-| Forms | React Hook Form + Zod |
-| Charts | Recharts |
-| Toasts | Sonner |
+| Framework | Next.js 14 (App Router), TypeScript |
+| Styling | Tailwind CSS + shadcn/ui; tokens in `packages/tokens` |
+| Data | Prisma → Supabase Postgres; hand-written SQL migrations in `prisma/migrations` |
+| Auth | Supabase Auth — emailed 6-digit code (and Google on web); TOTP for Management when a company requires it. No passwords. |
+| Email | Resend |
+| Payments | Razorpay — Syncit's own subscription billing, and each company's "Pay now" links |
+| Monitoring | Sentry, `/api/health`, `CronRun` log at `/platform/crons` |
+| Mobile | Expo Router, EAS Build / Update |
+| Hosting | Vercel (web + crons) |
 
 ## Getting started
 
 ```bash
-# 1. Install dependencies
 npm install
-
-# 2. Copy env and fill in your Supabase credentials
-cp .env.example .env.local
-
-# 3. Push schema to Supabase
-npm run db:push
-
-# 4. (Optional) seed placeholder data
-npm run db:seed
-
-# 5. Start dev server
+cp .env.example .env        # fill in a STAGING Supabase project — never production
+node --env-file=.env node_modules/.bin/prisma migrate deploy
 npm run dev
 ```
 
-## Environment variables
+Mobile: `cd mobile && npm install && cp .env.example .env && npx expo start`.
 
-See `.env.example`. Two connection strings are required for Prisma + Supabase:
+Checks before any commit:
 
-- `DATABASE_URL` — pooled connection (pgBouncer, port 6543) — used at runtime
-- `DIRECT_URL` — direct connection (port 5432) — used by Prisma for migrations only
+```bash
+npx tsc --noEmit
+npm run lint
+npm test                    # see the note below
+(cd mobile && npm run typecheck && npm run lint)
+```
 
-Auth uses the same Supabase project (`NEXT_PUBLIC_SUPABASE_URL`,
-`NEXT_PUBLIC_SUPABASE_ANON_KEY`, plus server-only
-`SUPABASE_SERVICE_ROLE_KEY` for signup).
+> **`npm test` and the database.** Four suites
+> (`advance-order-status`, `create-sales-order-rules`,
+> `rls.factory-rate-approval`, `rls.staff-isolation`) connect to whatever
+> database `.env` names and create and delete rows there. Only run the
+> full suite with `.env` pointing at staging or a throwaway project.
 
-`APP_ENCRYPTION_KEY` (32 bytes, base64 — `openssl rand -base64 32`) encrypts
-stored secrets such as the WhatsApp API token at rest. Messaging, payment
-links, and the reminder cron have their own keys — all documented in
-`.env.example`.
+## Schema changes
+
+Every change is a new folder in `prisma/migrations` **plus** the matching
+edit to `prisma/schema.prisma`. Never edit an old migration. New tables
+get RLS in the same file. Migrations must be idempotent and
+**backwards-compatible for one release** — apply the migration first,
+then deploy the code ([RUNBOOK → Rolling back a release](./docs/RUNBOOK.md#rolling-back-a-release)).
+
+## Environments and operations
+
+| Doc | For |
+|---|---|
+| [docs/ENVIRONMENTS.md](./docs/ENVIRONMENTS.md) | Production vs Preview (staging) vs local; which variable goes where |
+| [`.env.example`](./.env.example) | Every variable with its purpose |
+| [docs/RUNBOOK.md](./docs/RUNBOOK.md) | Alerts, uptime, crons, backups and restore test, rollback, Supabase Auth settings, sessions |
+| [docs/LAUNCH.md](./docs/LAUNCH.md) | Launch checklist: every SY item, done or deferred |
+| [SECURITY.md](./SECURITY.md) | Who can access what, and which layer enforces it |
+| [docs/LOGIN-RUNBOOK.md](./docs/LOGIN-RUNBOOK.md) | "I can't sign in" in 60 seconds |
+| [docs/NOTIFICATIONS.md](./docs/NOTIFICATIONS.md) | Push notifications and the `notify` edge function |
+| [docs/MOBILE-RELEASE.md](./docs/MOBILE-RELEASE.md), [PLAY-STORE.md](./docs/PLAY-STORE.md), [APP-STORE.md](./docs/APP-STORE.md) | Shipping the app |
 
 ## Recovery module
 
-Adds `/recovery` (today's chase list), `/escalations` (open ladder), and
+Adds `/recovery` (today's follow-up list), `/escalations` (open ladder), and
 `/targets` (monthly scorecard) pages plus a second cron `/api/cron/recovery`
 scheduled at 11:00 IST (`30 5 * * *` UTC) that:
 
@@ -86,7 +110,7 @@ scheduled at 11:00 IST (`30 5 * * *` UTC) that:
 
 Per Supabase project setup:
 
-1. `npm run db:push`
+1. Apply migrations (`prisma migrate deploy`)
 2. Run `prisma/sql/2026-07-21-escalation-open-unique.sql` once in the
    Supabase SQL editor (partial unique index — one OPEN escalation per
    party).

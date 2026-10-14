@@ -1,6 +1,7 @@
 import { Prisma, type Profile } from "@prisma/client";
 import { db } from "@/lib/db";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
 import { TENANT_MODELS, type TenantModel } from "./tenant-models";
 
@@ -58,6 +59,28 @@ export async function getActiveMembership(): Promise<ActiveMembershipResult> {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  return resolveMembership(user);
+}
+
+/**
+ * Same resolution for the mobile app, which has no cookies and sends
+ * its Supabase access token as `Authorization: Bearer <jwt>`. The token
+ * is verified with Supabase (signature + expiry + user still exists);
+ * company and role then come from Membership exactly as for a web
+ * session. Used only by routes under /api/mobile/ (see middleware.ts).
+ */
+export async function getActiveMembershipFromBearer(
+  authorizationHeader: string | null,
+): Promise<ActiveMembershipResult> {
+  const token = authorizationHeader?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+  if (!token) return { status: "signed-out" };
+  const { data, error } = await createAdminClient().auth.getUser(token);
+  return resolveMembership(error ? null : data.user);
+}
+
+async function resolveMembership(
+  user: { id: string; app_metadata?: unknown } | null,
+): Promise<ActiveMembershipResult> {
   if (!user) return { status: "signed-out" };
 
   const profile = await db.profile.findUnique({ where: { id: user.id } });

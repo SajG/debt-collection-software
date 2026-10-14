@@ -4,6 +4,7 @@ import type { Profile } from "@prisma/client";
 import { readMfaStatus } from "@/lib/auth/mfa";
 import {
   getActiveMembership,
+  getActiveMembershipFromBearer,
   requireMembership,
   tenantDb,
   type MembershipContext,
@@ -125,8 +126,19 @@ function apiFailure(error: string, status: number, code?: string): ApiAuthResult
  *  redirecting. `profile.role` is the active Membership's role. */
 export async function requireProfileApi(opts?: {
   adminOnly?: boolean;
+  /** Mobile routes (/api/mobile/*): pass the request's Authorization
+   *  header to authenticate by Supabase access token instead of the
+   *  web session cookie. Not combinable with adminOnly (no MFA level
+   *  on a bearer call). */
+  bearer?: string | null;
 }): Promise<ApiAuthResult> {
-  const result = await getActiveMembership();
+  if (opts?.bearer !== undefined && opts.adminOnly) {
+    return apiFailure("Admin access required", 403);
+  }
+  const result =
+    opts?.bearer !== undefined
+      ? await getActiveMembershipFromBearer(opts.bearer)
+      : await getActiveMembership();
   if (result.status === "signed-out" || result.status === "no-profile") {
     return apiFailure("Unauthorised", 401);
   }

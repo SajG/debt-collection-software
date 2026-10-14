@@ -6,6 +6,7 @@ import {
   checkEmailOtpSendLimit,
   recordLoginAttempt,
 } from "@/lib/platform/rate-limit";
+import { isReviewEmail } from "@/lib/platform/review-login";
 
 // Mobile calls THIS route for a 6-digit email code (SY-email + audit
 // item 9). Previously the mobile client hit supabase.auth.signInWithOtp
@@ -45,6 +46,13 @@ export async function POST(req: NextRequest) {
     );
   }
   const { email } = parsed.data;
+
+  // SY37 — store-review accounts sign in with a fixed code
+  // (/api/auth/review-login). Their mailboxes do not exist, so no code
+  // is sent; the answer is the same uniform {ok:true}.
+  if (isReviewEmail(email)) {
+    return NextResponse.json({ ok: true });
+  }
 
   const { limited, retryAfterMinutes } = await checkEmailOtpSendLimit(email);
   if (limited) {

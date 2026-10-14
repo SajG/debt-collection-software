@@ -8,6 +8,7 @@ import { tenantDb } from "@/lib/tenant";
 import { requireProfile } from "@/lib/authz";
 import { createClient } from "@/lib/supabase/server";
 import { daysOverdue } from "@/lib/ar/aging";
+import { syncMilestonesQuietly } from "@/lib/platform/milestones";
 
 const OVERDUE_HOLD_DAYS = 60;
 
@@ -207,6 +208,8 @@ export async function createSalesOrderAction(
   if (!row || typeof row.id !== "string") {
     return { error: "Could not save order — please try again." };
   }
+
+  await syncMilestonesQuietly(profile.organizationId, { actorId: profile.id, source: "web" });
 
   revalidatePath("/orders");
   revalidatePath("/production");

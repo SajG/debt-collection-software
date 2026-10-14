@@ -12,6 +12,7 @@ import {
   invoicePending,
   recomputePartyOutstanding,
 } from "@/lib/ar/balance";
+import { syncMilestonesQuietly } from "@/lib/platform/milestones";
 
 type ActionResult = { error: string } | never;
 
@@ -96,6 +97,8 @@ export async function createPaymentAction(
       await recomputePartyOutstanding(tx, data.partyId);
     });
   }
+
+  await syncMilestonesQuietly(profile.organizationId, { actorId: profile.id, source: "web" });
 
   revalidatePath("/payments");
   revalidatePath(`/parties/${data.partyId}`);

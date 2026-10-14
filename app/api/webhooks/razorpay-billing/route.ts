@@ -17,6 +17,8 @@ import {
   type SubscriptionEntity,
 } from "@/lib/billing/events";
 import { findOrgForSubscription, issueBillingInvoice } from "@/lib/platform/billing";
+import { capture, identifyOrganization } from "@/lib/analytics-events/posthog";
+import { grantReferralReward } from "@/lib/platform/referrals";
 
 // SY28 — Syncit's own subscription webhook.
 //
@@ -127,6 +129,30 @@ export async function POST(request: NextRequest) {
 
     const payment = body.payload.payment?.entity;
     const mapped = lookupRazorpayPlan(sub.plan_id);
+
+    // SY38 — the company has just become a paying customer (it was on
+    // trial or locked, and this event made it ACTIVE on a paid plan).
+    const becamePaying =
+      transition.patch.status === "ACTIVE" &&
+      transition.patch.plan !== undefined &&
+      transition.patch.plan !== "TRIAL" &&
+      (org.plan === "TRIAL" || org.status !== "ACTIVE");
+    if (becamePaying && mapped) {
+      await capture({
+        event: "subscription_activated",
+        profileId: null,
+        organizationId: org.id,
+        properties: { plan: mapped.planId, cycle: mapped.cycle },
+      });
+      await identifyOrganization(org.id, { plan: mapped.planId, status: "active" });
+    }
+    // Referral reward on the first real charge. Idempotent (unique per
+    // referred company); a failure here must not fail the webhook.
+    if (transition.issueInvoice && payment) {
+      await grantReferralReward(org.id).catch((e) =>
+        captureError(e, { scope: "webhook.razorpay-billing.referral", orgId: org.id }),
+      );
+    }
     if (transition.issueInvoice && payment && mapped) {
       const invoice = await issueBillingInvoice({
         organizationId: org.id,

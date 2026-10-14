@@ -287,6 +287,19 @@ model Organization {
   statusBeforeDeletion   String?
   deletedAt              DateTime? @db.Timestamptz
 
+  // SY38 — referrals + lifecycle email opt-out.
+  /// Short code in this company's "Invite another business" link.
+  referralCode          String?   @unique
+  /// The company whose link this one signed up through.
+  referredByOrgId       String?   @db.Uuid
+  /// Set from the unsubscribe link in lifecycle emails. Account
+  /// notices (trial ending, billing) are not affected.
+  marketingEmailsOptOut Boolean   @default(false)
+
+  lifecycleEvents       OrgLifecycleEvent[]
+  referralsGiven        ReferralReward[] @relation("ReferralReferrer")
+  referralReceived      ReferralReward?  @relation("ReferralReferred")
+
   memberships           Membership[]
   parties               Party[]
   invoices              Invoice[]
@@ -325,6 +338,7 @@ model Organization {
   @@index([status])
   @@index([status, pastDueSince])
   @@index([deletionScheduledFor])
+  @@index([referredByOrgId])
 }
 
 // One person, N companies. Role + isActive move here from Profile.
@@ -410,6 +424,8 @@ model Profile {
   notifyStaleOrders   Boolean   @default(true)
   notifyCreditIssues  Boolean   @default(true)
   notifyComments      Boolean   @default(true)
+  // SY29 — the 9:00 "Today: N customers, ₹X to follow up" push.
+  notifyDailyPlan     Boolean   @default(true)
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
@@ -566,6 +582,11 @@ model BusinessSettings {
   // stays for reporting. Defaults true on all existing rows via the
   // 20260929010000_require_approval_toggle migration.
   requireApprovalForAllOrders Boolean @default(true)
+
+  // SY36 — when true the mobile app lock (fingerprint / PIN) is
+  // compulsory on every phone signed in to this company. When false
+  // (default) the lock is offered after sign-in and can be skipped.
+  requireAppLock Boolean @default(false)
 
   // SY23 — TOTP for management is optional per org. Default false
   // (a new distributor onboarding shouldn't be blocked by a QR-code
@@ -1512,6 +1533,10 @@ enum LoginAttemptFactor {
   TOTP
   RECOVERY
   EMAIL_OTP
+  /// SY37 — fixed-code sign-in for the three store-review accounts
+  /// (POST /api/auth/review-login). Counted separately so reviewer
+  /// typos never touch a real user's limits.
+  REVIEW_CODE
 }
 
 // SY23 — signup abuse control. One row per POST /api/signup, no
@@ -1713,6 +1738,36 @@ model BillingEvent {
   receivedAt     DateTime @default(now()) @db.Timestamptz
 }
 
+/// SY38 — things that happen once per company: activation milestones
+/// ("milestone:first_order_placed") and lifecycle emails already sent
+/// ("email:day3_invite_team"). RLS on, no client grants.
+model OrgLifecycleEvent {
+  id             String       @id @default(cuid())
+  organizationId String       @db.Uuid
+  key            String
+  occurredAt     DateTime     @default(now()) @db.Timestamptz
+  detail         Json?
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, key])
+}
+
+/// SY38 — one row per referred company, created when it first pays.
+/// Outcomes: TRIAL_EXTENDED (30 days added automatically) or
+/// PENDING_MANUAL (on a paid plan — the free month is applied by hand).
+model ReferralReward {
+  id              String       @id @default(cuid())
+  referrerOrgId   String       @db.Uuid
+  referredOrgId   String       @unique @db.Uuid
+  referrerOutcome String
+  referredOutcome String
+  createdAt       DateTime     @default(now()) @db.Timestamptz
+  referrer        Organization @relation("ReferralReferrer", fields: [referrerOrgId], references: [id], onDelete: Cascade)
+  referred        Organization @relation("ReferralReferred", fields: [referredOrgId], references: [id], onDelete: Cascade)
+
+  @@index([referrerOrgId])
+}
+
 /// SY35 — every /platform (Syncit operator) action. RLS on, no client
 /// grants: service role / Prisma only.
 model PlatformAuditLog {
@@ -1727,4 +1782,22 @@ model PlatformAuditLog {
 
   @@index([organizationId, createdAt])
   @@index([createdAt])
+}
+
+/// SY40 — one row per scheduled pass (app/api/cron/*). Platform table:
+/// RLS on, no client grants; read by /platform/crons only.
+model CronRun {
+  id         String   @id @default(cuid())
+  job        String
+  startedAt  DateTime @default(now()) @db.Timestamptz
+  durationMs Int
+  /// OK | PARTIAL | FAILED
+  status     String
+  orgCount   Int      @default(0)
+  failures   Int      @default(0)
+  /// Counts only — never names, emails or amounts.
+  detail     Json?
+
+  @@index([job, startedAt])
+  @@index([startedAt])
 }

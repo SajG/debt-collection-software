@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
+  LifeBuoy,
   Users,
   FileText,
   CreditCard,
@@ -171,6 +172,7 @@ const GROUPS: NavGroup[] = [
         icon: Settings,
         roles: ["ADMIN", "STAFF", "FACTORY"],
       },
+      { href: "/help", label: "Help", icon: LifeBuoy, roles: ["ADMIN", "STAFF", "FACTORY"] },
     ],
   },
 ];
