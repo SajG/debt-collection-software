@@ -5,9 +5,9 @@ import {
   FlatList,
   Pressable,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
+import { Text } from "@/components/Text";
 import { Swipeable } from "react-native-gesture-handler";
 import { router, useLocalSearchParams } from "expo-router";
 import { Screen } from "@/components/Screen";
@@ -18,6 +18,11 @@ import { formatINR } from "@/lib/format";
 import type { QuantityUnit } from "@/lib/database.types";
 import type { OrderDraftItem } from "@/lib/order-draft";
 import { theme } from "@/theme";
+import { t } from "@/lib/i18n";
+import { statusLabel } from "@/lib/labels";
+import type { OrderStatus } from "@/lib/database.types";
+import { toast } from "@/components/Toast";
+import { goBackOr } from "@/lib/back";
 
 // Edit line items on any pre-dispatch order.
 // Delegates the atomic replace to the SECURITY DEFINER RPC
@@ -89,7 +94,7 @@ export default function EditItemsScreen() {
         .maybeSingle();
       if (cancelled) return;
       if (error || !data) {
-        Alert.alert("Could not load", error?.message ?? "Order not found.");
+        Alert.alert(t("common.couldNotLoad"), error?.message ?? t("common.orderNotFound"));
         router.back();
         return;
       }
@@ -160,7 +165,7 @@ export default function EditItemsScreen() {
   async function save() {
     if (!id) return;
     if (!canSave) {
-      Alert.alert("Incomplete lines", "Every line needs a product, quantity, and rate.");
+      Alert.alert(t("staffOrdersEditItemsDetail.incompleteLines"), t("staffOrdersEditItemsDetail.everyLineNeedsAProduct"));
       return;
     }
     setSaving(true);
@@ -180,17 +185,16 @@ export default function EditItemsScreen() {
     });
     setSaving(false);
     if (error) {
-      Alert.alert("Could not save", error.message);
+      Alert.alert(t("common.couldNotSave"), error.message);
       return;
     }
-    Alert.alert("Saved", "Items updated.", [
-      { text: "OK", onPress: () => router.back() },
-    ]);
+    toast.success(t("staffOrdersEditItemsDetail.itemsUpdated"));
+    goBackOr("/(staff)/orders");
   }
 
   if (loading) {
     return (
-      <Screen back backTitle="Edit items">
+      <Screen back backTitle={t("staffOrdersEditItemsDetail.editItems")}>
         <View style={styles.center}>
           <ActivityIndicator />
         </View>
@@ -206,11 +210,11 @@ export default function EditItemsScreen() {
 
   if (terminal) {
     return (
-      <Screen back backTitle={orderNumber ?? "Edit items"}>
+      <Screen back backTitle={orderNumber ?? t("staffOrdersEditItemsDetail.editItems")}>
         <View style={styles.center}>
-          <Text style={styles.title}>Cannot edit items</Text>
+          <Text style={styles.title}>{t("staffOrdersEditItemsDetail.cannotEditItems")}</Text>
           <Text style={styles.subtitle}>
-            This order is {status}. Item edits are only allowed before dispatch.
+            {t("staffOrdersEdit.lockedItems", { status: status ? statusLabel(status as OrderStatus) : "—" })}
           </Text>
         </View>
       </Screen>
@@ -218,14 +222,14 @@ export default function EditItemsScreen() {
   }
 
   return (
-    <Screen back backTitle={orderNumber ?? "Edit items"} padded={false}>
+    <Screen back backTitle={orderNumber ?? t("staffOrdersEditItemsDetail.editItems")} padded={false}>
       <FlatList
         contentContainerStyle={styles.body}
         data={items}
         keyExtractor={(it) => it.localId}
         ListEmptyComponent={
           <Text style={styles.empty}>
-            No items. Tap "Add item" to add a line.
+            {t("staffOrdersEditItemsDetail.noItemsTapAddItem")}
           </Text>
         }
         renderItem={({ item }) => (
@@ -237,9 +241,9 @@ export default function EditItemsScreen() {
                 }
                 style={styles.deleteAction}
                 accessibilityRole="button"
-                accessibilityLabel="Remove line"
+                accessibilityLabel={t("staffOrdersEditItemsDetail.removeLine")}
               >
-                <Text style={styles.deleteActionText}>Delete</Text>
+                <Text style={styles.deleteActionText}>{t("common.delete")}</Text>
               </Pressable>
             )}
           >
@@ -250,12 +254,12 @@ export default function EditItemsScreen() {
                 pressed && { opacity: 0.85 },
               ]}
               accessibilityRole="button"
-              accessibilityLabel="Edit line"
+              accessibilityLabel={t("staffOrdersEditItemsDetail.editLine")}
             >
               <View style={{ flex: 1 }}>
                 <Text style={styles.itemBrand}>{item.brand ?? "—"}</Text>
                 <Text style={styles.itemName}>
-                  {item.productName ?? item.customProductName ?? "New product"}
+                  {item.productName ?? item.customProductName ?? t("common.newProduct")}
                 </Text>
                 <Text style={styles.itemMeta}>
                   {item.quantity || "0"} {item.quantityUnit}
@@ -273,17 +277,17 @@ export default function EditItemsScreen() {
 
       <View style={styles.footer}>
         <View style={styles.totalRow}>
-          <Text style={styles.totalLabel}>Order total</Text>
+          <Text style={styles.totalLabel}>{t("common.orderTotal")}</Text>
           <Text style={styles.totalValue}>{formatINR(totalValue)}</Text>
         </View>
         <View style={styles.footerButtons}>
           <Button
-            label="+ Add item"
+            label={t("common.addItem")}
             variant="secondary"
             onPress={() => setSheet({ mode: "add" })}
           />
           <Button
-            label={saving ? "Saving…" : "Save changes"}
+            label={saving ? t("common.saving") : t("common.saveChanges")}
             disabled={saving || !canSave}
             loading={saving}
             onPress={save}
@@ -365,7 +369,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surface,
   },
   itemBrand: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "700",
     color: theme.colors.textMuted,
     textTransform: "uppercase",

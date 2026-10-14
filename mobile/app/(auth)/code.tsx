@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Platform,
+  Pressable,
+  StyleSheet,
+  View,
+} from "react-native";
+import { Text } from "@/components/Text";
 import { router, useLocalSearchParams } from "expo-router";
 import Constants from "expo-constants";
 import * as Device from "expo-device";
@@ -15,6 +21,8 @@ import {
   isDevTestOtp,
 } from "@/auth/dev-test";
 import { theme } from "@/theme";
+import { t } from "@/lib/i18n";
+import { tryReviewLogin } from "@/lib/review-login";
 
 // SY-email step 2 of 2.
 //
@@ -28,8 +36,7 @@ import { theme } from "@/theme";
 // Resend has a 30-second cooldown to keep users from spamming the
 // Supabase rate limiter into a freeze.
 
-const GENERIC_ERROR =
-  "That code didn't work. Ask for a fresh code from the email screen.";
+const genericError = () => t("authCode.genericError");
 
 const RESEND_COOLDOWN_S = 30;
 
@@ -71,11 +78,11 @@ export default function CodeScreen() {
   const verify = useCallback(async () => {
     setError(null);
     if (code.length !== 6) {
-      setError("Enter the 6-digit code.");
+      setError(t("authCode.enterThe6DigitCode"));
       return;
     }
     if (!identifier) {
-      setError(GENERIC_ERROR);
+      setError(genericError());
       return;
     }
     setVerifying(true);
@@ -85,7 +92,7 @@ export default function CodeScreen() {
         // provisioned dev auth user via password. Real Supabase phone
         // OTP is not wired.
         if (!isDevTestOtp(phone!, code) || !DEV_TEST_EMAIL || !DEV_TEST_PASSWORD) {
-          setError(GENERIC_ERROR);
+          setError(genericError());
           return;
         }
         const { error: pwErr } = await supabase.auth.signInWithPassword({
@@ -94,7 +101,7 @@ export default function CodeScreen() {
         });
         if (pwErr) {
           setError(
-            __DEV__ ? `${GENERIC_ERROR}\n[dev] ${pwErr.message}` : GENERIC_ERROR,
+            __DEV__ ? t("authCode.dev", { error: genericError(), message: pwErr.message }) : genericError(),
           );
           return;
         }
@@ -105,10 +112,21 @@ export default function CodeScreen() {
           type: "email",
         });
         if (verifyErr) {
-          setError(
-            __DEV__ ? `${GENERIC_ERROR}\n[dev] ${verifyErr.message}` : GENERIC_ERROR,
-          );
-          return;
+          // Store reviewers (Google Play / App Store) sign in to the
+          // demo company with a fixed code that only the server knows
+          // and checks. The app holds no list of those addresses and no
+          // code: it simply asks the server, which refuses everyone
+          // else with the same answer as a wrong code.
+          const review = await tryReviewLogin(identifier, code);
+          const { error: sessionErr } = review
+            ? await supabase.auth.setSession(review)
+            : { error: verifyErr };
+          if (sessionErr) {
+            setError(
+              __DEV__ ? t("authCode.dev", { error: genericError(), message: verifyErr.message }) : genericError(),
+            );
+            return;
+          }
         }
       }
       // Session established. register_device is authenticated-only
@@ -145,8 +163,8 @@ export default function CodeScreen() {
         }
         setError(
           __DEV__ && regErr?.message
-            ? `${GENERIC_ERROR}\n[dev] ${regErr.message}`
-            : GENERIC_ERROR,
+            ? t("authCode.dev", { error: genericError(), message: regErr.message })
+            : genericError(),
         );
         return;
       }
@@ -155,8 +173,8 @@ export default function CodeScreen() {
     } catch (e) {
       setError(
         __DEV__ && e instanceof Error
-          ? `${GENERIC_ERROR}\n[dev] ${e.message}`
-          : GENERIC_ERROR,
+          ? t("authCode.dev", { error: genericError(), message: e.message })
+          : genericError(),
       );
     } finally {
       setVerifying(false);
@@ -183,16 +201,16 @@ export default function CodeScreen() {
   return (
     <Screen scroll>
       <View style={styles.header}>
-        <Text style={styles.title}>Enter your code</Text>
+        <Text style={styles.title}>{t("authCode.enterYourCode")}</Text>
         <Text style={styles.subtitle}>
           {isDevPhone
-            ? `Dev phone ${identifier}. Enter dev OTP.`
-            : `If ${identifier} is registered, a 6-digit code is on its way. Enter it below.`}
+            ? t("authCode.devPhoneEnterDevOtp", { identifier })
+            : t("authCode.ifIsRegisteredA6", { identifier })}
         </Text>
       </View>
 
       <TextField
-        label="6-digit code"
+        label={t("authCode.6DigitCode")}
         error={error}
         keyboardType="number-pad"
         autoComplete="one-time-code"
@@ -203,10 +221,13 @@ export default function CodeScreen() {
         style={{ fontSize: 28, letterSpacing: 8, textAlign: "center" }}
       />
 
-      <Button label="Verify" loading={verifying} onPress={verify} />
+      <Button label={t("authCode.verify")} loading={verifying} onPress={verify} />
 
       <View style={styles.footer}>
         <Pressable
+          accessibilityLabel={cooldownLeft > 0
+              ? t("authCode.resendInS", { cooldownLeft })
+              : t("authCode.resendCode")}
           onPress={resend}
           disabled={cooldownLeft > 0}
           style={{ minHeight: theme.tap, justifyContent: "center" }}
@@ -219,17 +240,18 @@ export default function CodeScreen() {
             ]}
           >
             {cooldownLeft > 0
-              ? `Resend in ${cooldownLeft}s`
-              : "Resend code"}
+              ? t("authCode.resendInS", { cooldownLeft })
+              : t("authCode.resendCode")}
           </Text>
         </Pressable>
         <Pressable
+          accessibilityLabel={isDevPhone ? t("authCode.changePhone") : t("authCode.changeEmail")}
           onPress={() => router.back()}
           style={{ minHeight: theme.tap, justifyContent: "center" }}
           accessibilityRole="button"
         >
           <Text style={styles.link}>
-            {isDevPhone ? "Change phone" : "Change email"}
+            {isDevPhone ? t("authCode.changePhone") : t("authCode.changeEmail")}
           </Text>
         </Pressable>
       </View>

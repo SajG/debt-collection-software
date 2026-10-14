@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Linking, Platform, Pressable, StyleSheet, View } from "react-native";
 import { router } from "expo-router";
 import { Screen } from "@/components/Screen";
+import { Text } from "@/components/Text";
 import { TextField } from "@/components/TextField";
 import { Button } from "@/components/Button";
 import { isDevTestPhone } from "@/auth/dev-test";
@@ -11,16 +12,17 @@ import {
   clearRevokedNotice,
   readRevokedNotice,
 } from "@/lib/session-revoked";
+import { t } from "@/lib/i18n";
 
 // SY-email step 1 of 2.
 //
-// One email field, one "Send code" button. The allowlist is
+// One "Work email" field, one "Send code" button. The allowlist is
 // enforced by `shouldCreateUser: false`: Supabase refuses to send
-// the OTP if there is no auth user with that email. Since admins
-// are the only ones who create auth users (via /admin/users →
-// invite), this is the "only admins decide who uses the app"
-// gate. Do NOT flip shouldCreateUser to true — that would let
-// anyone with a valid email spin up an account.
+// the OTP if there is no auth user with that email. People get an
+// account by being invited by their manager, or by creating their
+// company on the website — the line under the button says so and
+// links to getsyncit.app. Do NOT flip shouldCreateUser to true — that
+// would let anyone with a valid email spin up an account.
 //
 // Enumeration policy (SY15.8): regardless of what happens — email
 // missing, allowlist rejection, rate limit, network fault — the UI
@@ -32,39 +34,39 @@ import {
 // impossible or actively harmful.
 //
 // Revocation banner (SY15.1 follow-up): if the last session was
-// terminated because an admin revoked this device, /(auth)/email
-// displays a red banner "This phone was signed out by your admin."
-// The AsyncStorage key `syncit:revokedNotice` is written by
-// touch_device_seen (AuthContext) or by the query error handler
-// (mobile/src/lib/session-revoked.ts).
+// terminated because an admin revoked this device, a red banner says
+// so. The flag is written by touch_device_seen (AuthContext) or by the
+// query error handler (mobile/src/lib/session-revoked.ts).
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const SIGNUP_URL = "https://getsyncit.app";
 
 export default function EmailScreen() {
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  const [revokedNotice, setRevokedNotice] = useState<string | null>(null);
+  const [revoked, setRevoked] = useState(false);
 
   useEffect(() => {
     void (async () => {
       const note = await readRevokedNotice();
-      if (note) setRevokedNotice(note);
+      if (note) setRevoked(true);
     })();
   }, []);
 
   async function dismissRevoked() {
     await clearRevokedNotice();
-    setRevokedNotice(null);
+    setRevoked(false);
   }
 
   async function send() {
     setError(null);
     const raw = email.trim();
-    const digits = raw.replace(/\D/g, "");
 
-    // Dev-only phone bypass: __DEV__ + matches EXPO_PUBLIC_DEV_TEST_PHONE.
-    // Skips Supabase entirely; code screen accepts DEV_TEST_OTP.
+    // Dev-only bypass: __DEV__ + matches EXPO_PUBLIC_DEV_TEST_PHONE.
+    // Skips Supabase entirely; code screen accepts DEV_TEST_OTP. Not
+    // reachable in a release build and not mentioned in the UI.
+    const digits = raw.replace(/\D/g, "");
     if (isDevTestPhone(digits)) {
       router.push({ pathname: "/(auth)/code", params: { phone: digits } });
       return;
@@ -72,7 +74,7 @@ export default function EmailScreen() {
 
     const clean = raw.toLowerCase();
     if (!EMAIL_RE.test(clean)) {
-      setError("Enter a valid email or phone.");
+      setError(t("auth.email.invalid"));
       return;
     }
     setSending(true);
@@ -103,46 +105,73 @@ export default function EmailScreen() {
 
   return (
     <Screen scroll>
-      {revokedNotice ? (
-        <View style={styles.revokedBanner}>
-          <Text style={styles.revokedText}>{revokedNotice}</Text>
-          <Text
-            style={styles.revokedDismiss}
+      {revoked ? (
+        <View style={styles.revokedBanner} accessibilityRole="alert">
+          <Text style={styles.revokedText}>{t("auth.revoked")}</Text>
+          <Pressable
             onPress={dismissRevoked}
+            hitSlop={12}
+            style={styles.revokedDismissBtn}
             accessibilityRole="button"
+            accessibilityLabel={t("authEmail.dismiss")}
           >
-            Dismiss
-          </Text>
+            <Text style={styles.revokedDismiss}>{t("authEmail.dismiss")}</Text>
+          </Pressable>
         </View>
       ) : null}
 
       <View style={styles.header}>
-        <Text style={styles.title}>Sign in to Syncit</Text>
-        <Text style={styles.subtitle}>
-          Enter the email your admin added. We'll send you a 6-digit code.
+        <Text style={styles.title} accessibilityRole="header">
+          {t("authEmail.signInToSyncit")}
         </Text>
+        <Text style={styles.subtitle}>{t("auth.email.subtitle")}</Text>
       </View>
 
       <TextField
-        label="Email or phone"
+        label={t("auth.email.label")}
         error={error}
         keyboardType="email-address"
+        inputMode="email"
         autoCapitalize="none"
         autoCorrect={false}
         autoComplete="email"
         textContentType="emailAddress"
+        returnKeyType="send"
+        onSubmitEditing={send}
         value={email}
         onChangeText={setEmail}
-        style={{ fontSize: 18 }}
       />
 
-      <Button label="Send code" loading={sending} onPress={send} />
+      <Button
+        label={t("authEmail.sendCode")}
+        loading={sending}
+        onPress={send}
+        accessibilityLabel={t("authEmail.sendCode")}
+      />
+
+      {Platform.OS === "ios" ? (
+        // App Store Review 3.1.1/3.1.3: an app whose accounts are
+        // created on the web must not point there from inside the app.
+        <Text style={styles.newHere}>{t("auth.email.newHereInviteOnly")}</Text>
+      ) : (
+        <Text style={styles.newHere}>
+          {t("auth.email.newHere")}{" "}
+          <Text
+            style={styles.link}
+            onPress={() => void Linking.openURL(SIGNUP_URL)}
+            accessibilityRole="link"
+            accessibilityLabel={t("auth.email.openWebsite")}
+          >
+            getsyncit.app
+          </Text>
+        </Text>
+      )}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  header: { gap: 8, marginBottom: theme.spacing.md },
+  header: { gap: 8 },
   title: {
     fontSize: theme.type.title,
     fontWeight: "700",
@@ -152,13 +181,23 @@ const styles = StyleSheet.create({
     fontSize: theme.type.body,
     color: theme.colors.textMuted,
   },
+  newHere: {
+    fontSize: theme.type.bodySmall,
+    lineHeight: 24,
+    color: theme.colors.textMuted,
+    textAlign: "center",
+  },
+  link: {
+    color: theme.colors.primary,
+    fontWeight: "700",
+    textDecorationLine: "underline",
+  },
   revokedBanner: {
     backgroundColor: theme.colors.dangerBg,
     borderColor: theme.colors.danger,
     borderWidth: 1,
     borderRadius: theme.radius,
     padding: theme.spacing.md,
-    marginBottom: theme.spacing.md,
     gap: theme.spacing.sm,
   },
   revokedText: {
@@ -166,6 +205,7 @@ const styles = StyleSheet.create({
     color: theme.colors.danger,
     fontWeight: "700",
   },
+  revokedDismissBtn: { minHeight: 48, justifyContent: "center", alignSelf: "flex-start" },
   revokedDismiss: {
     fontSize: theme.type.bodySmall,
     color: theme.colors.danger,

@@ -1,4 +1,5 @@
-// Human-readable error messages. Every place that used to show a raw
+
+import { t } from "@/lib/i18n";// Human-readable error messages. Every place that used to show a raw
 // Supabase / Postgres error to the user should route through
 // humaniseError(). Categories:
 //
@@ -128,14 +129,14 @@ export function humaniseError(
   if (cat === "network") {
     if (ctx.queued) {
       return {
-        message: "Saved on your phone — will sync when you're back online.",
+        message: t("errors.savedOnYourPhoneWill"),
         category: "network",
         queued: true,
         raw,
       };
     }
     return {
-      message: "No signal. Try again in a moment.",
+      message: t("errors.noSignalTryAgainIn"),
       category: "network",
       queued: false,
       raw,
@@ -143,7 +144,7 @@ export function humaniseError(
   }
   if (cat === "auth") {
     return {
-      message: "You've been signed out. Sign in again to continue.",
+      message: t("errors.youveBeenSignedOutSign"),
       category: "auth",
       queued: false,
       raw,
@@ -151,7 +152,7 @@ export function humaniseError(
   }
   if (cat === "permission") {
     return {
-      message: "You don't have permission for that. Ask an admin.",
+      message: t("errors.youDontHavePermissionFor"),
       category: "permission",
       queued: false,
       raw,
@@ -159,7 +160,7 @@ export function humaniseError(
   }
   if (cat === "rate") {
     return {
-      message: "Too many attempts. Wait a minute and try again.",
+      message: t("errors.tooManyAttemptsWaitA"),
       category: "rate",
       queued: false,
       raw,
@@ -174,7 +175,7 @@ export function humaniseError(
     return { message: raw, category: "validation", queued: false, raw };
   }
   return {
-    message: "Something went wrong. Try again.",
+    message: t("errors.somethingWentWrongTryAgain"),
     category: "unknown",
     queued: false,
     raw,

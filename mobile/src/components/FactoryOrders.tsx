@@ -4,18 +4,19 @@ import {
   RefreshControl,
   SectionList,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
+import { Text } from "./Text";
 import { router } from "expo-router";
 import { Screen } from "@/components/Screen";
 import { Segmented } from "@/components/Segmented";
 import { OrderCard } from "@/components/OrderCard";
 import { TextField } from "@/components/TextField";
 import { EmptyState } from "@/components/EmptyState";
-import { OrderCardSkeletonList } from "@/components/Skeleton";
+import { listEmpty } from "@/components/ListStates";
+import { TabHeader } from "@/components/TabHeader";
+import { markFirstScreen } from "@/lib/startup";
 import { SyncPill } from "@/components/SyncPill";
-import { confirm } from "@/components/Confirm";
 import { useAuth } from "@/auth/AuthContext";
 import {
   useOrderEventStream,
@@ -23,19 +24,28 @@ import {
   type OrderListRow,
 } from "@/lib/queries";
 import type { QuantityUnit } from "@/lib/database.types";
-import { t } from "@/lib/i18n";
+import { t, tn } from "@/lib/i18n";
+import { timeAgo } from "@/lib/format";
 import { theme } from "@/theme";
+import { holdReasonLabel } from "@/lib/labels";
 
-// Factory home. Five tabs (adds "Blocked" over the old four) + a
-// search bar. Within a tab, orders are listed oldest-first so the
-// shop floor always sees the stalest work first — no grouping toggle
-// to think about.
+// One factory tab. The bottom bar has three: To make · To dispatch ·
+// Done today. "To make" splits further into waiting / in progress /
+// blocked with a segmented control. Orders are listed oldest-first so
+// the shop floor always sees the stalest work first.
 
 type Filter = "queue" | "in_production" | "ready" | "dispatched" | "blocked";
+export type FactoryTab = "make" | "dispatch" | "done";
 
-export default function FactoryHome() {
-  const { profile, user, signOut } = useAuth();
-  const [filter, setFilter] = useState<Filter>("queue");
+const TAB_FILTER: Record<FactoryTab, Filter> = {
+  make: "queue",
+  dispatch: "ready",
+  done: "dispatched",
+};
+
+export function FactoryOrders({ tab }: { tab: FactoryTab }) {
+  const { user } = useAuth();
+  const [filter, setFilter] = useState<Filter>(TAB_FILTER[tab]);
   const [search, setSearch] = useState("");
 
   const { data, loading, error, refetch } = useOwnOrders(
@@ -83,40 +93,17 @@ export default function FactoryHome() {
   const emptyMessage = getEmptyMessage(filter, !!search.trim());
 
   return (
-    <Screen padded={false}>
-      <View style={styles.header}>
-        <View style={{ flex: 1, gap: 4 }}>
-          <Text style={styles.hello} numberOfLines={1}>
-            {t("factory.title", { name: profile?.ownerName ?? "" })}
-          </Text>
-          <Text style={styles.subtitle}>{t("factory.subtitle")}</Text>
-        </View>
-        <Pressable
-          onPress={() => router.push("/account")}
-          hitSlop={8}
-          style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.7 }]}
-          accessibilityRole="button"
-          accessibilityLabel={t("account.title")}
-        >
-          <Text style={styles.signOutGlyph}>⚙</Text>
-        </Pressable>
-        <Pressable
-          onPress={() =>
-            confirm({
-              title: t("confirm.signOut.title"),
-              body: t("confirm.signOut.body"),
-              confirmLabel: t("confirm.ok"),
-              destructive: true,
-              onConfirm: () => void signOut(),
-            })
+    <Screen padded={false} edges={["top", "left", "right"]}>
+      <View onLayout={tab === "make" ? () => markFirstScreen("factory") : undefined}>
+        <TabHeader
+          title={
+            tab === "make"
+              ? t("tabs.toMake")
+              : tab === "dispatch"
+                ? t("tabs.toDispatch")
+                : t("tabs.doneToday")
           }
-          hitSlop={8}
-          style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.7 }]}
-          accessibilityRole="button"
-          accessibilityLabel={t("home.signOut")}
-        >
-          <Text style={styles.signOutGlyph}>⏻</Text>
-        </Pressable>
+        />
       </View>
 
       <View style={styles.controls}>
@@ -129,18 +116,18 @@ export default function FactoryHome() {
           autoCorrect={false}
           autoCapitalize="none"
         />
-        <Segmented<Filter>
-          compact
-          value={filter}
-          onChange={setFilter}
-          options={[
-            { label: t("factory.tab.queue"), value: "queue" },
-            { label: t("factory.tab.inProd"), value: "in_production" },
-            { label: t("factory.tab.ready"), value: "ready" },
-            { label: t("factory.tab.dispatched"), value: "dispatched" },
-            { label: t("factory.tab.blocked"), value: "blocked" },
-          ]}
-        />
+        {tab === "make" ? (
+          <Segmented<Filter>
+            compact
+            value={filter}
+            onChange={setFilter}
+            options={[
+              { label: t("factory.tab.queue"), value: "queue" },
+              { label: t("factory.tab.inProd"), value: "in_production" },
+              { label: t("factory.tab.blocked"), value: "blocked" },
+            ]}
+          />
+        ) : null}
       </View>
 
       <SectionList
@@ -154,7 +141,7 @@ export default function FactoryHome() {
               <Text style={styles.sectionHeader}>{section.title}</Text>
               <Text style={styles.sectionCount}>
                 {section.data.length}{" "}
-                {section.data.length === 1 ? "order" : "orders"}
+                {section.data.length === 1 ? t("factoryHome.order") : t("factoryHome.orders")}
               </Text>
             </View>
           ) : null
@@ -165,28 +152,23 @@ export default function FactoryHome() {
               partyName={item.party?.name ?? item.newCustomerName ?? "—"}
               productName={
                 item.itemCount > 1
-                  ? `${item.product?.name ?? "—"} · +${item.itemCount - 1} more`
+                  ? t("orders.productPlusMore", { name: item.product?.name ?? "—", count: item.itemCount - 1 })
                   : (item.product?.name ?? "—")
               }
               brand={item.brand ?? item.product?.brand ?? null}
               quantity={
-                item.itemCount > 1 ? `${item.itemCount} lines` : String(item.quantity)
+                item.itemCount > 1 ? tn("orders.lines", item.itemCount) : String(item.quantity)
               }
               quantityUnit={item.quantityUnit as QuantityUnit}
               status={item.currentStatus}
               orderNumber={item.orderNumber}
               salespersonName={
-                item.salesperson
-                  ? (item.salesperson.ownerName ?? "Unknown user")
-                  : "Unknown user"
+                item.salesperson?.ownerName ?? t("common.unknownUser")
               }
               salespersonPhone={item.salesperson?.phone ?? null}
               onPress={() =>
                 router.push({
-                  pathname:
-                    filter === "blocked"
-                      ? "/(factory)/orders/[id]"
-                      : "/(factory)/orders/[id]",
+                  pathname: "/(factory)/orders/[id]",
                   params: { id: item.id },
                 })
               }
@@ -196,24 +178,24 @@ export default function FactoryHome() {
             ) : null}
           </View>
         )}
-        ListEmptyComponent={
-          loading ? (
-            <OrderCardSkeletonList count={4} />
-          ) : (
+        ListEmptyComponent={listEmpty({
+          loading: loading && !data,
+          error: data ? null : error ? t("home.error") : null,
+          onRetry: () => void refetch(),
+          skeletonCount: 4,
+          empty: (
             <EmptyState
-              glyph={emptyGlyph(filter)}
-              title={error ? t("home.error") : emptyMessage}
-              footnote={
-                filter === "queue" && !error
-                  ? lastArrivalFootnote(data ?? [])
-                  : undefined
-              }
+              glyph="✓"
+              title={emptyMessage}
+              footnote={filter === "queue" ? lastArrivalFootnote(data ?? []) : undefined}
             />
-          )
-        }
+          ),
+        })}
+        initialNumToRender={6}
+        windowSize={7}
         refreshControl={
           <RefreshControl
-            refreshing={refreshing || loading}
+            refreshing={refreshing}
             onRefresh={onRefresh}
             tintColor={theme.colors.primary}
             colors={[theme.colors.primary]}
@@ -258,21 +240,6 @@ function sortByCreatedAsc(rows: OrderListRow[]): OrderListRow[] {
   return [...rows].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
-function emptyGlyph(filter: Filter): string {
-  switch (filter) {
-    case "queue":
-      return "◔";
-    case "in_production":
-      return "⚙";
-    case "ready":
-      return "◍";
-    case "dispatched":
-      return "→";
-    case "blocked":
-      return "⚠";
-  }
-}
-
 function lastArrivalFootnote(rows: { createdAt: string }[]): string | undefined {
   if (rows.length === 0) return undefined;
   const latest = rows.reduce(
@@ -281,12 +248,7 @@ function lastArrivalFootnote(rows: { createdAt: string }[]): string | undefined 
   );
   const ms = Date.now() - Date.parse(latest.createdAt);
   if (!Number.isFinite(ms) || ms < 0) return undefined;
-  const min = Math.round(ms / 60000);
-  if (min < 60) return `Last order arrived ${min} min ago`;
-  const hr = Math.round(min / 60);
-  if (hr < 24) return `Last order arrived ${hr} h ago`;
-  const day = Math.round(hr / 24);
-  return `Last order arrived ${day} day${day === 1 ? "" : "s"} ago`;
+  return t("factoryHome.lastOrderArrived", { when: timeAgo(latest.createdAt) });
 }
 
 function getEmptyMessage(filter: Filter, hasSearch: boolean): string {
@@ -326,73 +288,44 @@ function describeBlock(row: OrderListRow): {
 } {
   if (row.currentStatus === "PENDING_APPROVAL") {
     return {
-      title: "Awaiting admin approval",
-      body: "An admin must approve before the shop floor sees this.",
-      chase: "Chase: admin.",
+      title: t("common.awaitingAdminApproval"),
+      body: t("factoryHome.anAdminMustApproveBefore"),
+      chase: t("factoryHome.chaseAdmin"),
     };
   }
   if (row.currentStatus === "ON_HOLD") {
     return {
-      title: "On hold",
+      title: t("common.onHold"),
       body:
-        [row.holdReasonCategory?.replace(/_/g, " "), row.holdReason]
+        [row.holdReasonCategory ? holdReasonLabel(row.holdReasonCategory) : null, row.holdReason]
           .filter(Boolean)
-          .join(" — ") || "No reason recorded.",
+          .join(" — ") || t("factoryHome.noReasonRecorded"),
       chase:
         row.salesperson?.ownerName
-          ? `Chase: ${row.salesperson.ownerName}${row.salesperson.phone ? ` (${row.salesperson.phone})` : ""}.`
-          : "Chase: salesperson.",
+          ? t("factoryHome.chasePerson", {
+              name: row.salesperson.phone
+                ? `${row.salesperson.ownerName} (${row.salesperson.phone})`
+                : row.salesperson.ownerName,
+            })
+          : t("factoryHome.chaseSalesperson"),
     };
   }
   if (row.needsRateApproval) {
     return {
-      title: "Below floor rate",
-      body: "One or more lines are below the floor rate and need admin sign-off.",
-      chase: "Chase: admin.",
+      title: t("factoryHome.belowFloorRate"),
+      body: t("factoryHome.oneOrMoreLinesAre"),
+      chase: t("factoryHome.chaseAdmin"),
     };
   }
-  return { title: "Blocked", body: "Unknown reason.", chase: "" };
+  return { title: t("factoryHome.blocked"), body: t("factoryHome.unknownReason"), chase: "" };
 }
 
 const styles = StyleSheet.create({
-  header: {
-    paddingHorizontal: theme.spacing.lg,
-    paddingTop: theme.spacing.md,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  hello: {
-    fontSize: theme.type.body,
-    fontWeight: "700",
-    color: theme.colors.text,
-  },
-  subtitle: {
-    fontSize: theme.type.bodySmall,
-    color: theme.colors.textMuted,
-  },
-  iconBtn: {
-    width: 36,
-    height: 36,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.background,
-  },
-  signOutGlyph: {
-    fontSize: 16,
-    color: theme.colors.danger,
-    fontWeight: "700",
-  },
   controls: {
     paddingHorizontal: theme.spacing.lg,
     paddingTop: theme.spacing.sm,
     gap: theme.spacing.xs,
   },
-  filters: {},
   sectionHeaderWrap: {
     backgroundColor: theme.colors.background,
     paddingHorizontal: theme.spacing.lg,
@@ -411,19 +344,13 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
   },
   sectionCount: {
-    fontSize: 12,
+    fontSize: 13,
     color: theme.colors.textMuted,
     fontWeight: "600",
   },
   list: {
     padding: theme.spacing.lg,
     paddingBottom: theme.spacing.xl,
-  },
-  empty: {
-    textAlign: "center",
-    fontSize: theme.type.body,
-    color: theme.colors.textMuted,
-    marginTop: theme.spacing.xl,
   },
   blockedNote: {
     marginTop: 6,

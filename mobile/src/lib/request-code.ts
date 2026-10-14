@@ -1,4 +1,5 @@
-// Thin wrapper around POST /api/auth/request-code (audit item 9).
+
+import { t } from "@/lib/i18n";// Thin wrapper around POST /api/auth/request-code (audit item 9).
 // Mobile no longer calls supabase.auth.signInWithOtp directly — the
 // Next route runs the same per-email rate limit + Sentry logging the
 // web sign-in path uses. Response is uniform {ok:true} so callers
@@ -24,7 +25,7 @@ export async function requestEmailCode(
     // than silently succeed. Adds a fast local signal in dev.
     return {
       networkError: true,
-      message: "EXPO_PUBLIC_APP_URL is not set.",
+      message: t("common.expoPublicAppUrlIs"),
     };
   }
   try {
@@ -39,13 +40,13 @@ export async function requestEmailCode(
       };
       return {
         rateLimited: true,
-        message: body.error ?? "Too many code requests. Try again later.",
+        message: body.error ?? t("requestCode.tooManyCodeRequestsTry"),
       };
     }
     if (!res.ok) {
       return {
         networkError: true,
-        message: `Request failed (${res.status}).`,
+        message: t("requestCode.requestFailed", { status: res.status }),
       };
     }
     return { ok: true };

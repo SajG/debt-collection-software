@@ -1,8 +1,17 @@
 import { useState } from "react";
-import { Alert, Image, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Alert,
+  Image,
+  Platform,
+  Pressable,
+  StyleSheet,
+  View,
+} from "react-native";
+import { Text } from "./Text";
 import * as ImagePicker from "expo-image-picker";
 import { theme } from "@/theme";
 import { compressImage } from "@/lib/image-compress";
+import { t } from "@/lib/i18n";
 
 export type PickedPhoto = {
   uri: string;
@@ -35,8 +44,8 @@ export function PhotoPicker({
       const perm = await ImagePicker.requestCameraPermissionsAsync();
       if (!perm.granted) {
         Alert.alert(
-          "Camera access needed",
-          "Enable camera in Settings so Syncit can capture the proof.",
+          t("photoPicker.cameraAccessNeeded"),
+          t("photoPicker.enableCameraInSettingsSo"),
         );
         return;
       }
@@ -56,11 +65,17 @@ export function PhotoPicker({
   async function pickFromLibrary() {
     try {
       setBusy(true);
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      // Android's system photo picker needs no permission (and the app
+      // declares none — the storage permissions are blocked in
+      // app.json). Only iOS asks.
+      const perm =
+        Platform.OS === "ios"
+          ? await ImagePicker.requestMediaLibraryPermissionsAsync()
+          : { granted: true };
       if (!perm.granted) {
         Alert.alert(
-          "Photo access needed",
-          "Enable photo access in Settings so Syncit can attach the proof.",
+          t("photoPicker.photoAccessNeeded"),
+          t("photoPicker.enablePhotoAccessInSettings"),
         );
         return;
       }
@@ -87,18 +102,21 @@ export function PhotoPicker({
             resizeMode="cover"
           />
           <Pressable
+            accessibilityRole="button"
             onPress={() => onChange(null)}
             style={styles.removeBtn}
             hitSlop={12}
-            accessibilityLabel="Remove selected photo"
+            accessibilityLabel={t("photoPicker.removeSelectedPhoto")}
           >
-            <Text style={styles.removeBtnText}>✕ Remove</Text>
+            <Text style={styles.removeBtnText}>{t("photoPicker.remove")}</Text>
           </Pressable>
         </View>
       )}
 
       <View style={styles.actionRow}>
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={photo ? t("photoPicker.retakePhoto") : t("photoPicker.takePhoto")}
           onPress={takePhoto}
           disabled={busy}
           style={({ pressed }) => [
@@ -109,10 +127,12 @@ export function PhotoPicker({
           ]}
         >
           <Text style={styles.actionPrimaryText}>
-            {photo ? "Retake photo" : "Take photo"}
+            {photo ? t("photoPicker.retakePhoto") : t("photoPicker.takePhoto")}
           </Text>
         </Pressable>
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t("photoPicker.fromGallery")}
           onPress={pickFromLibrary}
           disabled={busy}
           style={({ pressed }) => [
@@ -122,7 +142,7 @@ export function PhotoPicker({
             busy && { opacity: 0.6 },
           ]}
         >
-          <Text style={styles.actionSecondaryText}>From gallery</Text>
+          <Text style={styles.actionSecondaryText}>{t("photoPicker.fromGallery")}</Text>
         </Pressable>
       </View>
     </View>

@@ -1,8 +1,10 @@
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { Text } from "@/components/Text";
 import { Screen } from "@/components/Screen";
 import { Button } from "@/components/Button";
 import { currentAppVersion } from "@/lib/app-updates";
 import { theme } from "@/theme";
+import { t } from "@/lib/i18n";
 
 // Terminal screen shown when BusinessSettings.mobileMinAppVersion is
 // higher than the running app version. Blocks every route in the
@@ -18,18 +20,15 @@ export default function UpdateRequiredScreen({
   return (
     <Screen scroll>
       <View style={styles.wrap}>
-        <Text style={styles.title}>Update required</Text>
+        <Text style={styles.title}>{t("updateRequired.updateRequired")}</Text>
         <Text style={styles.body}>
-          Your admin has released a required security update. You are on
-          Syncit <Text style={styles.mono}>{currentAppVersion()}</Text>; the
-          minimum accepted version is{" "}
-          <Text style={styles.mono}>{minVersion ?? "unknown"}</Text>.
-          {"\n\n"}
-          Install the latest build from the source your admin gave you
-          (Play Store / TestFlight / APK link). Then reopen Syncit.
+          {t("updateRequired.body", {
+            current: currentAppVersion(),
+            minimum: minVersion ?? t("updateRequired.unknown"),
+          })}
         </Text>
         <Button
-          label="Check for updates"
+          label={t("updateRequired.checkForUpdates")}
           onPress={() => {
             // Ping expo-updates in case an OTA covers the gap; the
             // hook fires on next mount.

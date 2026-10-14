@@ -6,9 +6,9 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
+import { Text } from "@/components/Text";
 import { router, useLocalSearchParams } from "expo-router";
 import DateTimePicker, {
   DateTimePickerAndroid,
@@ -22,12 +22,15 @@ import { supabase } from "@/lib/supabase";
 import { newId } from "@/lib/ids";
 import { formatDate } from "@/lib/format";
 import {
-  PAYMENT_TERMS,
-  TRANSPORT_TYPES,
   TOKEN_TYPES,
 } from "@/lib/constants";
 import type { OrderStatus, PaymentTerm, TransportType } from "@/lib/database.types";
 import { theme } from "@/theme";
+import { t } from "@/lib/i18n";
+import { paymentTerms, transportTypes } from "@/lib/labels";
+import { statusLabel } from "@/lib/labels";
+import { toast } from "@/components/Toast";
+import { goBackOr } from "@/lib/back";
 
 // Any STAFF / ADMIN can edit customer + delivery details on any
 // pre-dispatch order. The server-side RLS + trigger
@@ -79,7 +82,7 @@ export default function EditOrderScreen() {
         .maybeSingle();
       if (cancelled) return;
       if (error || !data) {
-        Alert.alert("Could not load", error?.message ?? "Order not found.");
+        Alert.alert(t("common.couldNotLoad"), error?.message ?? t("common.orderNotFound"));
         router.back();
         return;
       }
@@ -130,7 +133,7 @@ export default function EditOrderScreen() {
     if (!id || !profile) return;
     const trimmedName = customerName.trim();
     if (trimmedName.length < 2) {
-      Alert.alert("Name required", "Enter the customer name.");
+      Alert.alert(t("common.nameRequired"), t("common.enterTheCustomerName"));
       return;
     }
     setSaving(true);
@@ -153,7 +156,7 @@ export default function EditOrderScreen() {
       .eq("id", id);
     if (error) {
       setSaving(false);
-      Alert.alert("Could not save", error.message);
+      Alert.alert(t("common.couldNotSave"), error.message);
       return;
     }
     // Audit line so the timeline shows "Details edited by <name>".
@@ -164,14 +167,14 @@ export default function EditOrderScreen() {
         id: newId("evt"),
         salesOrderId: id,
         status: status ?? "ORDER_PLACED",
+        // i18n-ignore: note stored on the order timeline
         notes: `Details edited by ${profile.ownerName}`,
         updatedById: profile.id,
       })
       .then(() => undefined, () => undefined);
     setSaving(false);
-    Alert.alert("Saved", "Order details updated.", [
-      { text: "OK", onPress: () => router.back() },
-    ]);
+    toast.success(t("staffOrdersEditDetail.orderDetailsUpdated"));
+    goBackOr("/(staff)/orders");
   }
 
   function onDateChange(_e: DateTimePickerEvent, d?: Date) {
@@ -197,7 +200,7 @@ export default function EditOrderScreen() {
 
   if (loading) {
     return (
-      <Screen back backTitle="Edit order">
+      <Screen back backTitle={t("staffOrdersEditDetail.editOrder")}>
         <View style={styles.center}>
           <ActivityIndicator />
         </View>
@@ -207,11 +210,11 @@ export default function EditOrderScreen() {
 
   if (!canEdit) {
     return (
-      <Screen back backTitle={orderNumber ?? "Edit order"}>
+      <Screen back backTitle={orderNumber ?? t("staffOrdersEditDetail.editOrder")}>
         <View style={styles.center}>
-          <Text style={styles.title}>Cannot edit</Text>
+          <Text style={styles.title}>{t("staffOrdersEditDetail.cannotEdit")}</Text>
           <Text style={styles.subtitle}>
-            This order is {status}. Edits are only allowed before dispatch.
+            {t("staffOrdersEdit.locked", { status: status ? statusLabel(status) : "—" })}
           </Text>
         </View>
       </Screen>
@@ -219,12 +222,12 @@ export default function EditOrderScreen() {
   }
 
   return (
-    <Screen back backTitle={orderNumber ?? "Edit order"} padded={false}>
+    <Screen back backTitle={orderNumber ?? t("staffOrdersEditDetail.editOrder")} padded={false}>
       <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
-        <Section title="Customer">
+        <Section title={t("common.customer")}>
           <TextField
-            label="Customer name"
-            placeholder="Type customer name"
+            label={t("common.customerName")}
+            placeholder={t("common.typeCustomerName")}
             value={customerName}
             onChangeText={(v) => {
               setCustomerName(v);
@@ -237,29 +240,30 @@ export default function EditOrderScreen() {
             autoCapitalize="words"
           />
           {partyId ? (
-            <Text style={styles.hint}>✓ Ledger customer</Text>
+            <Text style={styles.hint}>{t("staffOrdersEditDetail.ledgerCustomer")}</Text>
           ) : (
-            <Text style={styles.hint}>Saved as new customer</Text>
+            <Text style={styles.hint}>{t("staffOrdersEditDetail.savedAsNewCustomer")}</Text>
           )}
         </Section>
 
-        <Section title="Delivery">
+        <Section title={t("common.delivery")}>
           <TextField
-            label="Dispatch location"
-            placeholder="Address, godown, or ledger location"
+            label={t("common.dispatchLocation")}
+            placeholder={t("common.addressGodownOrLedgerLocation")}
             value={dispatchLocation}
             onChangeText={setDispatchLocation}
           />
           <Pressable
+            accessibilityLabel={t("common.expectedDelivery")}
             onPress={openDatePicker}
             style={({ pressed }) => [styles.dateBtn, pressed && { opacity: 0.8 }]}
             accessibilityRole="button"
           >
-            <Text style={styles.dateLabel}>Expected delivery</Text>
+            <Text style={styles.dateLabel}>{t("common.expectedDelivery")}</Text>
             <Text style={styles.dateValue}>
               {expectedDeliveryDate
                 ? formatDate(expectedDeliveryDate)
-                : "Pick a date"}
+                : t("common.pickADate")}
             </Text>
           </Pressable>
           {showPicker && Platform.OS === "ios" ? (
@@ -276,23 +280,23 @@ export default function EditOrderScreen() {
           ) : null}
         </Section>
 
-        <Section title="Payment terms">
+        <Section title={t("common.paymentTerms")}>
           <ChipRow<PaymentTerm>
-            values={PAYMENT_TERMS}
+            values={paymentTerms()}
             selected={paymentTerm}
             onSelect={setPaymentTerm}
           />
         </Section>
 
-        <Section title="Transport">
+        <Section title={t("common.transport")}>
           <ChipRow<TransportType>
-            values={TRANSPORT_TYPES}
+            values={transportTypes()}
             selected={transportType}
             onSelect={setTransportType}
           />
         </Section>
 
-        <Section title="Token / gift">
+        <Section title={t("common.tokenGift")}>
           <ChipRow<string>
             values={TOKEN_TYPES.map((v) => ({ value: v, label: v }))}
             selected={tokenType}
@@ -300,9 +304,9 @@ export default function EditOrderScreen() {
           />
         </Section>
 
-        <Section title="Notes">
+        <Section title={t("common.notes")}>
           <TextField
-            label="Notes (optional)"
+            label={t("common.notesOptional")}
             value={notes}
             onChangeText={setNotes}
             multiline
@@ -312,7 +316,7 @@ export default function EditOrderScreen() {
 
         <View style={styles.footer}>
           <Button
-            label={saving ? "Saving…" : "Save changes"}
+            label={saving ? t("common.saving") : t("common.saveChanges")}
             loading={saving}
             disabled={saving || customerName.trim().length < 2}
             onPress={save}
@@ -353,6 +357,7 @@ function ChipRow<T extends string>({
         const active = v.value === selected;
         return (
           <Pressable
+            accessibilityLabel={v.label}
             key={v.value}
             onPress={() => onSelect(v.value)}
             style={({ pressed }) => [
@@ -413,7 +418,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surface,
   },
   dateLabel: {
-    fontSize: 12,
+    fontSize: 13,
     color: theme.colors.textMuted,
     fontWeight: "700",
     textTransform: "uppercase",

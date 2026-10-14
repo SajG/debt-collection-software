@@ -3,10 +3,9 @@ import {
   ActivityIndicator,
   Pressable,
   StyleSheet,
-  Text,
-  TextInput,
   View,
 } from "react-native";
+import { Text, TextInput } from "./Text";
 import { statusStyle } from "@/lib/status-style";
 import { supabase } from "@/lib/supabase";
 import {
@@ -17,6 +16,7 @@ import {
 import type { OrderStatus } from "@/lib/database.types";
 import { t } from "@/lib/i18n";
 import { theme } from "@/theme";
+import { toast } from "@/components/Toast";
 
 // One chronological view — status events + comments interleaved.
 // Replaces the standalone Timeline on order detail screens. Comments
@@ -106,21 +106,22 @@ export function ActivityFeed({
       return;
     }
     setBody("");
+    toast.success(t("activity.commentPosted"));
     await refetch();
   }
 
   return (
     <View style={styles.wrap}>
-      <Text style={styles.heading}>Activity</Text>
+      <Text style={styles.heading}>{t("activityFeed.activity")}</Text>
       <Text style={styles.subheading}>
-        Status changes and comments in one thread. Append-only.
+        {t("activityFeed.statusChangesAndCommentsIn")}
       </Text>
 
       <View style={styles.composer}>
         <TextInput
           value={body}
           onChangeText={setBody}
-          placeholder="Add a comment — 'Customer wants 20kg not 25kg'"
+          placeholder={t("activityFeed.addACommentCustomerWants")}
           placeholderTextColor={theme.colors.textMuted}
           multiline
           maxLength={4000}
@@ -128,6 +129,7 @@ export function ActivityFeed({
         />
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Pressable
+          accessibilityLabel={t("activityFeed.post")}
           onPress={submit}
           disabled={posting || body.trim().length === 0}
           style={({ pressed }) => [
@@ -140,13 +142,13 @@ export function ActivityFeed({
           {posting ? (
             <ActivityIndicator color={theme.colors.primaryOn} />
           ) : (
-            <Text style={styles.postBtnText}>Post</Text>
+            <Text style={styles.postBtnText}>{t("activityFeed.post")}</Text>
           )}
         </Pressable>
       </View>
 
       {merged.length === 0 ? (
-        <Text style={styles.empty}>No activity yet.</Text>
+        <Text style={styles.empty}>{t("activityFeed.noActivityYet")}</Text>
       ) : (
         <View style={{ gap: theme.spacing.sm }}>
           {merged.map((item, i) =>
@@ -174,7 +176,7 @@ function StatusRow({ ev }: { ev: Event }) {
       <Text style={styles.meta}>
         {formatWhen(ev.createdAt)}
         {ev.updatedById || ev.updatedBy
-          ? ` · ${ev.updatedBy?.ownerName ?? "Unknown user"}`
+          ? ` · ${ev.updatedBy?.ownerName ?? t("common.unknownUser")}`
           : ""}
       </Text>
       {ev.notes ? <Text style={styles.body}>{ev.notes}</Text> : null}
@@ -187,7 +189,7 @@ function CommentRow({ c }: { c: OrderCommentRow }) {
     <View style={[styles.row, styles.commentRow]}>
       <View style={[styles.badge, styles.commentBadge]}>
         <Text style={[styles.badgeText, styles.commentBadgeText]}>
-          Comment
+          {t("activityFeed.comment")}
         </Text>
       </View>
       <Text style={styles.meta}>
@@ -273,7 +275,7 @@ const styles = StyleSheet.create({
   },
   commentBadge: { backgroundColor: "#FEF3C7" },
   badgeText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "700",
   },
   commentBadgeText: { color: "#78350F" },

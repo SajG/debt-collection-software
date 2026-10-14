@@ -5,14 +5,19 @@ import {
   Pressable,
   RefreshControl,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
+import { Text } from "@/components/Text";
 import { router } from "expo-router";
 import { Screen } from "@/components/Screen";
 import { supabase } from "@/lib/supabase";
 import { formatDate } from "@/lib/format";
 import { theme } from "@/theme";
+import { t } from "@/lib/i18n";
+import { statusLabel } from "@/lib/labels";
+import type { OrderStatus } from "@/lib/database.types";
+import { listEmpty } from "@/components/ListStates";
+import { EmptyState } from "@/components/EmptyState";
 
 // Director's read-only view of the factory floor. Answers:
 //   - What's in each stage right now?
@@ -185,10 +190,9 @@ export default function AdminFactory() {
   return (
     <Screen padded={false}>
       <View style={styles.header}>
-        <Text style={styles.title}>Factory</Text>
+        <Text style={styles.title}>{t("common.factory")}</Text>
         <Text style={styles.subtitle}>
-          Read-only view of the shop floor. Averages are over the last 60
-          days.
+          {t("adminFactory.readOnlyViewOfThe")}
         </Text>
       </View>
 
@@ -198,7 +202,12 @@ export default function AdminFactory() {
         contentContainerStyle={styles.list}
         ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.colors.primary}
+            colors={[theme.colors.primary]}
+          />
         }
         ListHeaderComponent={
           <View>
@@ -214,40 +223,44 @@ export default function AdminFactory() {
               </View>
             ) : null}
 
-            <Text style={styles.sectionHeading}>Stage</Text>
+            <Text style={styles.sectionHeading}>{t("adminFactory.stage")}</Text>
             <View style={styles.stageGrid}>
               {STAGES.map((s) => (
                 <View key={s} style={styles.stageCell}>
                   <Text style={styles.stageLabel}>
-                    {s.replace(/_/g, " ")}
+                    {statusLabel(s)}
                   </Text>
                   <Text style={styles.stageCount}>
                     {state?.counts[s] ?? 0}
                   </Text>
                   <Text style={styles.stageAvg}>
-                    Avg{" "}
-                    {state?.avgHours[s] == null
-                      ? "—"
-                      : state.avgHours[s]! < 24
-                        ? `${Math.round(state.avgHours[s]!)}h`
-                        : `${(state.avgHours[s]! / 24).toFixed(1)}d`}
+                    {t("adminFactory.avg", {
+                      time:
+                        state?.avgHours[s] == null
+                          ? "—"
+                          : state.avgHours[s]! < 24
+                            ? t("time.hoursShort", { n: Math.round(state.avgHours[s]!) })
+                            : t("time.daysShort", { n: (state.avgHours[s]! / 24).toFixed(1) }),
+                    })}
                   </Text>
                 </View>
               ))}
             </View>
 
-            <Text style={styles.sectionHeading}>Stuck &gt; 24 h</Text>
+            <Text style={styles.sectionHeading}>{t("adminFactory.stuck24H")}</Text>
           </View>
         }
-        ListEmptyComponent={
-          loading ? null : (
-            <Text style={styles.empty}>
-              Nothing stuck. Every in-flight order moved within 24 h.
-            </Text>
-          )
-        }
+        ListEmptyComponent={listEmpty({
+          loading: loading && !state,
+          error: state ? null : error,
+          onRetry: () => void load(),
+          skeletonCount: 3,
+          empty: <EmptyState glyph="✓" title={t("adminFactory.nothingStuckEveryInFlight")} />,
+        })}
         renderItem={({ item }) => (
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={item.orderNumber}
             onPress={() =>
               router.push({
                 pathname: "/(staff)/orders/[id]",
@@ -260,8 +273,10 @@ export default function AdminFactory() {
               <Text style={styles.stuckOrder}>{item.orderNumber}</Text>
               <Text style={styles.stuckParty}>{item.partyName}</Text>
               <Text style={styles.stuckMeta}>
-                {item.currentStatus.replace(/_/g, " ")} · last change{" "}
-                {formatDate(new Date(item.lastEventAt))}
+                {t("adminFactory.lastChange", {
+                  status: statusLabel(item.currentStatus as OrderStatus),
+                  date: formatDate(new Date(item.lastEventAt)),
+                })}
               </Text>
             </View>
             <View style={styles.stuckPill}>
@@ -308,7 +323,7 @@ const styles = StyleSheet.create({
     fontSize: theme.type.bodySmall,
   },
   sectionHeading: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "800",
     letterSpacing: 0.5,
     textTransform: "uppercase",
@@ -331,7 +346,7 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   stageLabel: {
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: "700",
     letterSpacing: 0.5,
     color: theme.colors.textMuted,

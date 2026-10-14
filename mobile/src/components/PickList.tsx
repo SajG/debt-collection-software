@@ -1,4 +1,5 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
+import { Text } from "./Text";
 import { theme } from "@/theme";
 
 /**
@@ -21,6 +22,7 @@ export function PickList<T extends string>({
         const active = opt.value === value;
         return (
           <Pressable
+            accessibilityLabel={opt.label}
             key={opt.value}
             onPress={() => onChange(opt.value)}
             accessibilityRole="radio"

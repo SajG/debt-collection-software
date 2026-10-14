@@ -1,4 +1,5 @@
 import { Alert, Linking } from "react-native";
+import { t, tn } from "./i18n";
 
 // SY24 — polite reminder text + wa.me deep link.
 //
@@ -21,27 +22,24 @@ function inr(n: number): string {
 }
 
 export function buildReminderText(input: ReminderInput): string {
-  const nameGreet = input.partyName?.split(" ")[0] ?? "Sir";
+  const firstName = input.partyName?.trim().split(" ")[0];
   const days = Math.max(0, Math.round(input.daysOverdue));
+  const amount = `₹${inr(input.amount)}`;
   const lines: string[] = [];
-  lines.push(`Hello ${nameGreet},`);
+  lines.push(firstName ? t("whatsapp.hello", { name: firstName }) : t("whatsapp.helloNoName"));
   lines.push("");
-  if (days > 0) {
-    lines.push(
-      `A gentle reminder — ₹${inr(input.amount)} is pending for ${days} day${days === 1 ? "" : "s"} on your account.`,
-    );
-  } else {
-    lines.push(
-      `A gentle reminder — ₹${inr(input.amount)} is due on your account.`,
-    );
-  }
+  lines.push(
+    days > 0
+      ? tn("whatsapp.pendingFor", days, { amount })
+      : t("whatsapp.due", { amount }),
+  );
   if (input.paymentLinkUrl) {
     lines.push("");
-    lines.push(`You can pay online in one tap: ${input.paymentLinkUrl}`);
+    lines.push(t("whatsapp.payOnline", { url: input.paymentLinkUrl }));
   }
   lines.push("");
-  lines.push("Please let me know when we can expect the payment.");
-  lines.push("Thank you!");
+  lines.push(t("whatsapp.whenCanWeExpect"));
+  lines.push(t("whatsapp.thanks"));
   if (input.yourName) {
     lines.push(input.yourName);
   }
@@ -65,8 +63,8 @@ export async function openWhatsApp(
     return true;
   } catch {
     Alert.alert(
-      "WhatsApp not available",
-      "Install WhatsApp or copy the message manually.",
+      t("whatsapp.whatsappNotAvailable"),
+      t("whatsapp.installWhatsappOrCopyThe"),
     );
     return false;
   }

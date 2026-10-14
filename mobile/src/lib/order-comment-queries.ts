@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "./supabase";
 import type { Role } from "./database.types";
 import { newId } from "./ids";
+import { t } from "@/lib/i18n";
 
 // OrderComment fetch + post. RLS enforces read/write scope
 // (STAFF own-orders only, FACTORY + ADMIN all). Append-only.
@@ -85,12 +86,12 @@ export async function postOrderComment(input: {
   body: string;
 }): Promise<{ ok: true } | { error: string }> {
   const trimmed = input.body.trim();
-  if (!trimmed) return { error: "Say something before sending." };
-  if (trimmed.length > 4000) return { error: "Too long (4000 char max)." };
+  if (!trimmed) return { error: t("orderCommentQueries.saySomethingBeforeSending") };
+  if (trimmed.length > 4000) return { error: t("orderCommentQueries.tooLong4000CharMax") };
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return { error: "Not signed in." };
+  if (!user) return { error: t("common.notSignedIn") };
   const { error } = await supabase.from("OrderComment").insert({
     id: newId("cmt"),
     salesOrderId: input.orderId,

@@ -1,5 +1,7 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
+import { Text } from "./Text";
 import { theme } from "@/theme";
+import { t } from "@/lib/i18n";
 
 // Non-blocking "restart to update" banner. Sits below the app-bar
 // pill; tapping the CTA calls Updates.reloadAsync() and the app
@@ -16,16 +18,16 @@ export function UpdateBanner({
   return (
     <View style={styles.wrap} accessibilityRole="alert">
       <View style={{ flex: 1 }}>
-        <Text style={styles.title}>Update available</Text>
-        <Text style={styles.body}>Restart to install the latest version.</Text>
+        <Text style={styles.title}>{t("updateBanner.updateAvailable")}</Text>
+        <Text style={styles.body}>{t("updateBanner.restartToInstallTheLatest")}</Text>
       </View>
       <Pressable
         onPress={onRestart}
         style={({ pressed }) => [styles.btn, pressed && { opacity: 0.85 }]}
         accessibilityRole="button"
-        accessibilityLabel="Restart the app to install the update"
+        accessibilityLabel={t("updateBanner.restartTheAppToInstall")}
       >
-        <Text style={styles.btnLabel}>Restart</Text>
+        <Text style={styles.btnLabel}>{t("updateBanner.restart")}</Text>
       </Pressable>
     </View>
   );

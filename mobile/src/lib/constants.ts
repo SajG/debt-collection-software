@@ -1,9 +1,4 @@
-import type {
-  OrderStatus,
-  PaymentTerm,
-  QuantityUnit,
-  TransportType,
-} from "./database.types";
+import type { OrderStatus, QuantityUnit } from "./database.types";
 
 // Small pick lists, on-screen only. Prisma stores packing/size as free
 // text (real values are informal) so the "Other" escape hatch stays.
@@ -15,6 +10,10 @@ import type {
 // Sentinel value for the private-label / custom brand flow. Picking
 // this chip reveals a TextField for the actual customer-facing brand
 // name; the value saved on the item is whatever the salesperson typed.
+// Everything from here to the end marker is catalogue data that is
+// stored on the order exactly as written (brand, packing, token type).
+// It is the company's own vocabulary, not app copy, so it is not
+// translated. i18n-ignore-start
 export const PRIVATE_LABEL_SENTINEL = "Private Label / Other";
 
 // Brands the shop sells today. Match the values in the Product.brand
@@ -105,30 +104,12 @@ export const TOKEN_TYPES: readonly string[] = [
   "Gift inside",
 ];
 
+// i18n-ignore-end
+
 export const QUANTITY_UNITS: readonly QuantityUnit[] = ["KG", "PCS", "NOS"];
 
-export const PAYMENT_TERMS: readonly {
-  value: PaymentTerm;
-  label: string;
-}[] = [
-  { value: "ADVANCE", label: "Advance" },
-  { value: "CREDIT", label: "Credit" },
-  { value: "PDC", label: "PDC" },
-  { value: "IMMEDIATE", label: "Immediate" },
-  { value: "AGAINST_DISPATCH", label: "Against dispatch" },
-  { value: "OTHER", label: "Other" },
-];
-
-export const TRANSPORT_TYPES: readonly {
-  value: TransportType;
-  label: string;
-}[] = [
-  { value: "PAID", label: "Paid" },
-  { value: "TO_PAY", label: "To pay" },
-  { value: "GODOWN", label: "Godown" },
-  { value: "DOOR", label: "Door" },
-  { value: "OTHER", label: "Other" },
-];
+// Payment-term and transport pick lists moved to lib/labels.ts
+// (paymentTerms() / transportTypes()) so their labels are translated.
 
 // The linear progression on the delivery-tracker timeline. CANCELLED
 // isn't in this list because it's a terminal branch shown separately.

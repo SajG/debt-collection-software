@@ -1,6 +1,8 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import { router } from "expo-router";
+import { Pressable, StyleSheet, View } from "react-native";
+import { Text } from "./Text";
+import { goBackOr } from "@/lib/back";
 import { theme } from "@/theme";
+import { t } from "@/lib/i18n";
 
 // Lightweight in-screen back bar. Root Stack has headerShown:false
 // (custom per-screen headers), so detail pages had no back affordance.
@@ -15,10 +17,7 @@ export function BackBar({
   /** Where to go if there's no history to pop. Default: "/". */
   fallback?: string;
 }) {
-  const goBack = () => {
-    if (router.canGoBack()) router.back();
-    else router.replace((fallback ?? "/") as never);
-  };
+  const goBack = () => goBackOr(fallback ?? "/");
 
   return (
     <View style={styles.bar}>
@@ -27,10 +26,10 @@ export function BackBar({
         hitSlop={12}
         style={({ pressed }) => [styles.btn, pressed && { opacity: 0.6 }]}
         accessibilityRole="button"
-        accessibilityLabel="Back"
+        accessibilityLabel={t("backBar.back")}
       >
         <Text style={styles.chevron}>‹</Text>
-        <Text style={styles.label}>Back</Text>
+        <Text style={styles.label}>{t("backBar.back")}</Text>
       </Pressable>
       {title ? (
         <Text style={styles.title} numberOfLines={1}>

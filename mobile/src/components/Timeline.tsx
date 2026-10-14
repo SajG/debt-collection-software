@@ -1,10 +1,11 @@
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { Text } from "./Text";
 import type { OrderStatus } from "@/lib/database.types";
 import { statusStyle } from "@/lib/status-style";
 import { STATUS_PIPELINE } from "@/lib/constants";
 import { formatDateTime } from "@/lib/format";
 import { theme } from "@/theme";
-import { t } from "@/lib/i18n";
+import { t, tn } from "@/lib/i18n";
 
 type Event = {
   id: string;
@@ -28,11 +29,11 @@ function formatElapsed(fromIso: string, toIso: string): string | null {
   if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) return null;
   const ms = to - from;
   const min = Math.round(ms / 60000);
-  if (min < 60) return `${min}m after previous`;
+  if (min < 60) return t("timeline.minutesAfter", { n: min });
   const hr = Math.round(min / 60);
-  if (hr < 24) return `${hr}h after previous`;
+  if (hr < 24) return t("timeline.hoursAfter", { n: hr });
   const day = Math.round(hr / 24);
-  return `${day}d after previous`;
+  return t("timeline.daysAfter", { n: day });
 }
 
 function daysBetween(a: Date, b: Date): number {
@@ -87,7 +88,7 @@ export function Timeline({
     if (Number.isNaN(due.getTime())) return null;
     const days = daysBetween(due, new Date());
     if (days <= 0) return null;
-    return `Overdue by ${days} day${days === 1 ? "" : "s"}`;
+    return tn("timeline.overdueBy", days);
   })();
 
   return (
@@ -212,7 +213,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   elapsed: {
-    fontSize: 12,
+    fontSize: 13,
     color: theme.colors.textMuted,
     fontStyle: "italic",
   },

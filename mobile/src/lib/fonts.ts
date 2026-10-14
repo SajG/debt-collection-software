@@ -14,5 +14,7 @@ export function useBrandFonts() {
   });
 }
 
+// i18n-ignore-start (font family names)
 export const FONT_BODY = "Inter";
 export const FONT_DISPLAY = "Inter Tight";
+// i18n-ignore-end

@@ -4,11 +4,14 @@ import Constants from "expo-constants";
 import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
 import { router } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "./supabase";
 import { useAuth } from "@/auth/AuthContext";
+import { t } from "./i18n";
 
 // Push notifications. Registration is idempotent: on every mount of
-// the authenticated app, we ask for a token and upsert it into the
+// the authenticated app — when the user has already allowed
+// notifications — we fetch a token and upsert it into the
 // PushToken table (RLS scoped to auth.uid()). The edge function
 // `notify` reads that table when a Postgres trigger fires and pushes
 // via Expo's service. Stale tokens are cleaned up server-side when
@@ -32,7 +35,7 @@ Notifications.setNotificationHandler({
 async function ensureAndroidChannel(): Promise<void> {
   if (Platform.OS !== "android") return;
   await Notifications.setNotificationChannelAsync("default", {
-    name: "Order updates",
+    name: t("notifications.channel"),
     importance: Notifications.AndroidImportance.HIGH,
     // Bright color used for the small icon on the status bar.
     lightColor: "#093D30",
@@ -48,17 +51,55 @@ async function getProjectId(): Promise<string | undefined> {
   return extra?.eas?.projectId ?? easCfg?.projectId ?? undefined;
 }
 
-async function requestAndRegisterToken(profileId: string): Promise<void> {
-  if (!Device.isDevice) return; // simulators can't receive push
-  await ensureAndroidChannel();
+const PROMPT_DISMISSED_KEY = "syncit:pushPromptDismissed";
 
-  const existing = await Notifications.getPermissionsAsync();
-  let status = existing.status;
-  if (status !== "granted") {
-    const asked = await Notifications.requestPermissionsAsync();
-    status = asked.status;
+export type PushPromptState =
+  /** Already allowed — nothing to ask. */
+  | "granted"
+  /** Never asked (or the OS lets us ask again): show our one-line reason. */
+  | "ask"
+  /** The user said "Not now" to our reason, or the OS has blocked it. */
+  | "dismissed"
+  /** Simulator / web. */
+  | "unavailable";
+
+export async function getPushPromptState(): Promise<PushPromptState> {
+  if (!Device.isDevice) return "unavailable";
+  try {
+    const perm = await Notifications.getPermissionsAsync();
+    if (perm.status === "granted") return "granted";
+    if (!perm.canAskAgain) return "dismissed";
+    const dismissed = await AsyncStorage.getItem(PROMPT_DISMISSED_KEY);
+    return dismissed ? "dismissed" : "ask";
+  } catch {
+    return "unavailable";
   }
-  if (status !== "granted") return;
+}
+
+export async function dismissPushPrompt(): Promise<void> {
+  await AsyncStorage.setItem(PROMPT_DISMISSED_KEY, "1").catch(() => undefined);
+}
+
+/** Shows the OS permission dialog. Call only after the user tapped
+ *  "Turn on" under our own one-line reason. */
+export async function enablePush(profileId: string): Promise<boolean> {
+  if (!Device.isDevice) return false;
+  const asked = await Notifications.requestPermissionsAsync();
+  if (asked.status !== "granted") {
+    await dismissPushPrompt();
+    return false;
+  }
+  await registerToken(profileId);
+  return true;
+}
+
+// Never prompts. The permission dialog is only ever raised by
+// enablePush(), after the first order or from the Today tab.
+async function registerToken(profileId: string): Promise<void> {
+  if (!Device.isDevice) return; // simulators can't receive push
+  const existing = await Notifications.getPermissionsAsync();
+  if (existing.status !== "granted") return;
+  await ensureAndroidChannel();
 
   let token: string;
   try {
@@ -133,10 +174,10 @@ export function usePushRegistration(): void {
   const { profile } = useAuth();
   const responseSubRef = useRef<Notifications.EventSubscription | null>(null);
 
-  // Register on sign-in.
+  // Refresh the token on sign-in when notifications are already on.
   useEffect(() => {
     if (!profile) return;
-    void requestAndRegisterToken(profile.id);
+    void registerToken(profile.id);
   }, [profile?.id]);
 
   // Handle taps (background → foreground via notification).

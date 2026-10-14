@@ -114,6 +114,8 @@ declare module "react-native-svg" {
     fill?: string;
     stroke?: string;
     strokeWidth?: number | string;
+    strokeLinecap?: "butt" | "round" | "square";
+    strokeLinejoin?: "miter" | "round" | "bevel";
     d?: string;
     cx?: number | string;
     cy?: number | string;

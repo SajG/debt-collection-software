@@ -2,18 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "./supabase";
 import { ORDER_DOC_BUCKET, uploadLocalFileToBucket } from "./uploads";
 import { newId } from "./ids";
+import { t } from "@/lib/i18n";
 
 // Order documents — mirror of PaymentDocument helpers but scoped to
 // SalesOrder. Types not in Database types file; cast at the edges.
 
 export type OrderDocType = "INVOICE" | "LORRY_RECEIPT" | "ORDER_PROOF" | "OTHER";
 
-export const ORDER_DOC_LABELS: Record<OrderDocType, string> = {
-  INVOICE: "Invoice",
-  LORRY_RECEIPT: "Lorry receipt",
-  ORDER_PROOF: "Order proof",
-  OTHER: "Other",
-};
 
 // Only these can be uploaded by STAFF (matches server-side rule in
 // app/(dashboard)/production/actions.ts). Enforced by RLS too.
@@ -139,7 +134,7 @@ export async function attachOrderDocument(input: {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return { error: "Not signed in." };
+  if (!user) return { error: t("common.notSignedIn") };
 
   const uploaded = await uploadLocalFileToBucket({
     bucket: ORDER_DOC_BUCKET,

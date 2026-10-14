@@ -1035,6 +1035,7 @@ export type Database = {
           isActive: boolean
           notifyComments: boolean
           notifyCreditIssues: boolean
+          notifyDailyPlan: boolean
           notifyDocuments: boolean
           notifyStaleOrders: boolean
           notifyStatusChanges: boolean
@@ -1054,6 +1055,7 @@ export type Database = {
           isActive?: boolean
           notifyComments?: boolean
           notifyCreditIssues?: boolean
+          notifyDailyPlan?: boolean
           notifyDocuments?: boolean
           notifyStaleOrders?: boolean
           notifyStatusChanges?: boolean
@@ -1073,6 +1075,7 @@ export type Database = {
           isActive?: boolean
           notifyComments?: boolean
           notifyCreditIssues?: boolean
+          notifyDailyPlan?: boolean
           notifyDocuments?: boolean
           notifyStaleOrders?: boolean
           notifyStatusChanges?: boolean

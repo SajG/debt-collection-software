@@ -4,11 +4,12 @@ import {
   Modal,
   Pressable,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
+import { Text } from "./Text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "@/theme";
+import { t } from "@/lib/i18n";
 
 // Compact single-row dropdown. Replaces the ChipRow for lists that
 // don't need to fit on one line (packing / size — 20+ options each).
@@ -20,7 +21,7 @@ export function SelectField({
   value,
   options,
   onChange,
-  placeholder = "Choose…",
+  placeholder = t("common.choose"),
   formatLabel,
 }: {
   label: string;
@@ -44,7 +45,7 @@ export function SelectField({
         onPress={() => setOpen(true)}
         style={({ pressed }) => [styles.trigger, pressed && { opacity: 0.85 }]}
         accessibilityRole="button"
-        accessibilityLabel={`${label}: ${value ?? placeholder}. Opens picker.`}
+        accessibilityLabel={t("selectField.opensPicker", { label, n: value ?? placeholder })}
       >
         <Text style={styles.triggerLabel}>{label}</Text>
         <View style={styles.triggerRow}>
@@ -67,7 +68,12 @@ export function SelectField({
         transparent
         onRequestClose={() => setOpen(false)}
       >
-        <Pressable style={styles.backdrop} onPress={() => setOpen(false)} />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t("common.close")}
+          style={styles.backdrop}
+          onPress={() => setOpen(false)}
+        />
         <View
           style={[
             styles.sheet,
@@ -80,7 +86,7 @@ export function SelectField({
               onPress={() => setOpen(false)}
               hitSlop={16}
               accessibilityRole="button"
-              accessibilityLabel="Close picker"
+              accessibilityLabel={t("common.closePicker")}
             >
               <Text style={styles.close}>✕</Text>
             </Pressable>
@@ -92,6 +98,7 @@ export function SelectField({
               const active = item === value;
               return (
                 <Pressable
+                  accessibilityLabel={formatLabel ? formatLabel(item) : item}
                   onPress={() => {
                     onChange(item);
                     setOpen(false);
@@ -133,7 +140,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   triggerLabel: {
-    fontSize: 11,
+    fontSize: 13,
     color: theme.colors.textMuted,
     fontWeight: "800",
     textTransform: "uppercase",

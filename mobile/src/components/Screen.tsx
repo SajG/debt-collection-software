@@ -1,10 +1,18 @@
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, type Edge } from "react-native-safe-area-context";
 import type { ReactNode } from "react";
 import { OfflineBanner } from "./OfflineBanner";
 import { BillingBanner } from "./BillingBanner";
 import { BackBar } from "./BackBar";
+import { useHardwareBack } from "@/lib/back";
 import { theme } from "@/theme";
+
+function useHardwareBackWhen(enabled: boolean, fallback?: string) {
+  // The hook is always called (rules of hooks); when disabled the
+  // interceptor reports "not handled" and the default applies.
+  useHardwareBack(fallback ?? "/", enabled ? undefined : passThrough);
+}
+const passThrough = () => false;
 
 export function Screen({
   children,
@@ -13,6 +21,7 @@ export function Screen({
   back = false,
   backTitle,
   backFallback,
+  edges = ["top", "bottom", "left", "right"],
 }: {
   children: ReactNode;
   /** Use scroll on any screen with inputs; keeps the field visible when
@@ -27,12 +36,18 @@ export function Screen({
   backTitle?: string;
   /** Where to route if there's no history to pop (deep-link, cold start). */
   backFallback?: string;
+  /** Tab root screens pass ["top","left","right"] — the tab bar already
+   *  covers the bottom inset. */
+  edges?: readonly Edge[];
 }) {
+  // Android hardware back on a sub-screen with no history (opened from
+  // a notification) goes to the fallback instead of closing the app.
+  useHardwareBackWhen(back, backFallback);
   const inner = (
     <View style={[styles.inner, padded && styles.padded]}>{children}</View>
   );
   return (
-    <SafeAreaView style={styles.safe} edges={["top", "bottom", "left", "right"]}>
+    <SafeAreaView style={styles.safe} edges={edges}>
       <OfflineBanner />
       <BillingBanner />
       {back ? <BackBar title={backTitle} fallback={backFallback} /> : null}

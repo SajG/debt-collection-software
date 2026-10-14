@@ -7,9 +7,9 @@ import {
   Linking,
   Pressable,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
+import { Text } from "@/components/Text";
 import { useLocalSearchParams } from "expo-router";
 import { Screen } from "@/components/Screen";
 import { Button } from "@/components/Button";
@@ -19,7 +19,6 @@ import { PhotoPicker, type PickedPhoto } from "@/components/PhotoPicker";
 import {
   attachPaymentProof,
   usePaymentDetail,
-  PAYMENT_DOC_LABELS,
   type PaymentDocType,
   type PaymentDocumentRow,
 } from "@/lib/payment-queries";
@@ -27,13 +26,16 @@ import { PAYMENT_DOC_BUCKET, getSignedUrl } from "@/lib/uploads";
 import { supabase } from "@/lib/supabase";
 import { formatDate, formatINR } from "@/lib/format";
 import { theme } from "@/theme";
+import { t } from "@/lib/i18n";
+import { paymentDocLabel } from "@/lib/labels";
+import { toast } from "@/components/Toast";
 
-const TYPE_OPTIONS: { label: string; value: PaymentDocType }[] = [
-  { label: PAYMENT_DOC_LABELS.BANK_SCREENSHOT, value: "BANK_SCREENSHOT" },
-  { label: PAYMENT_DOC_LABELS.UPI_SCREENSHOT, value: "UPI_SCREENSHOT" },
-  { label: PAYMENT_DOC_LABELS.CHEQUE_PHOTO, value: "CHEQUE_PHOTO" },
-  { label: PAYMENT_DOC_LABELS.RECEIPT, value: "RECEIPT" },
-  { label: PAYMENT_DOC_LABELS.OTHER, value: "OTHER" },
+const TYPE_VALUES: PaymentDocType[] = [
+  "BANK_SCREENSHOT",
+  "UPI_SCREENSHOT",
+  "CHEQUE_PHOTO",
+  "RECEIPT",
+  "OTHER",
 ];
 
 export default function PaymentDetailScreen() {
@@ -89,6 +91,7 @@ export default function PaymentDetailScreen() {
     }
     setPhoto(null);
     setNotes("");
+    toast.success(t("payments.proofSaved"));
     await refetch();
   }, [paymentId, photo, type, notes, refetch]);
 
@@ -106,7 +109,7 @@ export default function PaymentDetailScreen() {
     return (
       <Screen back>
         <View style={styles.center}>
-          <Text style={styles.error}>{error ?? "Payment not found."}</Text>
+          <Text style={styles.error}>{error ?? t("staffPaymentsDetail.paymentNotFound")}</Text>
         </View>
       </Screen>
     );
@@ -122,30 +125,30 @@ export default function PaymentDetailScreen() {
           {data.reference ? ` · ${data.reference}` : ""}
         </Text>
         {data.invoiceNumber ? (
-          <Text style={styles.meta}>Invoice {data.invoiceNumber}</Text>
+          <Text style={styles.meta}>{t("payments.invoiceNumber", { number: data.invoiceNumber })}</Text>
         ) : (
-          <Text style={styles.metaMuted}>On-account payment</Text>
+          <Text style={styles.metaMuted}>{t("staffPaymentsDetail.onAccountPayment")}</Text>
         )}
         {data.recordedByName ? (
-          <Text style={styles.metaMuted}>Recorded by {data.recordedByName}</Text>
+          <Text style={styles.metaMuted}>{t("payments.recordedBy", { name: data.recordedByName })}</Text>
         ) : null}
       </View>
 
       <SectionHeader
-        title="Add proof"
-        subtitle="Snap the bank / UPI screen or the cheque now — makes recon easy."
+        title={t("staffPaymentsDetail.addProof")}
+        subtitle={t("staffPaymentsDetail.snapTheBankUpiScreen")}
       />
 
       <PhotoPicker photo={photo} onChange={setPhoto} />
 
       <View style={{ height: theme.spacing.md }} />
-      <Text style={styles.fieldLabel}>Proof type</Text>
-      <PickList options={TYPE_OPTIONS} value={type} onChange={setType} />
+      <Text style={styles.fieldLabel}>{t("staffPaymentsDetail.proofType")}</Text>
+      <PickList options={TYPE_VALUES.map((value) => ({ value, label: paymentDocLabel(value) }))} value={type} onChange={setType} />
 
       <View style={{ height: theme.spacing.md }} />
       <TextField
-        label="Reference note (optional)"
-        placeholder="UTR / cheque no. / any reference"
+        label={t("staffPaymentsDetail.referenceNoteOptional")}
+        placeholder={t("staffPaymentsDetail.utrChequeNoAnyReference")}
         value={notes}
         onChangeText={setNotes}
         autoCapitalize="characters"
@@ -155,7 +158,7 @@ export default function PaymentDetailScreen() {
 
       <View style={{ height: theme.spacing.md }} />
       <Button
-        label={uploading ? "Uploading…" : "Upload proof"}
+        label={uploading ? t("common.uploading") : t("staffPaymentsDetail.uploadProof")}
         onPress={upload}
         loading={uploading}
         disabled={!photo || uploading}
@@ -163,12 +166,12 @@ export default function PaymentDetailScreen() {
 
       <View style={{ height: theme.spacing.xl }} />
       <SectionHeader
-        title={`Proofs (${data.documents.length})`}
+        title={t("staffPaymentsDetail.proofs", { count: data.documents.length })}
       />
 
       {data.documents.length === 0 ? (
         <View style={styles.emptyList}>
-          <Text style={styles.emptyListText}>No proofs uploaded yet.</Text>
+          <Text style={styles.emptyListText}>{t("staffPaymentsDetail.noProofsUploadedYet")}</Text>
         </View>
       ) : (
         <FlatList
@@ -205,7 +208,7 @@ function ProofRow({ doc }: { doc: PaymentDocumentRow }) {
     try {
       await Linking.openURL(signedUrl);
     } catch {
-      Alert.alert("Could not open", "Unable to open the file — try again later.");
+      Alert.alert(t("common.couldNotOpen"), t("staffPaymentsDetail.unableToOpenTheFile"));
     } finally {
       setOpening(false);
     }
@@ -226,7 +229,7 @@ function ProofRow({ doc }: { doc: PaymentDocumentRow }) {
       )}
       <View style={styles.proofBody}>
         <Text style={styles.proofType}>
-          {PAYMENT_DOC_LABELS[doc.type]}
+          {paymentDocLabel(doc.type)}
         </Text>
         <Text style={styles.proofMeta}>
           {formatDate(new Date(doc.createdAt))}
@@ -234,13 +237,15 @@ function ProofRow({ doc }: { doc: PaymentDocumentRow }) {
         </Text>
         {doc.notes ? <Text style={styles.proofNotes}>{doc.notes}</Text> : null}
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={signedUrl ? t("staffPaymentsDetail.openFullSize") : t("common.loading")}
           onPress={open}
           disabled={!signedUrl || opening}
           hitSlop={8}
           style={styles.openLink}
         >
           <Text style={styles.openLinkText}>
-            {signedUrl ? "Open full-size →" : "Loading…"}
+            {signedUrl ? t("staffPaymentsDetail.openFullSize") : t("common.loading")}
           </Text>
         </Pressable>
       </View>

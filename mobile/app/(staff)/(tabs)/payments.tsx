@@ -1,20 +1,23 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import {
-  ActivityIndicator,
   FlatList,
   Pressable,
   RefreshControl,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
+import { Text } from "@/components/Text";
 import { router, useFocusEffect } from "expo-router";
 import { Screen } from "@/components/Screen";
-import { PageHeader } from "@/components/PageHeader";
+import { TabHeader } from "@/components/TabHeader";
+import { EmptyState } from "@/components/EmptyState";
+import { listEmpty } from "@/components/ListStates";
+import { paymentMethodLabel } from "@/lib/labels";
 import { FAB } from "@/components/FAB";
 import { usePayments, type PaymentListRow } from "@/lib/payment-queries";
 import { formatDate, formatINR } from "@/lib/format";
 import { theme } from "@/theme";
+import { t, tn } from "@/lib/i18n";
 
 export default function PaymentsListScreen() {
   const { data, loading, error, refetch } = usePayments();
@@ -27,21 +30,13 @@ export default function PaymentsListScreen() {
     }, [refetch])
   );
 
-  if (loading && !data) {
-    return (
-      <Screen>
-        <View style={styles.center}>
-          <ActivityIndicator color={theme.colors.primary} size="large" />
-        </View>
-      </Screen>
-    );
-  }
+  const [refreshing, setRefreshing] = useState(false);
 
   return (
-    <Screen padded={false}>
-      <PageHeader
-        title="Payments"
-        subtitle="Recorded collections and proofs. Tap + to add a new one."
+    <Screen padded={false} edges={["top", "left", "right"]}>
+      <TabHeader
+        title={t("tabs.payments")}
+        subtitle={t("staffPaymentsHome.recordedCollectionsAndProofsTap")}
       />
       <FlatList
         contentContainerStyle={styles.list}
@@ -49,29 +44,41 @@ export default function PaymentsListScreen() {
         keyExtractor={(row) => row.id}
         renderItem={({ item }) => <PaymentRow row={item} />}
         ItemSeparatorComponent={() => <View style={styles.sep} />}
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyTitle}>No payments yet</Text>
-            <Text style={styles.emptyBody}>
-              Tap the + button to record a payment you collected today.
-            </Text>
-          </View>
-        }
+        initialNumToRender={8}
+        windowSize={7}
+        removeClippedSubviews
+        ListEmptyComponent={listEmpty({
+          loading: loading && !data,
+          error: data ? null : error,
+          onRetry: () => void refetch(),
+          empty: (
+            <EmptyState
+              glyph="₹"
+              title={t("staffPaymentsHome.noPaymentsYet")}
+              body={t("staffPaymentsHome.tapTheButtonToRecord")}
+              actionLabel={t("payments.record")}
+              onAction={() => router.push("/(staff)/payments/new")}
+            />
+          ),
+        })}
         refreshControl={
           <RefreshControl
-            refreshing={loading}
-            onRefresh={() => void refetch()}
+            refreshing={refreshing}
+            onRefresh={async () => {
+              setRefreshing(true);
+              try {
+                await refetch();
+              } finally {
+                setRefreshing(false);
+              }
+            }}
             tintColor={theme.colors.primary}
+            colors={[theme.colors.primary]}
           />
         }
       />
-      {error && (
-        <View style={styles.errorBar}>
-          <Text style={styles.errorText}>{error}</Text>
-        </View>
-      )}
       <FAB
-        label="+ Record payment"
+        label={t("payments.record")}
         onPress={() => router.push("/(staff)/payments/new")}
       />
     </Screen>
@@ -88,6 +95,11 @@ function PaymentRow({ row }: { row: PaymentListRow }) {
         pressed && { backgroundColor: theme.colors.surface },
       ]}
       accessibilityRole="button"
+      accessibilityLabel={t("payments.rowA11y", {
+        name: row.partyName,
+        amount: formatINR(Number(row.amount)),
+        date: formatDate(new Date(row.paymentDate)),
+      })}
     >
       <View style={styles.rowTop}>
         <Text style={styles.party} numberOfLines={1}>
@@ -97,7 +109,7 @@ function PaymentRow({ row }: { row: PaymentListRow }) {
       </View>
       <View style={styles.rowBottom}>
         <Text style={styles.meta}>
-          {formatDate(new Date(row.paymentDate))} · {row.method}
+          {formatDate(new Date(row.paymentDate))} · {paymentMethodLabel(row.method)}
           {row.reference ? ` · ${row.reference}` : ""}
         </Text>
         <View
@@ -113,8 +125,8 @@ function PaymentRow({ row }: { row: PaymentListRow }) {
             ]}
           >
             {missingProof
-              ? "No proof"
-              : `${row.proofCount} proof${row.proofCount === 1 ? "" : "s"}`}
+              ? t("staffPaymentsHome.noProof")
+              : tn("payments.proofs", row.proofCount)}
           </Text>
         </View>
       </View>
@@ -173,7 +185,7 @@ const styles = StyleSheet.create({
     fontSize: theme.type.bodySmall - 2,
     fontWeight: "600",
   },
-  proofPillOkText: { color: theme.colors.success },
+  proofPillOkText: { color: theme.colors.primary },
   proofPillWarnText: { color: theme.colors.danger },
   empty: {
     padding: theme.spacing.xl,

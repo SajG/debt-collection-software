@@ -9,6 +9,9 @@ import { useAuth } from "@/auth/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { newId } from "@/lib/ids";
 import { theme } from "@/theme";
+import { t } from "@/lib/i18n";
+import { toast } from "@/components/Toast";
+import { goBackOr } from "@/lib/back";
 
 // ADMIN-only in-field customer creation. Salespeople keep using the
 // free-text newCustomerName path on the order wizard; an admin
@@ -30,8 +33,8 @@ export default function NewCustomerScreen() {
     return (
       <Screen>
         <PageHeader
-          title="Add customer"
-          subtitle="Only ADMIN users can create a customer from the app. Salespeople should place the order with the free-text customer name — an admin promotes it later."
+          title={t("staffCustomersNew.addCustomer")}
+          subtitle={t("staffCustomersNew.onlyAdminUsersCanCreate")}
         />
       </Screen>
     );
@@ -41,7 +44,7 @@ export default function NewCustomerScreen() {
     if (!profile) return;
     const trimmed = name.trim();
     if (trimmed.length < 2) {
-      Alert.alert("Name required", "Enter the customer name.");
+      Alert.alert(t("common.nameRequired"), t("common.enterTheCustomerName"));
       return;
     }
     setSaving(true);
@@ -69,30 +72,29 @@ export default function NewCustomerScreen() {
     const { error } = await supabase.from("Party").insert(payload);
     setSaving(false);
     if (error) {
-      Alert.alert("Could not save", error.message);
+      Alert.alert(t("common.couldNotSave"), error.message);
       return;
     }
-    Alert.alert("Saved", `${trimmed} added.`, [
-      { text: "OK", onPress: () => router.back() },
-    ]);
+    toast.success(t("staffCustomersNew.added", { trimmed }));
+    goBackOr("/(staff)/customers");
   }
 
   return (
     <Screen padded={false}>
       <PageHeader
-        title="Add customer"
-        subtitle="Only name is required — everything else can be filled from the web later."
+        title={t("staffCustomersNew.addCustomer")}
+        subtitle={t("staffCustomersNew.onlyNameIsRequiredEverything")}
       />
       <ScrollView contentContainerStyle={styles.body}>
         <TextField
-          label="Customer name *"
+          label={t("staffCustomersNew.customerName")}
           value={name}
           onChangeText={setName}
           autoCapitalize="words"
           autoCorrect={false}
         />
         <TextField
-          label="Phone (10 digits)"
+          label={t("staffCustomersNew.phone10Digits")}
           value={phone}
           onChangeText={(v) => setPhone(v.replace(/\D/g, "").slice(0, 10))}
           keyboardType="phone-pad"
@@ -105,20 +107,20 @@ export default function NewCustomerScreen() {
           autoCorrect={false}
         />
         <TextField
-          label="City"
+          label={t("staffCustomersNew.city")}
           value={city}
           onChangeText={setCity}
           autoCapitalize="words"
         />
         <TextField
-          label="Address"
+          label={t("staffCustomersNew.address")}
           value={address}
           onChangeText={setAddress}
           multiline
           numberOfLines={3}
         />
         <TextField
-          label="Credit limit (₹)"
+          label={t("staffCustomersNew.creditLimit")}
           value={creditLimit}
           onChangeText={setCreditLimit}
           keyboardType="numeric"
@@ -126,7 +128,7 @@ export default function NewCustomerScreen() {
 
         <View style={styles.footer}>
           <Button
-            label={saving ? "Saving…" : "Add customer"}
+            label={saving ? t("common.saving") : t("staffCustomersNew.addCustomer")}
             loading={saving}
             onPress={save}
             disabled={saving || name.trim().length < 2}

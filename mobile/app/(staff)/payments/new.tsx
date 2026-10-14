@@ -1,27 +1,23 @@
-import { useMemo, useState } from "react";
-import {
-  ActivityIndicator,
-  FlatList,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import { router } from "expo-router";
+import { useMemo, useRef, useState } from "react";
+import { FlatList, Pressable, StyleSheet, View } from "react-native";
+import { router, useLocalSearchParams } from "expo-router";
 import { Screen } from "@/components/Screen";
+import { Text, type TextInputRef } from "@/components/Text";
 import { Button } from "@/components/Button";
 import { TextField } from "@/components/TextField";
 import { Segmented } from "@/components/Segmented";
+import { EmptyState } from "@/components/EmptyState";
+import { listEmpty } from "@/components/ListStates";
+import { toast } from "@/components/Toast";
 import { useParties, type PartyRow } from "@/lib/queries";
 import { createPayment, type PaymentMethod } from "@/lib/payment-queries";
+import { paymentMethodLabel } from "@/lib/labels";
+import { formatINR } from "@/lib/format";
+import { t } from "@/lib/i18n";
 import { theme } from "@/theme";
+import { pingMilestones } from "@/lib/analytics";
 
-const METHODS: { label: string; value: PaymentMethod }[] = [
-  { label: "UPI", value: "UPI" },
-  { label: "NEFT", value: "NEFT" },
-  { label: "Cash", value: "CASH" },
-  { label: "Cheque", value: "CHEQUE" },
-];
+const METHODS: PaymentMethod[] = ["UPI", "NEFT", "CASH", "CHEQUE"];
 
 function todayIso() {
   const d = new Date();
@@ -31,19 +27,31 @@ function todayIso() {
   return `${yr}-${mo}-${da}`;
 }
 
+// Record a payment. Opened two ways:
+//   * from the Payments tab — pick the customer first;
+//   * from a customer row (Today / Customers) with ?partyId&partyName —
+//     the customer is already chosen and the amount field has focus, so
+//     it is amount → Save.
 export default function NewPaymentScreen() {
+  const params = useLocalSearchParams<{ partyId?: string; partyName?: string }>();
+  const preset: PartyRow | null =
+    params.partyId && params.partyName
+      ? { id: params.partyId, name: params.partyName, city: null }
+      : null;
+
   const [search, setSearch] = useState("");
-  const { data: parties, loading: partiesLoading } = useParties(search);
-  const [party, setParty] = useState<PartyRow | null>(null);
+  const [party, setParty] = useState<PartyRow | null>(preset);
+  const parties = useParties(search);
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<PaymentMethod>("UPI");
   const [reference, setReference] = useState("");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const amountRef = useRef<TextInputRef>(null);
 
   const amountNumber = useMemo(() => {
-    const n = Number(amount.replace(/,/g, ""));
+    const n = Number(amount.replace(/[,\s₹]/g, ""));
     return Number.isFinite(n) && n > 0 ? n : 0;
   }, [amount]);
 
@@ -67,123 +75,148 @@ export default function NewPaymentScreen() {
       setError(res.error);
       return;
     }
+    toast.success(
+      t("payments.saved", { amount: formatINR(amountNumber), name: party.name }),
+    );
+    pingMilestones();
     router.replace(`/(staff)/payments/${res.id}`);
   }
 
   if (!party) {
     return (
-      <Screen back padded={false}>
+      <Screen back backTitle={t("payments.record")} backFallback="/(staff)/payments" padded={false}>
         <View style={styles.searchWrap}>
           <TextField
-            label="Customer"
-            placeholder="Search your ledger…"
+            label={t("common.customer")}
+            placeholder={t("staffPaymentsNew.searchYourLedger")}
             value={search}
             onChangeText={setSearch}
             autoCorrect={false}
             autoCapitalize="words"
+            autoFocus
           />
         </View>
-        {partiesLoading && !parties ? (
-          <View style={styles.center}>
-            <ActivityIndicator color={theme.colors.primary} size="large" />
-          </View>
-        ) : (
-          <FlatList
-            data={parties ?? []}
-            keyExtractor={(p) => p.id}
-            contentContainerStyle={styles.list}
-            renderItem={({ item }) => (
-              <Pressable
-                onPress={() => setParty(item)}
-                style={({ pressed }) => [
-                  styles.partyRow,
-                  pressed && { backgroundColor: theme.colors.surface },
-                ]}
-              >
-                <Text style={styles.partyName}>{item.name}</Text>
-                {item.city ? (
-                  <Text style={styles.partyOutstanding}>{item.city}</Text>
-                ) : null}
-              </Pressable>
-            )}
-            ItemSeparatorComponent={() => <View style={styles.thinSep} />}
-            ListEmptyComponent={
-              <View style={styles.center}>
-                <Text style={styles.empty}>
-                  {search ? "No matches" : "No customers in your ledger yet."}
-                </Text>
-              </View>
-            }
-          />
-        )}
+        <FlatList
+          data={parties.data ?? []}
+          keyExtractor={(p) => p.id}
+          contentContainerStyle={styles.list}
+          keyboardShouldPersistTaps="handled"
+          initialNumToRender={10}
+          renderItem={({ item }) => (
+            <Pressable
+              onPress={() => setParty(item)}
+              style={({ pressed }) => [
+                styles.partyRow,
+                pressed && { backgroundColor: theme.colors.surface },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={item.name}
+            >
+              <Text style={styles.partyName}>{item.name}</Text>
+              {item.city ? <Text style={styles.partyCity}>{item.city}</Text> : null}
+            </Pressable>
+          )}
+          ItemSeparatorComponent={() => <View style={styles.thinSep} />}
+          ListEmptyComponent={listEmpty({
+            loading: parties.loading && !parties.data,
+            error: parties.data ? null : parties.error,
+            onRetry: () => void parties.refetch(),
+            empty: (
+              <EmptyState
+                glyph="☺"
+                title={search ? t("customers.noMatch") : t("customers.empty")}
+              />
+            ),
+          })}
+        />
       </Screen>
     );
   }
 
   return (
-    <Screen back scroll>
+    <Screen back backTitle={t("payments.record")} backFallback="/(staff)/payments" scroll>
       <View style={styles.selectedParty}>
-        <Text style={styles.selectedLabel}>Customer</Text>
+        <Text style={styles.selectedLabel}>{t("common.customer")}</Text>
         <View style={styles.selectedRow}>
           <Text style={styles.selectedName}>{party.name}</Text>
-          <Pressable onPress={() => setParty(null)} hitSlop={8}>
-            <Text style={styles.change}>Change</Text>
+          <Pressable
+            onPress={() => setParty(null)}
+            hitSlop={12}
+            style={styles.changeBtn}
+            accessibilityRole="button"
+            accessibilityLabel={t("payments.changeCustomer")}
+          >
+            <Text style={styles.change}>{t("common.change")}</Text>
           </Pressable>
         </View>
       </View>
 
       <TextField
-        label="Amount (₹)"
-        placeholder="e.g. 12500"
-        keyboardType="decimal-pad"
+        ref={amountRef}
+        label={t("payments.amount")}
+        placeholder={t("payments.amountPlaceholder")}
+        keyboardType="number-pad"
         value={amount}
         onChangeText={setAmount}
+        autoFocus
+        returnKeyType="done"
+        style={styles.amountInput}
       />
 
-      <View style={styles.field}>
-        <Text style={styles.fieldLabel}>Payment method</Text>
-        <Segmented options={METHODS} value={method} onChange={setMethod} />
+      <View>
+        <Text style={styles.fieldLabel}>{t("payments.method")}</Text>
+        <Segmented
+          options={METHODS.map((value) => ({ value, label: paymentMethodLabel(value) }))}
+          value={method}
+          onChange={setMethod}
+        />
       </View>
 
       <TextField
-        label="Reference (UTR / cheque no.)"
-        placeholder="Optional"
+        label={t("payments.reference")}
+        placeholder={t("common.optional")}
         value={reference}
         onChangeText={setReference}
         autoCapitalize="characters"
       />
 
       <TextField
-        label="Notes"
-        placeholder="Optional"
+        label={t("common.notes")}
+        placeholder={t("common.optional")}
         value={notes}
         onChangeText={setNotes}
         multiline
       />
 
-      {error && <Text style={styles.error}>{error}</Text>}
+      {error ? (
+        <Text style={styles.error} accessibilityLiveRegion="polite">
+          {error}
+        </Text>
+      ) : null}
 
-      <View style={{ height: theme.spacing.md }} />
       <Button
-        label={saving ? "Saving…" : "Save & attach proof"}
+        label={t("payments.save")}
         onPress={submit}
         disabled={!canSubmit}
         loading={saving}
+        accessibilityLabel={t("payments.save")}
       />
-      <Text style={styles.hint}>
-        Next step: snap the bank / UPI screenshot so the accountant can
-        reconcile without asking.
-      </Text>
+      <Text style={styles.hint}>{t("payments.proofHint")}</Text>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: theme.spacing.lg },
   searchWrap: { padding: theme.spacing.md },
-  list: { paddingHorizontal: theme.spacing.md, paddingBottom: theme.spacing.xl },
-  thinSep: { height: theme.spacing.xs },
+  list: {
+    paddingHorizontal: theme.spacing.md,
+    paddingBottom: theme.spacing.xl,
+    flexGrow: 1,
+  },
+  thinSep: { height: theme.spacing.sm },
   partyRow: {
+    minHeight: theme.tap,
+    justifyContent: "center",
     padding: theme.spacing.md,
     borderRadius: theme.radius,
     borderWidth: 1,
@@ -195,25 +228,19 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: theme.colors.text,
   },
-  partyOutstanding: {
+  partyCity: {
     marginTop: 4,
     fontSize: theme.type.bodySmall,
     color: theme.colors.textMuted,
   },
-  empty: {
-    fontSize: theme.type.body,
-    color: theme.colors.textMuted,
-  },
   selectedParty: {
-    marginBottom: theme.spacing.lg,
     padding: theme.spacing.md,
     borderRadius: theme.radius,
     backgroundColor: theme.colors.surface,
   },
   selectedLabel: {
-    fontSize: theme.type.bodySmall - 2,
-    textTransform: "uppercase",
-    letterSpacing: 1,
+    fontSize: 14,
+    fontWeight: "600",
     color: theme.colors.textMuted,
     marginBottom: 4,
   },
@@ -229,25 +256,25 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     marginRight: theme.spacing.sm,
   },
+  changeBtn: { minHeight: 48, justifyContent: "center" },
   change: {
     color: theme.colors.primary,
     fontSize: theme.type.body,
-    fontWeight: "600",
+    fontWeight: "700",
   },
-  field: { marginBottom: theme.spacing.md },
+  amountInput: { fontSize: 26, fontWeight: "700" },
   fieldLabel: {
-    fontSize: theme.type.body,
+    fontSize: theme.type.bodySmall,
     fontWeight: "600",
     color: theme.colors.text,
     marginBottom: theme.spacing.sm,
   },
   error: {
-    marginTop: theme.spacing.sm,
     color: theme.colors.danger,
-    fontSize: theme.type.body,
+    fontSize: theme.type.bodySmall,
+    fontWeight: "600",
   },
   hint: {
-    marginTop: theme.spacing.sm,
     fontSize: theme.type.bodySmall,
     color: theme.colors.textMuted,
     textAlign: "center",

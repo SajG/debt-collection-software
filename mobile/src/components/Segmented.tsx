@@ -1,4 +1,5 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
+import { Text } from "./Text";
 import { theme } from "@/theme";
 
 // Horizontal group of mutually exclusive buttons. Used for short
@@ -29,7 +30,9 @@ export function Segmented<T extends string>({
             key={opt.value}
             onPress={() => onChange(opt.value)}
             accessibilityRole="button"
+            accessibilityLabel={opt.label}
             accessibilityState={{ selected: active }}
+            hitSlop={compact ? { top: 4, bottom: 4 } : undefined}
             style={({ pressed }) => [
               compact ? styles.optCompact : styles.opt,
               active && styles.active,
@@ -68,7 +71,8 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.background,
   },
   optCompact: {
-    minHeight: 30,
+    // 40dp visual + hitSlop below = 48dp touch area.
+    minHeight: 40,
     flexGrow: 1,
     paddingHorizontal: 10,
     paddingVertical: 4,
@@ -90,10 +94,9 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
   },
   labelCompact: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: "700",
     color: theme.colors.text,
-    letterSpacing: 0.2,
   },
   activeLabel: { color: theme.colors.primaryOn },
 });

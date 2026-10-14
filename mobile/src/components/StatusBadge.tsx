@@ -1,4 +1,5 @@
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { Text } from "./Text";
 import type { OrderStatus } from "@/lib/database.types";
 import { statusStyle } from "@/lib/status-style";
 import { t } from "@/lib/i18n";

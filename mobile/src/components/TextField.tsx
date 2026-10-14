@@ -1,11 +1,10 @@
 import { forwardRef } from "react";
 import {
   StyleSheet,
-  Text,
-  TextInput,
   View,
   type TextInputProps,
 } from "react-native";
+import { Text, TextInput, type TextInputRef } from "./Text";
 import { theme } from "@/theme";
 
 type Props = TextInputProps & {
@@ -14,7 +13,7 @@ type Props = TextInputProps & {
   error?: string | null;
 };
 
-export const TextField = forwardRef<TextInput, Props>(function TextField(
+export const TextField = forwardRef<TextInputRef, Props>(function TextField(
   { label, hint, error, style, ...rest },
   ref,
 ) {

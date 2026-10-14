@@ -6,9 +6,9 @@ import {
   Pressable,
   RefreshControl,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
+import { Text } from "@/components/Text";
 import { Swipeable } from "react-native-gesture-handler";
 import { router } from "expo-router";
 import { Screen } from "@/components/Screen";
@@ -18,6 +18,10 @@ import { confirm } from "@/components/Confirm";
 import { supabase } from "@/lib/supabase";
 import { formatDate, formatINR } from "@/lib/format";
 import { theme } from "@/theme";
+import { t } from "@/lib/i18n";
+import { toast } from "@/components/Toast";
+import { listEmpty } from "@/components/ListStates";
+import { EmptyState } from "@/components/EmptyState";
 
 // Combined approvals queue. Two kinds of item share the list:
 //   ORDER: PENDING_APPROVAL — approve/reject
@@ -159,56 +163,53 @@ export default function AdminApprovals() {
     const fn = it.kind === "ORDER" ? approveOrderRpc : approveRateRpc;
     const res = await fn(it.id, null);
     if ("error" in res) {
-      Alert.alert("Approve failed", res.error);
+      Alert.alert(t("common.approveFailed"), res.error);
       return;
     }
     // Explicit confirmation — the row vanishes from the queue on
     // reload, which was reading as "did anything happen?".
-    Alert.alert(
-      "Approved",
+    toast.success(
       it.kind === "ORDER"
-        ? `${it.orderNumber} — ${it.partyName}\nNow on the factory floor.`
-        : `${it.orderNumber} — rate approved. Factory can start production.`,
+        ? t("adminApprovals.nowOnTheFactoryFloor", { orderNumber: it.orderNumber, partyName: it.partyName })
+        : t("adminApprovals.rateApprovedFactoryCanStart", { orderNumber: it.orderNumber }),
     );
     await load();
   }
 
   function askReject(it: Item) {
     if (it.kind !== "ORDER") {
-      Alert.alert("Rate approvals", "Rate exceptions can only be approved or left pending.");
+      Alert.alert(t("adminApprovals.rateApprovals"), t("adminApprovals.rateExceptionsCanOnlyBe"));
       return;
     }
     // Simple reason prompt: use confirm() with a follow-up TextField
     // screen would be nicer, but keep this compact — reject-with-reason
     // is the exception path. Fall back to a required stock reason.
     confirm({
-      title: `Reject ${it.orderNumber}?`,
-      body: "The salesperson will get a push notification.",
-      confirmLabel: "Reject",
+      title: t("adminApprovals.reject", { orderNumber: it.orderNumber }),
+      body: t("adminApprovals.theSalespersonWillGetA"),
+      confirmLabel: t("common.reject"),
       destructive: true,
       onConfirm: async () => {
         const res = await rejectOrderRpc(
           it.id,
+          // i18n-ignore: note stored on the order timeline
           "Rejected from mobile — see order detail",
         );
-        if ("error" in res) Alert.alert("Reject failed", res.error);
-        else await load();
+        if ("error" in res) Alert.alert(t("common.rejectFailed"), res.error);
+        else {
+          toast.success(t("adminApprovals.rejected", { orderNumber: it.orderNumber }));
+          await load();
+        }
       },
     });
   }
 
-  const emptyMessage = useMemo(() => {
-    if (loading) return null;
-    if (error) return error;
-    return "Nothing pending. All caught up.";
-  }, [loading, error]);
-
   return (
     <Screen padded={false}>
       <View style={styles.header}>
-        <Text style={styles.title}>Approvals</Text>
+        <Text style={styles.title}>{t("common.approvals")}</Text>
         <Text style={styles.subtitle}>
-          Swipe right to approve. Swipe left to reject with reason.
+          {t("adminApprovals.swipeRightToApproveSwipe")}
         </Text>
       </View>
 
@@ -218,37 +219,45 @@ export default function AdminApprovals() {
         contentContainerStyle={styles.list}
         ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.colors.primary}
+            colors={[theme.colors.primary]}
+          />
         }
-        ListEmptyComponent={
-          loading ? (
-            <View style={{ paddingTop: 40 }}>
-              <ActivityIndicator />
-            </View>
-          ) : (
-            <Text style={styles.empty}>{emptyMessage}</Text>
-          )
-        }
+        ListEmptyComponent={listEmpty({
+          loading,
+          error,
+          onRetry: () => void load(),
+          empty: <EmptyState glyph="✓" title={t("adminApprovals.empty")} />,
+        })}
         renderItem={({ item }) => (
           <Swipeable
             renderRightActions={() => (
               <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t("common.reject")}
                 onPress={() => askReject(item)}
                 style={styles.rejectAction}
               >
-                <Text style={styles.actionText}>Reject</Text>
+                <Text style={styles.actionText}>{t("common.reject")}</Text>
               </Pressable>
             )}
             renderLeftActions={() => (
               <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t("common.approve")}
                 onPress={() => void doApprove(item)}
                 style={styles.approveAction}
               >
-                <Text style={styles.actionText}>Approve</Text>
+                <Text style={styles.actionText}>{t("common.approve")}</Text>
               </Pressable>
             )}
           >
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={item.kind === "ORDER" ? t("adminApprovals.orderApproval") : t("adminApprovals.rateException")}
               onPress={() =>
                 router.push({
                   pathname: "/(staff)/orders/[id]",
@@ -262,7 +271,7 @@ export default function AdminApprovals() {
             >
               <View style={styles.rowLeft}>
                 <Text style={styles.kindPill}>
-                  {item.kind === "ORDER" ? "ORDER APPROVAL" : "RATE EXCEPTION"}
+                  {item.kind === "ORDER" ? t("adminApprovals.orderApproval") : t("adminApprovals.rateException")}
                 </Text>
                 <Text style={styles.orderNumber}>{item.orderNumber}</Text>
                 <Text style={styles.party}>{item.partyName}</Text>
@@ -270,7 +279,7 @@ export default function AdminApprovals() {
                   {[item.brand, item.productName].filter(Boolean).join(" · ")}
                 </Text>
                 <Text style={styles.meta}>
-                  Placed {formatDate(new Date(item.createdAt))}
+                  {t("common.placedOn", { date: formatDate(new Date(item.createdAt)) })}
                 </Text>
               </View>
               <View style={styles.rowRight}>
@@ -287,7 +296,7 @@ export default function AdminApprovals() {
 
 function ApproveInline({ onPress }: { onPress: () => void }) {
   return (
-    <Button label="Approve" onPress={onPress} fullWidth={false} />
+    <Button label={t("common.approve")} onPress={onPress} fullWidth={false} />
   );
 }
 
@@ -332,7 +341,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   kindPill: {
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: "800",
     letterSpacing: 0.5,
     color: theme.colors.primary,

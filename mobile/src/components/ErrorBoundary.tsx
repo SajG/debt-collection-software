@@ -1,8 +1,10 @@
 import * as React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
+import { Text } from "./Text";
 import { router } from "expo-router";
 import { reportError, crumb } from "@/lib/observability";
 import { theme } from "@/theme";
+import { t } from "@/lib/i18n";
 
 // Screen-level ErrorBoundary. Wraps every group layout so a rogue
 // render doesn't nuke the app-bar pill + sign-out button — those
@@ -58,11 +60,9 @@ export class ErrorBoundary extends React.Component<
     if (!this.state.error) return this.props.children as React.ReactElement;
     return (
       <View style={styles.wrap} accessibilityLiveRegion="polite">
-        <Text style={styles.title}>Something went wrong</Text>
+        <Text style={styles.title}>{t("errorBoundary.somethingWentWrong")}</Text>
         <Text style={styles.body}>
-          Syncit hit an unexpected error on this screen. Your data is
-          safe — nothing has been sent or lost. Tap Report so we can
-          fix it, then head back to the home screen.
+          {t("errorBoundary.syncitHitAnUnexpectedError")}
         </Text>
         {__DEV__ ? (
           <Text style={styles.devDetail} selectable>
@@ -78,9 +78,9 @@ export class ErrorBoundary extends React.Component<
               pressed && { opacity: 0.85 },
             ]}
             accessibilityRole="button"
-            accessibilityLabel="Report this problem to the team"
+            accessibilityLabel={t("errorBoundary.reportThisProblemToThe")}
           >
-            <Text style={styles.btnLabel}>Report a problem</Text>
+            <Text style={styles.btnLabel}>{t("errorBoundary.reportAProblem")}</Text>
           </Pressable>
           <Pressable
             onPress={this.goHome}
@@ -90,10 +90,10 @@ export class ErrorBoundary extends React.Component<
               pressed && { opacity: 0.85 },
             ]}
             accessibilityRole="button"
-            accessibilityLabel="Back to home"
+            accessibilityLabel={t("errorBoundary.backToHome")}
           >
             <Text style={[styles.btnLabel, styles.btnLabelSecondary]}>
-              Back to home
+              {t("errorBoundary.backToHome")}
             </Text>
           </Pressable>
         </View>
@@ -126,7 +126,7 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius,
     backgroundColor: theme.colors.surface,
     fontFamily: "Menlo",
-    fontSize: 12,
+    fontSize: 13,
     color: theme.colors.text,
   },
   row: {

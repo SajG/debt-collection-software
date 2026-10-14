@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { Text } from "@/components/Text";
 import { router } from "expo-router";
 import { Screen } from "@/components/Screen";
 import { TextField } from "@/components/TextField";
@@ -12,6 +13,7 @@ import {
   MAX_PIN_ATTEMPTS,
 } from "@/auth/device-lock";
 import { theme } from "@/theme";
+import { t } from "@/lib/i18n";
 
 // The unlock screen. Rendered by the root gate when session is valid
 // but the local device lock is engaged. Successful unlock calls
@@ -36,9 +38,9 @@ export default function UnlockScreen() {
       return;
     }
     if (res.reason === "unavailable") {
-      setError("Biometric unavailable. Sign out and re-enrol with a PIN.");
+      setError(t("unlock.biometricUnavailableSignOutAnd"));
     } else {
-      setError("Unlock cancelled.");
+      setError(t("unlock.unlockCancelled"));
     }
   }, [markUnlocked]);
 
@@ -56,7 +58,7 @@ export default function UnlockScreen() {
   async function runPin() {
     setError(null);
     if (!/^\d{6}$/.test(pin)) {
-      setError("Enter your 6-digit PIN.");
+      setError(t("unlock.enterYour6DigitPin"));
       return;
     }
     setBusy(true);
@@ -70,30 +72,30 @@ export default function UnlockScreen() {
     }
     if (res.reason === "wiped") {
       setError(
-        `Too many wrong attempts. Signed out. Ask your admin for a new enrollment code.`,
+        t("unlock.tooManyWrongAttemptsSigned"),
       );
       await signOut();
       return;
     }
-    setError(`Wrong PIN. ${MAX_PIN_ATTEMPTS} wrong attempts sign you out.`);
+    setError(t("unlock.wrongPinWrongAttemptsSign", { MAX_PIN_ATTEMPTS }));
   }
 
   return (
     <Screen scroll>
       <View style={styles.header}>
-        <Text style={styles.title}>Unlock</Text>
+        <Text style={styles.title}>{t("unlock.unlock")}</Text>
         <Text style={styles.subtitle}>
           {kind === "biometric"
-            ? "Use your fingerprint or face."
+            ? t("unlock.useYourFingerprintOrFace")
             : kind === "pin"
-              ? "Enter your 6-digit PIN."
-              : "This device isn't set up. Sign out and re-enrol."}
+              ? t("unlock.enterYour6DigitPin")
+              : t("unlock.thisDeviceIsntSetUp")}
         </Text>
       </View>
 
       {kind === "biometric" ? (
         <Button
-          label="Unlock with biometric"
+          label={t("unlock.unlockWithBiometric")}
           loading={busy}
           onPress={runBiometric}
         />
@@ -109,7 +111,7 @@ export default function UnlockScreen() {
             onChangeText={(v) => setPin(v.replace(/\D/g, ""))}
             style={{ fontSize: 24, letterSpacing: 8, textAlign: "center" }}
           />
-          <Button label="Unlock" loading={busy} onPress={runPin} />
+          <Button label={t("unlock.unlock")} loading={busy} onPress={runPin} />
         </>
       ) : null}
 
@@ -119,7 +121,7 @@ export default function UnlockScreen() {
 
       <View style={{ marginTop: theme.spacing.lg }}>
         <Button
-          label="Sign out"
+          label={t("unlock.signOut")}
           variant="danger"
           onPress={() => void signOut()}
         />

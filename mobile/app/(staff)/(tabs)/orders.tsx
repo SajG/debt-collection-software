@@ -4,11 +4,14 @@ import {
   Pressable,
   RefreshControl,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
+import { Text } from "@/components/Text";
 import { router } from "expo-router";
 import { Screen } from "@/components/Screen";
+import { TabHeader } from "@/components/TabHeader";
+import { EmptyState } from "@/components/EmptyState";
+import { listEmpty } from "@/components/ListStates";
 import { Segmented } from "@/components/Segmented";
 import { OrderCard } from "@/components/OrderCard";
 import { FAB } from "@/components/FAB";
@@ -33,7 +36,7 @@ import { useDocQueue } from "@/lib/order-doc-queue";
 import { useStatusQueue } from "@/lib/status-queue";
 import { clearDraft, useDraftPreview, writeRepeatSeed } from "@/lib/order-draft";
 import { supabase } from "@/lib/supabase";
-import { t } from "@/lib/i18n";
+import { t, tn } from "@/lib/i18n";
 import { theme } from "@/theme";
 
 type Filter = "all" | "waiting" | "active" | "dispatched";
@@ -75,7 +78,7 @@ type Row =
     };
 
 export default function HomeScreen() {
-  const { profile, user, role, signOut } = useAuth();
+  const { user, role } = useAuth();
   const [filter, setFilter] = useState<Filter>("all");
   // Scope toggle is ADMIN-only. STAFF is locked to "mine" — RLS enforces
   // that too, but this keeps the client honest and avoids an empty
@@ -121,7 +124,7 @@ export default function HomeScreen() {
         )
         .eq("id", orderId)
         .maybeSingle();
-      if (error || !data) throw error ?? new Error("Order not found");
+      if (error || !data) throw error ?? new Error(t("common.orderNotFound"));
       type Row = {
         partyId: string | null;
         newCustomerName: string | null;
@@ -171,8 +174,8 @@ export default function HomeScreen() {
       router.push("/(staff)/orders/new");
     } catch (e) {
       confirm({
-        title: "Couldn't clone order",
-        body: e instanceof Error ? e.message : "Please try again.",
+        title: t("staffHome.couldntCloneOrder"),
+        body: e instanceof Error ? e.message : t("common.pleaseTryAgain"),
         confirmLabel: "OK",
         onConfirm: () => undefined,
       });
@@ -216,7 +219,7 @@ export default function HomeScreen() {
       // the admin's own orders and STAFF-scoped views don't need it.
       salespersonName:
         effectiveScope === "all" && o.salesperson?.id !== user?.id
-          ? (o.salesperson?.ownerName ?? "Unknown user")
+          ? (o.salesperson?.ownerName ?? t("common.unknownUser"))
           : null,
     }));
     return [...q, ...server];
@@ -232,83 +235,27 @@ export default function HomeScreen() {
         : t("home.empty.all");
 
   return (
-    <Screen padded={false}>
-      <View style={styles.header}>
-        <View style={styles.headerText}>
-          <Text style={styles.hello} numberOfLines={1}>
-            {t("home.greeting", { name: profile?.ownerName ?? "" })}
-          </Text>
-          <Text style={styles.subtitle}>{t("home.subtitle")}</Text>
-        </View>
-        <View style={styles.headerActions}>
-          <Pressable
-            onPress={() => router.push("/(staff)/settings")}
-            hitSlop={8}
-            style={({ pressed }) => [
-              styles.iconBtn,
-              pressed && { opacity: 0.7 },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="Settings"
-          >
-            <Text style={styles.iconBtnGlyph}>⚙</Text>
-          </Pressable>
-          <Pressable
-            onPress={() =>
-              confirm({
-                title: t("confirm.signOut.title"),
-                body: t("confirm.signOut.body"),
-                confirmLabel: t("confirm.ok"),
-                destructive: true,
-                onConfirm: () => void signOut(),
-              })
-            }
-            hitSlop={8}
-            style={({ pressed }) => [
-              styles.iconBtn,
-              pressed && { opacity: 0.7 },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel={t("home.signOut")}
-          >
-            <Text style={styles.signOutGlyph}>⏻</Text>
-          </Pressable>
-        </View>
-      </View>
+    <Screen padded={false} edges={["top", "left", "right"]}>
+      <TabHeader title={t("tabs.orders")} subtitle={t("home.subtitle")} />
 
       <View style={styles.pillRow}>
         <SyncPill />
+        <Pressable
+          onPress={() => router.push("/(staff)/stock")}
+          hitSlop={8}
+          style={({ pressed }) => [styles.stockLink, pressed && { opacity: 0.7 }]}
+          accessibilityRole="button"
+          accessibilityLabel={t("staffHome.stock")}
+        >
+          <Text style={styles.stockLinkText}>{t("staffHome.stock")} ›</Text>
+        </Pressable>
       </View>
       <UpdateBannerBinding />
-
-      <View style={styles.tilesRow}>
-        <NavTile
-          glyph="₹"
-          label={t("home.dues")}
-          onPress={() => router.push("/(staff)/dues")}
-        />
-        <NavTile
-          glyph="◫"
-          label="Stock"
-          onPress={() => router.push("/(staff)/stock")}
-        />
-        <NavTile
-          glyph="✓"
-          label="Payments"
-          onPress={() => router.push("/(staff)/payments")}
-        />
-        {isAdmin && (
-          <NavTile
-            glyph="+"
-            label="Customer"
-            onPress={() => router.push("/(staff)/customers/new")}
-          />
-        )}
-      </View>
 
       {isAdmin && (
         <View style={styles.scopeToggle}>
           <Pressable
+            accessibilityLabel={t("home.viewing", { scope: scope === "mine" ? t("home.scope.mine") : t("home.scope.all") })}
             onPress={() => setScope(scope === "mine" ? "all" : "mine")}
             style={({ pressed }) => [
               styles.scopeChip,
@@ -318,7 +265,7 @@ export default function HomeScreen() {
             accessibilityState={{ checked: scope === "all" }}
           >
             <Text style={styles.scopeChipText}>
-              Viewing: {scope === "mine" ? t("home.scope.mine") : t("home.scope.all")} ▾
+              {t("home.viewing", { scope: scope === "mine" ? t("home.scope.mine") : t("home.scope.all") })} ▾
             </Text>
           </Pressable>
         </View>
@@ -334,17 +281,17 @@ export default function HomeScreen() {
                 pressed && { opacity: 0.85 },
               ]}
               accessibilityRole="button"
-              accessibilityLabel="Resume in-progress order"
+              accessibilityLabel={t("staffHome.resumeInProgressOrder")}
             >
               <View style={{ flex: 1 }}>
-                <Text style={styles.resumeLabel}>Resume order</Text>
+                <Text style={styles.resumeLabel}>{t("staffHome.resumeOrder")}</Text>
                 <Text style={styles.resumeSummary} numberOfLines={1}>
-                  {draftPreview.summary ?? "Draft in progress"}
+                  {draftPreview.summary ?? t("staffHome.draftInProgress")}
                 </Text>
                 <Text style={styles.resumeMeta}>
                   {draftPreview.itemCount === 0
-                    ? "Customer & delivery"
-                    : `${draftPreview.itemCount} ${draftPreview.itemCount === 1 ? "item" : "items"}`}
+                    ? t("common.customerDelivery")
+                    : tn("common.items", draftPreview.itemCount)}
                 </Text>
               </View>
               <Text style={styles.resumeChevron}>›</Text>
@@ -352,10 +299,10 @@ export default function HomeScreen() {
             <Pressable
               onPress={() =>
                 confirm({
-                  title: "Delete this draft?",
+                  title: t("staffHome.deleteThisDraft"),
                   body:
-                    "Everything typed for this order will be gone. This cannot be undone.",
-                  confirmLabel: "Delete draft",
+                    t("staffHome.everythingTypedForThisOrder"),
+                  confirmLabel: t("staffHome.deleteDraft"),
                   destructive: true,
                   onConfirm: async () => {
                     await clearDraft();
@@ -368,7 +315,7 @@ export default function HomeScreen() {
                 pressed && { opacity: 0.85 },
               ]}
               accessibilityRole="button"
-              accessibilityLabel="Delete this draft"
+              accessibilityLabel={t("staffHome.deleteThisDraft2")}
             >
               <Text style={styles.resumeDeleteGlyph}>×</Text>
             </Pressable>
@@ -420,23 +367,34 @@ export default function HomeScreen() {
               onPress={() => router.push({ pathname: "/(staff)/orders/[id]", params: { id: item.id } })}
               onRepeat={() => {
                 confirm({
-                  title: "Repeat this order?",
-                  body: "Opens a new order with the same customer and items pre-filled.",
-                  confirmLabel: "Repeat",
+                  title: t("staffHome.repeatThisOrder"),
+                  body: t("staffHome.opensANewOrderWith"),
+                  confirmLabel: t("staffHome.repeat"),
                   onConfirm: () => void repeatOrder(item.id),
                 });
               }}
             />
           )
         }
-        ListEmptyComponent={
-          !loading ? (
-            <Text style={styles.empty}>{error ? t("home.error") : emptyMessage}</Text>
-          ) : null
-        }
+        ListEmptyComponent={listEmpty({
+          loading: loading && !data,
+          error: data ? null : error ? t("home.error") : null,
+          onRetry: () => void refetch(),
+          empty: (
+            <EmptyState
+              glyph="＋"
+              title={emptyMessage}
+              actionLabel={filter === "all" ? t("home.newOrder") : undefined}
+              onAction={filter === "all" ? () => router.push("/(staff)/orders/new") : undefined}
+            />
+          ),
+        })}
+        initialNumToRender={6}
+        windowSize={7}
+        removeClippedSubviews
         refreshControl={
           <RefreshControl
-            refreshing={refreshing || loading}
+            refreshing={refreshing}
             onRefresh={onRefresh}
             tintColor={theme.colors.primary}
             colors={[theme.colors.primary]}
@@ -452,119 +410,19 @@ export default function HomeScreen() {
   );
 }
 
-function NavTile({
-  glyph,
-  label,
-  onPress,
-}: {
-  glyph: string;
-  label: string;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [styles.tile, pressed && { opacity: 0.85 }]}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-    >
-      <Text style={styles.tileGlyph}>{glyph}</Text>
-      <Text
-        style={styles.tileLabel}
-        numberOfLines={1}
-        adjustsFontSizeToFit
-        minimumFontScale={0.85}
-      >
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
-  header: {
-    paddingHorizontal: theme.spacing.lg,
-    paddingTop: theme.spacing.sm,
+  pillRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
+    paddingHorizontal: theme.spacing.lg,
   },
-  headerText: { flex: 1, gap: 0 },
-  hello: {
+  stockLink: { minHeight: 48, justifyContent: "center" },
+  stockLinkText: {
     fontSize: theme.type.bodySmall,
     fontWeight: "700",
-    color: theme.colors.text,
-  },
-  subtitle: {
-    fontSize: theme.type.bodySmall - 2,
-    color: theme.colors.textMuted,
-  },
-  headerActions: {
-    flexDirection: "row",
-    gap: 8,
-    alignItems: "center",
-  },
-  iconBtn: {
-    width: 36,
-    height: 36,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.background,
-  },
-  iconBtnGlyph: {
-    fontSize: 16,
-    color: theme.colors.textMuted,
-  },
-  signOutGlyph: {
-    fontSize: 16,
-    color: theme.colors.danger,
-    fontWeight: "700",
-  },
-  // Sync pill sits on its own thin row directly under the greeting.
-  // The old amber banner ate too much vertical space for what is a
-  // single chip. Chip is self-hiding when there's nothing to show.
-  pillRow: {
-    paddingHorizontal: theme.spacing.lg,
-    paddingTop: theme.spacing.xs,
-  },
-  tilesRow: {
-    flexDirection: "row",
-    gap: 6,
-    paddingHorizontal: theme.spacing.lg,
-    paddingTop: theme.spacing.xs,
-  },
-  tile: {
-    flex: 1,
-    // Compact pill — one line, ~30 px tall. The nav destinations
-    // are secondary; the orders list is the point of this screen.
-    minHeight: 30,
-    flexDirection: "row",
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 3,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  tileGlyph: {
-    fontSize: 11,
     color: theme.colors.primary,
-    fontWeight: "700",
-    lineHeight: 12,
-  },
-  tileLabel: {
-    fontSize: 10,
-    fontWeight: "600",
-    color: theme.colors.text,
-    letterSpacing: 0.1,
-    textAlign: "center",
   },
   scopeToggle: {
     paddingHorizontal: theme.spacing.lg,
@@ -581,7 +439,7 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
   },
   scopeChipText: {
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: "700",
     color: theme.colors.text,
     letterSpacing: 0.2,
@@ -638,7 +496,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   resumeLabel: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "700",
     color: theme.colors.primary,
     textTransform: "uppercase",

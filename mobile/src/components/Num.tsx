@@ -1,5 +1,6 @@
 import * as React from "react";
-import { Text, type TextProps, type TextStyle, StyleSheet } from "react-native";
+import { type TextProps, type TextStyle, StyleSheet } from "react-native";
+import { Text } from "./Text";
 
 // Mobile equivalent of the web <Num>. Wraps every quantity, rate,
 // amount, and outstanding figure so digits are tabular and columns

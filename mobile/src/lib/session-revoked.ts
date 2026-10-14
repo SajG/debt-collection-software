@@ -13,8 +13,8 @@ import { clearDeviceId, clearLock } from "@/auth/device-lock";
 
 const REVOKED_NOTICE_KEY = "syncit:revokedNotice";
 
-export const REVOKED_MESSAGE =
-  "This phone was signed out by your admin.";
+// Stored as a flag; the sign-in screen shows t("auth.revoked").
+const REVOKED_FLAG = "1";
 
 type MaybePostgrestError = {
   code?: string | null;
@@ -60,7 +60,7 @@ export async function handleRevocationError(err: unknown): Promise<boolean> {
 /** Force the revoked-notice path without an error object — used by
  *  the touch_device_seen heartbeat in AuthContext. */
 export async function markSessionRevoked(): Promise<void> {
-  await AsyncStorage.setItem(REVOKED_NOTICE_KEY, REVOKED_MESSAGE);
+  await AsyncStorage.setItem(REVOKED_NOTICE_KEY, REVOKED_FLAG);
   try {
     await clearDeviceId();
     await clearLock();

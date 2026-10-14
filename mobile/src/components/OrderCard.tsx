@@ -1,4 +1,11 @@
-import { Alert, Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Alert,
+  Linking,
+  Pressable,
+  StyleSheet,
+  View,
+} from "react-native";
+import { Text } from "./Text";
 import { StatusBadge } from "./StatusBadge";
 import { theme } from "@/theme";
 import type { OrderStatus, QuantityUnit } from "@/lib/database.types";
@@ -31,7 +38,7 @@ export type OrderCardProps = {
 function dial(phone: string) {
   const uri = `tel:${phone.replace(/\s+/g, "")}`;
   void Linking.openURL(uri).catch(() =>
-    Alert.alert("Could not open dialer", phone),
+    Alert.alert(t("common.couldNotOpenDialer"), phone),
   );
 }
 
@@ -77,9 +84,9 @@ export function OrderCard(props: OrderCardProps) {
                 pressed && { opacity: 0.75 },
               ]}
               accessibilityRole="button"
-              accessibilityLabel={`Call ${props.salespersonName}`}
+              accessibilityLabel={t("orderCard.call", { salespersonName: props.salespersonName })}
             >
-              <Text style={styles.callPillText}>☎ Call</Text>
+              <Text style={styles.callPillText}>{t("common.call")}</Text>
             </Pressable>
           ) : null}
         </View>
@@ -102,9 +109,9 @@ export function OrderCard(props: OrderCardProps) {
                 pressed && { opacity: 0.7 },
               ]}
               accessibilityRole="button"
-              accessibilityLabel="Repeat this order"
+              accessibilityLabel={t("orderCard.repeatThisOrder")}
             >
-              <Text style={styles.repeatPillText}>↻ Repeat</Text>
+              <Text style={styles.repeatPillText}>{t("orderCard.repeat")}</Text>
             </Pressable>
           ) : null}
         </View>
@@ -197,5 +204,5 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: theme.colors.primary,
   },
-  callPillText: { color: "#fff", fontSize: 12, fontWeight: "700" },
+  callPillText: { color: "#fff", fontSize: 13, fontWeight: "700" },
 });

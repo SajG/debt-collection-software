@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
-import { AppState, StyleSheet, Text, View } from "react-native";
+import { AppState, StyleSheet, View } from "react-native";
+import { Text } from "./Text";
 import { supabase } from "@/lib/supabase";
 import { t } from "@/lib/i18n";
 import { theme } from "@/theme";
+import { amberText } from "@/lib/tones";
 
 // SY34 — billing state of the active company, under the status bar.
 //   LOCKED   → read-only: "Your trial has ended — choose a plan to keep
@@ -119,7 +121,7 @@ const styles = StyleSheet.create({
   locked: { backgroundColor: theme.colors.faultBg },
   pastDue: { backgroundColor: theme.colors.curBg },
   text: { fontSize: 14, fontWeight: "700", textAlign: "center" },
-  hint: { fontSize: 12, textAlign: "center" },
+  hint: { fontSize: 13, textAlign: "center" },
   lockedText: { color: theme.colors.fault },
-  pastDueText: { color: theme.colors.cure },
+  pastDueText: { color: amberText },
 });

@@ -8,9 +8,11 @@
     "scheme": "syncit",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    "runtimeVersion": { "policy": "appVersion" },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "updates": {
-      "url": "https://u.expo.dev/PLACEHOLDER_EAS_PROJECT_ID",
+      "url": "https://u.expo.dev/d21f91de-37eb-4313-8bb3-380f7e2de2c8",
       "fallbackToCacheTimeout": 0,
       "checkAutomatically": "ON_LOAD"
     },
@@ -23,16 +25,35 @@
       "**/*"
     ],
     "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "app.getsyncit"
+      "supportsTablet": false,
+      "bundleIdentifier": "app.getsyncit",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "config": {
+        "usesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "app.getsyncit",
-      "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#093D30"
-      }
+      },
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO",
+        "android.permission.ACCESS_MEDIA_LOCATION"
+      ],
+      "permissions": [
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -54,8 +75,9 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Syncit needs camera/photo access so you can attach payment proof (bank screenshot, cheque photo) after recording a payment.",
-          "cameraPermission": "Syncit uses the camera to capture payment proofs and order proofs while you're at the customer site."
+          "photosPermission": "Syncit lets you pick a photo you already took (bank screenshot, cheque, signed receipt) to attach as proof of a payment or order.",
+          "cameraPermission": "Syncit uses the camera to photograph payment proofs, lorry receipts and invoices so they can be attached to an order or payment.",
+          "microphonePermission": false
         }
       ],
       [
@@ -82,7 +104,11 @@
     "extra": {
       "router": {
         "origin": false
+      },
+      "eas": {
+        "projectId": "d21f91de-37eb-4313-8bb3-380f7e2de2c8"
       }
-    }
+    },
+    "owner": "sajg"
   }
 }

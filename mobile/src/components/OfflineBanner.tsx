@@ -1,7 +1,9 @@
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { Text } from "./Text";
 import { useConnectivity } from "@/lib/connectivity";
 import { useQueue } from "@/lib/order-queue";
 import { t } from "@/lib/i18n";
+import { amberSolid } from "@/lib/tones";
 
 // Persistent banner. Renders under the status bar whenever we're offline
 // OR when there are queued orders (even after we're back online, until
@@ -32,7 +34,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   offline: { backgroundColor: "#B42318" },
-  pending: { backgroundColor: "#D97706" },
+  pending: { backgroundColor: amberSolid },
   text: {
     color: "#FFFFFF",
     fontSize: 15,

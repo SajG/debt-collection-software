@@ -1,22 +1,25 @@
 import { useState } from "react";
 import {
-  ActivityIndicator,
   FlatList,
   RefreshControl,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
+import { Text } from "@/components/Text";
 import { Screen } from "@/components/Screen";
 import { PageHeader } from "@/components/PageHeader";
 import { TextField } from "@/components/TextField";
 import { useStock, type StockRow } from "@/lib/stock-queries";
 import { timeAgo } from "@/lib/format";
 import { theme } from "@/theme";
+import { t } from "@/lib/i18n";
+import { listEmpty } from "@/components/ListStates";
+import { EmptyState } from "@/components/EmptyState";
 
 export default function StockScreen() {
   const [search, setSearch] = useState("");
   const { data, loading, error, refetch } = useStock(search);
+  const [refreshing, setRefreshing] = useState(false);
 
   const latestSync = (data ?? [])
     .map((r) => r.lastSyncedAt)
@@ -27,57 +30,65 @@ export default function StockScreen() {
   return (
     <Screen padded={false}>
       <PageHeader
-        title="Stock in factory"
+        title={t("staffStock.stockInFactory")}
         subtitle={
           latestSync
-            ? `Last Tally sync: ${timeAgo(latestSync)}`
-            : "Stock levels come from Tally — this screen will populate once an admin turns Tally on."
+            ? t("staffStock.lastTallySync", { latestSync: timeAgo(latestSync) })
+            : t("staffStock.stockLevelsComeFromTally")
         }
       />
 
       <View style={styles.searchWrap}>
         <TextField
-          label="Search"
-          placeholder="Product or category…"
+          label={t("staffStock.search")}
+          placeholder={t("staffStock.productOrCategory")}
           value={search}
           onChangeText={setSearch}
           autoCorrect={false}
         />
       </View>
 
-      {loading && !data ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={theme.colors.primary} size="large" />
-        </View>
-      ) : error ? (
-        <View style={styles.center}>
-          <Text style={styles.error}>{error}</Text>
-        </View>
-      ) : (
-        <FlatList
-          data={data ?? []}
-          keyExtractor={(r) => r.id}
-          contentContainerStyle={styles.list}
-          renderItem={({ item }) => <StockRowView row={item} />}
-          ItemSeparatorComponent={() => <View style={styles.sep} />}
-          ListEmptyComponent={
-            <View style={styles.emptyWrap}>
-              <Text style={styles.emptyText}>
-                {search
-                  ? "No stock items match your search."
-                  : "Stock levels come from Tally. Nothing is tracked here yet — ask an admin to enable the Tally integration."}
-              </Text>
-            </View>
-          }
-          refreshControl={
-            <RefreshControl
-              refreshing={loading}
-              onRefresh={() => void refetch()}
-              tintColor={theme.colors.primary}
+      <FlatList
+        data={data ?? []}
+        keyExtractor={(r) => r.id}
+        contentContainerStyle={styles.list}
+        keyboardShouldPersistTaps="handled"
+        initialNumToRender={10}
+        windowSize={9}
+        removeClippedSubviews
+        renderItem={({ item }) => <StockRowView row={item} />}
+        ItemSeparatorComponent={() => <View style={styles.sep} />}
+        ListEmptyComponent={listEmpty({
+          loading: loading && !data,
+          error: data ? null : error,
+          onRetry: () => void refetch(),
+          empty: (
+            <EmptyState
+              glyph="▦"
+              title={
+                search
+                  ? t("staffStock.noStockItemsMatchYour")
+                  : t("staffStock.stockLevelsComeFromTally2")
+              }
             />
-          }
-        />
-      )}
+          ),
+        })}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={async () => {
+              setRefreshing(true);
+              try {
+                await refetch();
+              } finally {
+                setRefreshing(false);
+              }
+            }}
+            tintColor={theme.colors.primary}
+            colors={[theme.colors.primary]}
+          />
+        }
+      />
     </Screen>
   );
 }
@@ -85,7 +96,7 @@ export default function StockScreen() {
 function StockRowView({ row }: { row: StockRow }) {
   const qty = row.closingQty;
   const tone = qty <= 0 ? "danger" : qty < 10 ? "warn" : "ok";
-  const label = qty <= 0 ? "Out of stock" : qty < 10 ? "Low" : "In stock";
+  const label = qty <= 0 ? t("stock.out") : qty < 10 ? t("stock.low") : t("stock.in");
 
   return (
     <View style={styles.row}>
@@ -180,7 +191,7 @@ const styles = StyleSheet.create({
   qty: {
     fontSize: theme.type.body,
     fontWeight: "700",
-    color: theme.colors.success,
+    color: theme.colors.primary,
   },
   unit: {
     fontSize: theme.type.bodySmall - 2,
@@ -197,10 +208,10 @@ const styles = StyleSheet.create({
   pillWarn: { backgroundColor: "#FEF3C7" },
   pillDanger: { backgroundColor: theme.colors.dangerBg },
   pillText: {
-    fontSize: theme.type.bodySmall - 4,
+    fontSize: theme.type.bodySmall - 2,
     fontWeight: "700",
   },
-  pillTextOk: { color: theme.colors.success },
+  pillTextOk: { color: theme.colors.primary },
   pillTextWarn: { color: "#92400E" },
   pillTextDanger: { color: theme.colors.danger },
   emptyWrap: { padding: theme.spacing.xl, alignItems: "center" },

@@ -3,9 +3,9 @@ import {
   FlatList,
   Pressable,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
+import { Text } from "@/components/Text";
 import { Swipeable } from "react-native-gesture-handler";
 import { router } from "expo-router";
 import { Screen } from "@/components/Screen";
@@ -20,6 +20,7 @@ import {
 } from "@/lib/order-draft";
 import { formatINR } from "@/lib/format";
 import { theme } from "@/theme";
+import { t } from "@/lib/i18n";
 
 // Screen 2: the item cart. Adding an item opens a bottom sheet (not a
 // screen push) so the cart stays visible. Sticky brand/packing/size/unit
@@ -67,7 +68,7 @@ export default function ScreenItems() {
   return (
     <Screen padded={false}>
       <View style={styles.header}>
-        <WizardHeader step={2} title="Items" />
+        <WizardHeader step={2} title={t("staffOrdersNewItems.items")} />
       </View>
 
       <FlatList
@@ -76,21 +77,25 @@ export default function ScreenItems() {
         keyExtractor={(it) => it.localId}
         ListEmptyComponent={
           <Text style={styles.empty}>
-            No items yet. Tap "Add item" to add the first SKU.
+            {t("staffOrdersNewItems.noItemsYetTapAdd")}
           </Text>
         }
         renderItem={({ item }) => (
           <Swipeable
             renderRightActions={() => (
               <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t("common.delete")}
                 onPress={() => removeItem(item.localId)}
                 style={styles.deleteAction}
               >
-                <Text style={styles.deleteActionText}>Delete</Text>
+                <Text style={styles.deleteActionText}>{t("common.delete")}</Text>
               </Pressable>
             )}
           >
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={item.brand ?? "—"}
               onPress={() => setSheet({ mode: "edit", localId: item.localId })}
               style={({ pressed }) => [
                 styles.itemRow,
@@ -102,7 +107,7 @@ export default function ScreenItems() {
                   {item.brand ?? "—"}
                 </Text>
                 <Text style={styles.itemName}>
-                  {item.productName ?? item.customProductName ?? "New product"}
+                  {item.productName ?? item.customProductName ?? t("common.newProduct")}
                 </Text>
                 <Text style={styles.itemMeta}>
                   {item.quantity || "0"} {item.quantityUnit}
@@ -122,17 +127,17 @@ export default function ScreenItems() {
 
       <View style={styles.footer}>
         <View style={styles.totalRow}>
-          <Text style={styles.totalLabel}>Order total</Text>
+          <Text style={styles.totalLabel}>{t("common.orderTotal")}</Text>
           <Text style={styles.totalValue}>{formatINR(draftTotal(draft))}</Text>
         </View>
         <View style={styles.footerButtons}>
           <Button
-            label="+ Add item"
+            label={t("common.addItem")}
             variant="secondary"
             onPress={() => setSheet({ mode: "add" })}
           />
           <Button
-            label="Review"
+            label={t("staffOrdersNewItems.review")}
             disabled={!canProceed}
             onPress={() => router.push("/(staff)/orders/new/review")}
           />
@@ -204,7 +209,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surface,
   },
   itemBrand: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "700",
     color: theme.colors.textMuted,
     textTransform: "uppercase",

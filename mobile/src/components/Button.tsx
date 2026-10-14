@@ -2,10 +2,10 @@ import {
   ActivityIndicator,
   Pressable,
   StyleSheet,
-  Text,
   View,
   type PressableProps,
 } from "react-native";
+import { Text } from "./Text";
 import { theme } from "@/theme";
 
 type Variant = "primary" | "secondary" | "danger";

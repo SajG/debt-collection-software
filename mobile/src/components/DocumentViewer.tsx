@@ -9,13 +9,14 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
+import { Text } from "./Text";
 import * as FileSystem from "expo-file-system/legacy";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ORDER_DOC_BUCKET, getSignedUrl } from "@/lib/uploads";
 import { theme } from "@/theme";
+import { t } from "@/lib/i18n";
 
 // Full-screen viewer for order documents. Given a list of pages
 // (storage paths + display info), renders one horizontal pager where
@@ -118,8 +119,8 @@ export function DocumentViewer({
     // URL affordance. If expo-sharing is missing we can't invoke it;
     // surface the URL so the user can copy-paste into WhatsApp.
     Alert.alert(
-      "Share this document",
-      "Long-press to copy the link below (valid for 15 min):\n\n" + url,
+      t("documentViewer.shareThisDocument"),
+      t("documentViewer.longPressToCopyThe") + url,
     );
   }
 
@@ -148,9 +149,9 @@ export function DocumentViewer({
             hitSlop={16}
             style={styles.topBtn}
             accessibilityRole="button"
-            accessibilityLabel="Close viewer"
+            accessibilityLabel={t("documentViewer.closeViewer")}
           >
-            <Text style={styles.topBtnText}>✕ Close</Text>
+            <Text style={styles.topBtnText}>{t("documentViewer.close")}</Text>
           </Pressable>
           <Text style={styles.topLabel} numberOfLines={1}>
             {current ? current.label : ""}
@@ -161,9 +162,9 @@ export function DocumentViewer({
             hitSlop={16}
             style={styles.topBtn}
             accessibilityRole="button"
-            accessibilityLabel="Share via WhatsApp or other"
+            accessibilityLabel={t("documentViewer.shareViaWhatsappOrOther")}
           >
-            <Text style={styles.topBtnText}>Share</Text>
+            <Text style={styles.topBtnText}>{t("documentViewer.share")}</Text>
           </Pressable>
         </View>
 
@@ -224,7 +225,7 @@ function PageView({ width, url }: { width: number; url: string | null }) {
         </ScrollView>
       ) : (
         <View style={styles.loader}>
-          <Text style={styles.loaderText}>Loading…</Text>
+          <Text style={styles.loaderText}>{t("common.loading")}</Text>
         </View>
       )}
     </View>

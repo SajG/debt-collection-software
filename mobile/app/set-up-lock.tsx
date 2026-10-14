@@ -1,160 +1,199 @@
 import { useEffect, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { router } from "expo-router";
 import { Screen } from "@/components/Screen";
+import { Text } from "@/components/Text";
 import { TextField } from "@/components/TextField";
 import { Button } from "@/components/Button";
+import { toast } from "@/components/Toast";
+import { useAuth } from "@/auth/AuthContext";
 import {
+  declineLock,
   isBiometricAvailable,
   setLockKind,
   setupPin,
   tryBiometricUnlock,
 } from "@/auth/device-lock";
+import { useLockRequired } from "@/lib/lock-policy";
+import { t } from "@/lib/i18n";
 import { theme } from "@/theme";
 
-// One-time screen after successful enrollment. The user picks
-// biometric (if the phone supports it) or a 6-digit PIN. From then
-// on cold starts and long-background resumes route to /(unlock) via
-// the AuthContext gate.
-
+// Shown once after sign-in. The lock is an offer:
+//   "Lock Syncit with your fingerprint?"  [Turn on]  [Not now]
+// "Not now" is remembered. When the company requires a lock
+// (BusinessSettings.requireAppLock) there is no "Not now". Phones
+// without a fingerprint reader get the same offer with a 6-digit PIN.
 export default function SetUpLockScreen() {
+  const { session } = useAuth();
+  const required = useLockRequired(!!session);
   const [biometricOk, setBiometricOk] = useState<boolean | null>(null);
+  const [usePin, setUsePin] = useState(false);
   const [pin, setPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void (async () => {
-      setBiometricOk(await isBiometricAvailable());
-    })();
+    void isBiometricAvailable().then(setBiometricOk);
   }, []);
 
-  async function chooseBiometric() {
+  async function turnOnBiometric() {
     setBusy(true);
     setError(null);
     try {
-      const res = await tryBiometricUnlock("Confirm biometric to enable");
+      const res = await tryBiometricUnlock(t("lock.confirmPrompt"));
       if (!res.ok) {
-        setError("Biometric setup was cancelled. Try again or set a PIN.");
+        setError(t("lock.biometricCancelled"));
         return;
       }
       await setLockKind("biometric");
+      toast.success(t("lock.turnedOn"));
       router.replace("/");
     } finally {
       setBusy(false);
     }
   }
 
-  async function choosePin() {
+  async function savePin() {
     setError(null);
     if (!/^\d{6}$/.test(pin)) {
-      setError("Enter a 6-digit PIN.");
+      setError(t("lock.pinSixDigits"));
       return;
     }
     if (pin !== confirmPin) {
-      setError("PINs do not match.");
+      setError(t("lock.pinMismatch"));
       return;
     }
     setBusy(true);
     try {
       await setupPin(pin);
+      toast.success(t("lock.turnedOn"));
       router.replace("/");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save PIN.");
+      setError(e instanceof Error ? e.message : t("lock.pinSaveFailed"));
     } finally {
       setBusy(false);
     }
   }
 
+  async function notNow() {
+    await declineLock();
+    router.replace("/");
+  }
+
+  if (biometricOk === null || required === null) {
+    return (
+      <Screen>
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+        </View>
+      </Screen>
+    );
+  }
+
+  const showPinForm = usePin || !biometricOk;
+
   return (
     <Screen scroll>
       <View style={styles.header}>
-        <Text style={styles.title}>Lock this phone</Text>
+        <Text style={styles.title} accessibilityRole="header">
+          {showPinForm ? t("lock.offerPinTitle") : t("lock.offerTitle")}
+        </Text>
         <Text style={styles.subtitle}>
-          Pick how you'll unlock PayTrack on this device. Every cold
-          start and every time the app has been in the background for
-          more than 5 minutes will ask for this.
+          {required ? t("lock.requiredBody") : t("lock.offerBody")}
         </Text>
       </View>
 
-      {biometricOk ? (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Biometric</Text>
-          <Text style={styles.cardBody}>
-            Face ID, Touch ID, or your Android biometric. Nothing about
-            your fingerprint or face leaves this phone.
-          </Text>
-          <Button
-            label="Use biometric"
-            loading={busy}
-            onPress={chooseBiometric}
+      {showPinForm ? (
+        <View style={styles.form}>
+          <TextField
+            label={t("lock.choosePin")}
+            keyboardType="number-pad"
+            maxLength={6}
+            secureTextEntry
+            value={pin}
+            onChangeText={(v) => setPin(v.replace(/\D/g, ""))}
+            style={styles.pinInput}
           />
+          <TextField
+            label={t("lock.confirmPin")}
+            error={error}
+            keyboardType="number-pad"
+            maxLength={6}
+            secureTextEntry
+            value={confirmPin}
+            onChangeText={(v) => setConfirmPin(v.replace(/\D/g, ""))}
+            style={styles.pinInput}
+          />
+          <Button
+            label={t("lock.turnOn")}
+            loading={busy}
+            onPress={savePin}
+            accessibilityLabel={t("lock.turnOn")}
+          />
+          {biometricOk ? (
+            <Button
+              label={t("lock.useFingerprintInstead")}
+              variant="secondary"
+              onPress={() => {
+                setUsePin(false);
+                setError(null);
+              }}
+              accessibilityLabel={t("lock.useFingerprintInstead")}
+            />
+          ) : null}
         </View>
       ) : (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Biometric unavailable</Text>
-          <Text style={styles.cardBody}>
-            This phone doesn't have a fingerprint or face reader set up
-            in Settings. Use a PIN below.
-          </Text>
+        <View style={styles.form}>
+          {error ? (
+            <Text style={styles.error} accessibilityLiveRegion="polite">
+              {error}
+            </Text>
+          ) : null}
+          <Button
+            label={t("lock.turnOn")}
+            loading={busy}
+            onPress={turnOnBiometric}
+            accessibilityLabel={t("lock.turnOn")}
+          />
+          <Button
+            label={t("lock.usePinInstead")}
+            variant="secondary"
+            onPress={() => {
+              setUsePin(true);
+              setError(null);
+            }}
+            accessibilityLabel={t("lock.usePinInstead")}
+          />
         </View>
       )}
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>6-digit PIN</Text>
-        <TextField
-          label="Choose a PIN"
-          keyboardType="number-pad"
-          maxLength={6}
-          secureTextEntry
-          value={pin}
-          onChangeText={(v) => setPin(v.replace(/\D/g, ""))}
-          style={{ fontSize: 24, letterSpacing: 8, textAlign: "center" }}
+      {required ? null : (
+        <Button
+          label={t("common.notNow")}
+          variant="secondary"
+          onPress={notNow}
+          accessibilityLabel={t("common.notNow")}
         />
-        <TextField
-          label="Confirm PIN"
-          error={error}
-          keyboardType="number-pad"
-          maxLength={6}
-          secureTextEntry
-          value={confirmPin}
-          onChangeText={(v) => setConfirmPin(v.replace(/\D/g, ""))}
-          style={{ fontSize: 24, letterSpacing: 8, textAlign: "center" }}
-        />
-        <Button label="Use PIN" loading={busy} onPress={choosePin} />
-      </View>
+      )}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  header: { gap: 8, marginBottom: theme.spacing.md },
+  center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  header: { gap: 8 },
   title: {
     fontSize: theme.type.title,
-    fontWeight: "700",
+    fontWeight: "800",
     color: theme.colors.text,
   },
-  subtitle: {
-    fontSize: theme.type.body,
-    color: theme.colors.textMuted,
-  },
-  card: {
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.radius,
-    padding: theme.spacing.md,
-    gap: 10,
-    marginBottom: theme.spacing.md,
-    backgroundColor: theme.colors.surface,
-  },
-  cardTitle: {
-    fontSize: theme.type.body,
-    fontWeight: "700",
-    color: theme.colors.text,
-  },
-  cardBody: {
+  subtitle: { fontSize: theme.type.body, color: theme.colors.textMuted },
+  form: { gap: theme.spacing.md },
+  pinInput: { fontSize: 24, letterSpacing: 8, textAlign: "center" },
+  error: {
     fontSize: theme.type.bodySmall,
-    color: theme.colors.textMuted,
+    color: theme.colors.danger,
+    fontWeight: "600",
   },
 });

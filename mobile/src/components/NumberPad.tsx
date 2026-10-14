@@ -1,5 +1,7 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
+import { Text } from "./Text";
 import { theme } from "@/theme";
+import { t } from "@/lib/i18n";
 
 // Custom pad instead of the OS number keyboard: guarantees big keys
 // on every device, no ambiguity with tiny "next" buttons, and works
@@ -48,7 +50,7 @@ export function NumberPad({
           onPress={() => press(k)}
           style={({ pressed }) => [styles.key, pressed && styles.pressed]}
           accessibilityRole="button"
-          accessibilityLabel={k === "back" ? "backspace" : k}
+          accessibilityLabel={k === "back" ? t("numberPad.backspace") : k}
         >
           <Text style={styles.keyLabel}>{k === "back" ? "⌫" : k}</Text>
         </Pressable>

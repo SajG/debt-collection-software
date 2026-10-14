@@ -7,9 +7,9 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
+import { Text } from "./Text";
 import { drainOnce, useQueue } from "@/lib/order-queue";
 import { useDocQueue, drainDocsOnce } from "@/lib/order-doc-queue";
 import { useStatusQueue, drainStatusOnce } from "@/lib/status-queue";
@@ -18,6 +18,10 @@ import { isRetryableRpcError } from "@/lib/errors";
 import { formatDate } from "@/lib/format";
 import { SyncitMark } from "./SyncitMark";
 import { theme } from "@/theme";
+import { t, tn } from "@/lib/i18n";
+import { orderDocLabel, queuedMeta, statusLabel } from "@/lib/labels";
+import { toast } from "@/components/Toast";
+import { amberSolid } from "@/lib/tones";
 
 // The signature element.
 //
@@ -90,48 +94,53 @@ export function SyncPill() {
           <View style={styles.sheet}>
             <View style={styles.handle} />
             <View style={styles.headerRow}>
-              <Text style={styles.title}>Sync</Text>
-              <Pressable onPress={() => setOpen(false)} hitSlop={12}>
+              <Text style={styles.title}>{t("syncPill.sync")}</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t("common.close")}
+                onPress={() => setOpen(false)}
+                hitSlop={16}
+              >
                 <Text style={styles.close}>×</Text>
               </Pressable>
             </View>
             <Text style={styles.subtitle}>{sheetSubtitle(kind, online)}</Text>
             <ScrollView contentContainerStyle={styles.list}>
               {total === 0 ? (
-                <Text style={styles.empty}>Everything is up to date.</Text>
+                <Text style={styles.empty}>{t("syncPill.everythingIsUpToDate")}</Text>
               ) : (
                 <>
                   {orderQ.length > 0 ? (
-                    <Section title={`Orders · ${orderQ.length}`}>
+                    <Section title={t("syncPill.orders", { count: orderQ.length })}>
                       {orderQ.map((o) => (
                         <QueueRow
                           key={o.localId}
-                          title={o.display.partyName || o.display.productName || "Order"}
-                          meta={`${o.display.itemCount} item${o.display.itemCount === 1 ? "" : "s"} · queued ${formatDate(new Date(o.queuedAt))}${o.attempts > 0 ? ` · ${o.attempts} retries` : ""}`}
+                          title={o.display.partyName || o.display.productName || t("common.order")}
+                          meta={`${tn("common.items", o.display.itemCount)} · ${queuedMeta(o.queuedAt, o.attempts)}`}
                           error={o.lastError}
                         />
                       ))}
                     </Section>
                   ) : null}
                   {statusQ.length > 0 ? (
-                    <Section title={`Status changes · ${statusQ.length}`}>
+                    <Section title={t("syncPill.statusChanges", { count: statusQ.length })}>
                       {statusQ.map((s) => (
                         <QueueRow
                           key={s.localId}
-                          title={`${s.orderNumber} → ${s.target.replace(/_/g, " ")}`}
-                          meta={`queued ${formatDate(new Date(s.queuedAt))}${s.attempts > 0 ? ` · ${s.attempts} retries` : ""}`}
+                          title={`${s.orderNumber} → ${statusLabel(s.target)}`}
+                          meta={queuedMeta(s.queuedAt, s.attempts)}
                           error={s.lastError}
                         />
                       ))}
                     </Section>
                   ) : null}
                   {docQ.length > 0 ? (
-                    <Section title={`Documents · ${docQ.length}`}>
+                    <Section title={t("syncPill.documents", { count: docQ.length })}>
                       {docQ.map((d) => (
                         <QueueRow
                           key={d.localId}
-                          title={d.type + (d.pageIndex ? ` — page ${d.pageIndex}` : "")}
-                          meta={`queued ${formatDate(new Date(d.queuedAt))}${d.attempts > 0 ? ` · ${d.attempts} retries` : ""}`}
+                          title={orderDocLabel(d.type) + (d.pageIndex ? t("syncPill.page", { pageIndex: d.pageIndex }) : "")}
+                          meta={queuedMeta(d.queuedAt, d.attempts)}
                           error={d.lastError}
                         />
                       ))}
@@ -154,17 +163,17 @@ export function SyncPill() {
                     const failedNow = orders.failed + docs.failed + status.failed;
                     if (sent === 0 && failedNow === 0) {
                       Alert.alert(
-                        "Still waiting",
+                        t("common.stillWaiting"),
                         online
-                          ? "Nothing new to sync."
-                          : "You're offline. The queue will drain when you're back online.",
+                          ? t("common.nothingNewToSync")
+                          : t("common.youreOfflineTheQueueWill"),
                       );
                     } else if (failedNow === 0) {
-                      Alert.alert("Sent", `${sent} item${sent === 1 ? "" : "s"} synced.`);
+                      toast.success(tn("sync.itemsSynced", sent));
                     } else {
                       Alert.alert(
-                        "Some failed",
-                        `${sent} synced · ${failedNow} still waiting. See individual items for the reason.`,
+                        t("common.someFailed"),
+                        t("syncPill.syncedStillWaitingSeeIndividual", { sent, failedNow }),
                       );
                     }
                   } finally {
@@ -178,10 +187,10 @@ export function SyncPill() {
                   pressed && { opacity: 0.85 },
                 ]}
                 accessibilityRole="button"
-                accessibilityLabel="Retry syncing now"
+                accessibilityLabel={t("common.retrySyncingNow")}
               >
                 <Text style={styles.retryText}>
-                  {retrying ? "Syncing…" : "Retry now"}
+                  {retrying ? t("common.syncing") : t("common.retryNow")}
                 </Text>
               </Pressable>
             </View>
@@ -193,30 +202,27 @@ export function SyncPill() {
 }
 
 function pillLabel(kind: Kind, total: number, failed: number, online: boolean): string {
-  if (kind === "syncing") return "Syncing…";
-  if (kind === "failed") return `${failed} failed`;
-  if (kind === "queued") return online ? `${total} queued` : `Offline · ${total} queued`;
-  return online ? "Synced" : "Offline";
+  if (kind === "syncing") return t("sync.pill.syncing");
+  if (kind === "failed") return t("sync.pill.failed", { count: failed });
+  if (kind === "queued")
+    return online
+      ? t("sync.pill.queued", { count: total })
+      : t("sync.pill.offlineQueued", { count: total });
+  return online ? t("sync.pill.synced") : t("sync.pill.offline");
 }
 
 function pillA11yLabel(kind: Kind, total: number, failed: number, online: boolean): string {
-  if (kind === "syncing") return "Syncing now. Tap for details.";
-  if (kind === "failed") return `${failed} item${failed === 1 ? "" : "s"} failed to sync. Tap to see why.`;
-  if (kind === "queued") return `${total} item${total === 1 ? "" : "s"} waiting to sync. Tap for details.`;
-  return online ? "Everything synced. Tap for details." : "You're offline. Tap for details.";
+  if (kind === "syncing") return t("sync.a11y.syncing");
+  if (kind === "failed") return tn("sync.a11y.failed", failed);
+  if (kind === "queued") return tn("sync.a11y.queued", total);
+  return online ? t("sync.a11y.synced") : t("sync.a11y.offline");
 }
 
 function sheetSubtitle(kind: Kind, online: boolean): string {
-  if (kind === "failed") {
-    return "Some items failed. The reason under each usually means the server is missing a migration, or the action isn't allowed. Retrying won't help until that's fixed.";
-  }
-  if (kind === "queued") {
-    return online
-      ? "Retrying automatically. Tap Retry now to push straight away."
-      : "You're offline. Items will send automatically when you're back online.";
-  }
-  if (kind === "syncing") return "Draining the queue now.";
-  return online ? "Nothing waiting." : "You're offline.";
+  if (kind === "failed") return t("sync.sheet.failed");
+  if (kind === "queued") return online ? t("queue.online.hint") : t("queue.offline.hint");
+  if (kind === "syncing") return t("sync.sheet.syncing");
+  return online ? t("sync.sheet.nothing") : t("sync.sheet.offline");
 }
 
 function pillTone(kind: Kind) {
@@ -224,9 +230,9 @@ function pillTone(kind: Kind) {
     case "failed":
       return { backgroundColor: theme.colors.fault };
     case "queued":
-      return { backgroundColor: "#D97706" };
+      return { backgroundColor: amberSolid };
     case "syncing":
-      return { backgroundColor: theme.colors.kiln };
+      return { backgroundColor: theme.colors.bond };
     default:
       return { backgroundColor: theme.colors.bond };
   }
@@ -303,7 +309,7 @@ const styles = StyleSheet.create({
   pillText: {
     color: "#fff",
     fontWeight: "700",
-    fontSize: 12,
+    fontSize: 13,
     letterSpacing: 0.3,
   },
   backdrop: {
@@ -363,7 +369,7 @@ const styles = StyleSheet.create({
   },
   section: { gap: 8 },
   sectionTitle: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "800",
     letterSpacing: 0.5,
     textTransform: "uppercase",

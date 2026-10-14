@@ -4,17 +4,19 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
-import { router } from "expo-router";
+import { Text } from "@/components/Text";
+import { router, useFocusEffect } from "expo-router";
 import { Screen } from "@/components/Screen";
 import { confirm } from "@/components/Confirm";
 import { useAuth } from "@/auth/AuthContext";
 import { supabase } from "@/lib/supabase";
-import { formatINR } from "@/lib/format";
+import { formatDate, formatINR } from "@/lib/format";
 import { theme } from "@/theme";
-import { t } from "@/lib/i18n";
+import { t, tn } from "@/lib/i18n";
+import { holdReasonLabel } from "@/lib/labels";
+import { useBrokenPromises } from "@/lib/followup-queries";
 
 // Admin command centre. Tiles reflect what a director wants to see
 // on their phone in the morning: today's + weekly volume, anything
@@ -190,16 +192,16 @@ export default function AdminCommandCentre() {
           hitSlop={8}
           style={({ pressed }) => [styles.staffBtn, pressed && { opacity: 0.75 }]}
           accessibilityRole="button"
-          accessibilityLabel="Switch to salesperson view"
+          accessibilityLabel={t("adminHome.switchToSalespersonView")}
         >
           <Text style={styles.staffBtnText}>{t("admin.switchToStaff")}</Text>
         </Pressable>
         <Pressable
-          onPress={() => router.push("/account")}
+          onPress={() => router.push("/settings")}
           hitSlop={8}
           style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.7 }]}
           accessibilityRole="button"
-          accessibilityLabel={t("account.title")}
+          accessibilityLabel={t("settings.open")}
         >
           <Text style={styles.signOutGlyph}>⚙</Text>
         </Pressable>
@@ -232,59 +234,61 @@ export default function AdminCommandCentre() {
           </View>
         ) : null}
 
+        <NeedsYou />
+
         {/* SY24 — money-first top row. */}
         <Row>
           <Tile
-            label="Total outstanding"
+            label={t("adminHome.totalOutstanding")}
             value={formatINR(tiles.totalOutstanding)}
-            sub="Across all customers"
-            onPress={() => router.push("/(staff)/dues")}
+            sub={t("adminHome.acrossAllCustomers")}
+            onPress={() => router.push("/(staff)/customers")}
           />
           <Tile
-            label="Overdue invoices"
+            label={t("adminHome.overdueInvoices")}
             value={String(tiles.overdueInvoicesCount)}
             danger={tiles.overdueInvoicesCount > 0}
-            onPress={() => router.push("/(staff)/dues")}
+            onPress={() => router.push("/(staff)/customers")}
           />
         </Row>
         <Row>
           <Tile
-            label="Collected this month"
+            label={t("adminHome.collectedThisMonth")}
             value={formatINR(tiles.collectedThisMonth)}
             onPress={() => router.push("/(admin)/team")}
           />
           <Tile
             label="DSO"
             value={tiles.dso === null ? "—" : `${tiles.dso} d`}
-            sub="Days sales outstanding (approx)"
+            sub={t("adminHome.dsoHint")}
             onPress={() => router.push("/(admin)/team")}
           />
         </Row>
 
         <Row>
           <Tile
-            label="Placed today"
+            label={t("adminHome.placedToday")}
             value={String(tiles.placedToday.count)}
             sub={formatINR(tiles.placedToday.value)}
-            onPress={() => router.push("/(staff)")}
+            onPress={() => router.push("/(staff)/orders")}
           />
           <Tile
-            label="Placed this week"
+            label={t("adminHome.placedThisWeek")}
             value={String(tiles.placedWeek.count)}
             sub={formatINR(tiles.placedWeek.value)}
-            onPress={() => router.push("/(staff)")}
+            onPress={() => router.push("/(staff)/orders")}
           />
         </Row>
 
         <Row>
           <Tile
-            label="Awaiting MY approval"
+            label={t("adminHome.awaitingMyApproval")}
             value={String(tiles.pendingApproval)}
             danger={tiles.pendingApproval > 0}
             onPress={() => router.push("/(admin)/approvals")}
           />
           <Tile
-            label="Rate approvals pending"
+            label={t("adminHome.rateApprovalsPending")}
             value={String(tiles.rateApproval)}
             danger={tiles.rateApproval > 0}
             onPress={() => router.push("/(admin)/approvals")}
@@ -293,20 +297,20 @@ export default function AdminCommandCentre() {
 
         <Row>
           <Tile
-            label="Overdue deliveries"
+            label={t("adminHome.overdueDeliveries")}
             value={String(tiles.overdue)}
-            sub="Past expected delivery date"
+            sub={t("adminHome.pastExpected")}
             danger={tiles.overdue > 0}
             onPress={() => router.push("/(admin)/factory")}
           />
           <Tile
-            label="On hold"
+            label={t("common.onHold")}
             value={String(tiles.onHold.total)}
             sub={
               tiles.onHold.byReason
                 .map(
                   (r) =>
-                    `${r.category?.replace(/_/g, " ") ?? "Other"} · ${r.count}`,
+                    `${holdReasonLabel(r.category)} · ${r.count}`,
                 )
                 .join("\n") || "—"
             }
@@ -316,12 +320,16 @@ export default function AdminCommandCentre() {
 
         <Row>
           <Tile
-            label="Dispatched this month"
+            label={t("adminHome.dispatchedThisMonth")}
             value={formatINR(tiles.dispatchedThisMonth)}
             sub={
               mom === null
-                ? `Last month: ${formatINR(tiles.dispatchedLastMonth)}`
-                : `${mom >= 0 ? "▲" : "▼"} ${Math.abs(Math.round(mom))}% vs last month (${formatINR(tiles.dispatchedLastMonth)})`
+                ? t("adminHome.lastMonth", { amount: formatINR(tiles.dispatchedLastMonth) })
+                : t("adminHome.vsLastMonth", {
+                    arrow: mom >= 0 ? "▲" : "▼",
+                    percent: Math.abs(Math.round(mom)),
+                    amount: formatINR(tiles.dispatchedLastMonth),
+                  })
             }
             danger={mom !== null && mom < -10}
             wide
@@ -329,7 +337,7 @@ export default function AdminCommandCentre() {
           />
         </Row>
         <Text style={styles.footer}>
-          Live · updates whenever a sales order changes.
+          {t("adminHome.liveUpdatesWheneverASales")}
         </Text>
       </ScrollView>
     </Screen>
@@ -357,6 +365,7 @@ function Tile({
 }) {
   return (
     <Pressable
+      accessibilityLabel={label}
       onPress={onPress}
       style={({ pressed }) => [
         styles.tile,
@@ -376,6 +385,91 @@ function Tile({
     </Pressable>
   );
 }
+
+// "Needs you": payment promises that were missed. These are the
+// customers a salesperson has already chased once; the next call is
+// management's. Hidden when there are none.
+function NeedsYou() {
+  const { data, refetch } = useBrokenPromises();
+  useFocusEffect(
+    useCallback(() => {
+      void refetch();
+    }, [refetch]),
+  );
+  const rows = data ?? [];
+  if (rows.length === 0) return null;
+  const shown = rows.slice(0, 5);
+  return (
+    <View style={needsStyles.box}>
+      <Text style={needsStyles.title} accessibilityRole="header">
+        {t("admin.needsYou.title")}
+      </Text>
+      <Text style={needsStyles.subtitle}>{tn("admin.needsYou.brokenPromises", rows.length)}</Text>
+      {shown.map((f) => (
+        <Pressable
+          key={f.partyId}
+          onPress={() =>
+            router.push({ pathname: "/(staff)/customers/[id]", params: { id: f.partyId } })
+          }
+          style={({ pressed }) => [needsStyles.row, pressed && { opacity: 0.8 }]}
+          accessibilityRole="button"
+          accessibilityLabel={t("admin.needsYou.rowA11y", {
+            name: f.name,
+            amount: formatINR(f.outstanding),
+            date: f.promiseDate ? formatDate(f.promiseDate) : "",
+          })}
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={needsStyles.name} numberOfLines={1}>
+              {f.name}
+            </Text>
+            <Text style={needsStyles.meta} numberOfLines={1}>
+              {f.promiseDate ? t("today.brokenPromise", { date: formatDate(f.promiseDate) }) : ""}
+            </Text>
+          </View>
+          <Text style={needsStyles.amount}>{formatINR(f.outstanding)}</Text>
+        </Pressable>
+      ))}
+      {rows.length > shown.length ? (
+        <Text style={needsStyles.more}>
+          {t("admin.needsYou.more", { count: rows.length - shown.length })}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+const needsStyles = StyleSheet.create({
+  box: {
+    width: "100%",
+    padding: theme.spacing.md,
+    borderRadius: theme.radius,
+    borderWidth: 2,
+    borderColor: theme.colors.danger,
+    backgroundColor: theme.colors.background,
+    gap: 6,
+  },
+  title: { fontSize: theme.type.body, fontWeight: "800", color: theme.colors.text },
+  subtitle: { fontSize: 14, color: theme.colors.danger, fontWeight: "700" },
+  row: {
+    minHeight: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 6,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+  },
+  name: { fontSize: theme.type.bodySmall, fontWeight: "700", color: theme.colors.text },
+  meta: { fontSize: 14, color: theme.colors.textMuted },
+  amount: {
+    fontSize: theme.type.bodySmall,
+    fontWeight: "800",
+    color: theme.colors.text,
+    fontVariant: ["tabular-nums"],
+  },
+  more: { fontSize: 14, color: theme.colors.textMuted },
+});
 
 const styles = StyleSheet.create({
   header: {
@@ -407,7 +501,7 @@ const styles = StyleSheet.create({
   staffBtnText: {
     color: theme.colors.primary,
     fontWeight: "700",
-    fontSize: 12,
+    fontSize: 13,
   },
   iconBtn: {
     width: 36,
@@ -446,7 +540,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.dangerBg,
   },
   tileLabel: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "700",
     letterSpacing: 0.5,
     textTransform: "uppercase",

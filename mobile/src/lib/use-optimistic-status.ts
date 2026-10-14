@@ -5,6 +5,9 @@ import { submitStatusAdvance } from "./status-queue";
 import { useConnectivity } from "./connectivity";
 import { warningHaptic, successHaptic, errorHaptic } from "./haptics";
 import { crumb, reportError } from "./observability";
+import { t } from "@/lib/i18n";
+import { toast } from "@/components/Toast";
+import { statusLabel } from "./labels";
 
 // Optimistic status-advance wrapper.
 //
@@ -40,7 +43,7 @@ export function useOptimisticStatus(orderId: string, orderNumber: string) {
           online,
         });
         if ("ok" in res) {
-          successHaptic();
+          toast.success(t("factoryOrdersDetail.statusUpdated", { status: statusLabel(target) }));
           return true;
         }
         if ("queued" in res) {
@@ -52,13 +55,13 @@ export function useOptimisticStatus(orderId: string, orderNumber: string) {
         // Hard app-shape error — rollback + explain.
         setPendingTarget(null);
         errorHaptic();
-        Alert.alert("Couldn't update status", res.error);
+        Alert.alert(t("useOptimisticStatus.couldntUpdateStatus"), res.error);
         return false;
       } catch (e) {
         setPendingTarget(null);
         errorHaptic();
         reportError(e, { where: "useOptimisticStatus", orderId, target });
-        Alert.alert("Couldn't update status", "Please try again.");
+        Alert.alert(t("useOptimisticStatus.couldntUpdateStatus"), t("common.pleaseTryAgain"));
         return false;
       } finally {
         setInFlight(false);

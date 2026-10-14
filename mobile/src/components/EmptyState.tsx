@@ -1,4 +1,5 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
+import { Text } from "./Text";
 import { theme } from "@/theme";
 
 // Reusable empty-state block. Every list screen renders one when its

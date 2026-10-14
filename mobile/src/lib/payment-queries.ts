@@ -5,6 +5,7 @@ import {
   uploadLocalFileToBucket,
 } from "./uploads";
 import { newId } from "./ids";
+import { t } from "./i18n";
 
 // Reuses the same tiny useQuery pattern as queries.ts. Payment CRUD now
 // runs through the generated Database types; the local aliases below
@@ -59,14 +60,6 @@ export type PaymentDocType =
   | "RECEIPT"
   | "OTHER";
 
-export const PAYMENT_DOC_LABELS: Record<PaymentDocType, string> = {
-  BANK_SCREENSHOT: "Bank screenshot",
-  CHEQUE_PHOTO: "Cheque photo",
-  UPI_SCREENSHOT: "UPI screenshot",
-  RECEIPT: "Signed receipt",
-  OTHER: "Other",
-};
-
 export type PaymentListRow = {
   id: string;
   partyId: string;
@@ -114,7 +107,7 @@ export function usePayments() {
     return (data ?? []).map((row: any) => ({
       id: row.id,
       partyId: row.partyId,
-      partyName: row.party?.name ?? "Unknown",
+      partyName: row.party?.name ?? t("common.unknownCustomer"),
       amount: String(row.amount),
       paymentDate: row.paymentDate,
       method: row.method as PaymentMethod,
@@ -188,7 +181,7 @@ export function usePaymentDetail(id: string | null) {
     return {
       id: row.id,
       partyId: row.partyId,
-      partyName: row.party?.name ?? "Unknown",
+      partyName: row.party?.name ?? t("common.unknownCustomer"),
       amount: String(row.amount),
       paymentDate: row.paymentDate,
       method: row.method,
@@ -218,7 +211,7 @@ export async function createPayment(input: {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return { error: "Not signed in." };
+  if (!user) return { error: t("common.notSignedIn") };
 
   // Direct INSERT — RLS on Payment restricts write to assigned parties.
   // On the invoice-linked path the server needs to also bump Invoice.paidAmount
@@ -259,7 +252,7 @@ export async function attachPaymentProof(input: {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return { error: "Not signed in." };
+  if (!user) return { error: t("common.notSignedIn") };
 
   const uploaded = await uploadLocalFileToBucket({
     bucket: PAYMENT_DOC_BUCKET,

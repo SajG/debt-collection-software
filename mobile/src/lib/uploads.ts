@@ -4,6 +4,7 @@
 import * as FileSystem from "expo-file-system/legacy";
 import Constants from "expo-constants";
 import { supabase } from "./supabase";
+import { t } from "@/lib/i18n";
 
 // SY7: mobile uploads route through the server so every file gets
 // magic-byte sniff + size cap + EXIF strip + image re-encode BEFORE
@@ -49,17 +50,17 @@ export async function uploadLocalFileViaServer({
   mimeType?: string | null;
 }): Promise<{ path: string } | { error: string }> {
   const info = await FileSystem.getInfoAsync(uri);
-  if (!info.exists) return { error: "File no longer exists on device." };
+  if (!info.exists) return { error: t("uploads.fileNoLongerExistsOn") };
   if (
     "size" in info &&
     typeof info.size === "number" &&
     info.size > MAX_UPLOAD_BYTES
   ) {
-    return { error: "File must be 10 MB or smaller." };
+    return { error: t("uploads.fileMustBe10Mb") };
   }
 
   const base = apiBaseUrl();
-  if (!base) return { error: "Upload endpoint not configured." };
+  if (!base) return { error: t("uploads.uploadEndpointNotConfigured") };
 
   // Bearer token so the API route sees the caller's session even
   // when cookies aren't in play (mobile does not use cookies).
@@ -67,7 +68,7 @@ export async function uploadLocalFileViaServer({
     data: { session },
   } = await supabase.auth.getSession();
   const token = session?.access_token;
-  if (!token) return { error: "Not signed in." };
+  if (!token) return { error: t("common.notSignedIn") };
 
   const base64 = await FileSystem.readAsStringAsync(uri, {
     encoding: FileSystem.EncodingType.Base64,
@@ -90,7 +91,7 @@ export async function uploadLocalFileViaServer({
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as { error?: string };
-      return { error: body.error ?? "Upload failed." };
+      return { error: body.error ?? t("uploads.uploadFailed") };
     }
     const body = (await res.json()) as { path: string };
     return { path: body.path };
@@ -98,8 +99,8 @@ export async function uploadLocalFileViaServer({
     return {
       error:
         e instanceof Error
-          ? `Upload failed: ${e.message}`
-          : "Upload failed.",
+          ? t("uploads.uploadFailed2", { message: e.message })
+          : t("uploads.uploadFailed"),
     };
   }
 }

@@ -1,12 +1,18 @@
 import * as LocalAuthentication from "expo-local-authentication";
 import * as SecureStore from "expo-secure-store";
 import * as Crypto from "expo-crypto";
+import { t } from "@/lib/i18n";
 
 // Device lock — the layer between "session is valid" and "screen is
 // unlocked". Session lives in SecureStore, which is fine while the
 // phone itself is in the owner's hand. The device lock adds a
 // biometric or PIN gate every cold start and after 5 minutes in the
 // background so a phone left on a table is safe.
+//
+// The lock is OFFERED after sign-in, not forced: "Not now" is
+// remembered (LOCK_DECLINED_KEY) so the offer is not repeated on every
+// launch. A company can make it compulsory with
+// BusinessSettings.requireAppLock — see lib/lock-policy.ts.
 //
 // Two flavours, decided at enrolment:
 //   biometric — expo-local-authentication (Face ID / Touch ID /
@@ -25,6 +31,7 @@ const PIN_SALT_KEY = "syncit.lock.pinSalt";
 const PIN_ATTEMPTS_KEY = "syncit.lock.pinAttempts";
 const DEVICE_ID_KEY = "syncit.device.id";
 const LAST_UNLOCK_KEY = "syncit.lock.lastUnlockAt";
+const LOCK_DECLINED_KEY = "syncit.lock.declined";
 
 // Foreground grace period. If the app was backgrounded for less than
 // this, we skip the unlock prompt on resume. Cold starts always
@@ -45,6 +52,8 @@ export async function getLockKind(): Promise<LockKind | null> {
 
 export async function setLockKind(kind: LockKind): Promise<void> {
   await SecureStore.setItemAsync(KIND_KEY, kind);
+  await SecureStore.deleteItemAsync(LOCK_DECLINED_KEY);
+  await markUnlockedNow();
 }
 
 export async function clearLock(): Promise<void> {
@@ -53,6 +62,23 @@ export async function clearLock(): Promise<void> {
   await SecureStore.deleteItemAsync(PIN_SALT_KEY);
   await SecureStore.deleteItemAsync(PIN_ATTEMPTS_KEY);
   await SecureStore.deleteItemAsync(LAST_UNLOCK_KEY);
+  await SecureStore.deleteItemAsync(LOCK_DECLINED_KEY);
+}
+
+/** The user chose "Not now" on the lock offer. */
+export async function declineLock(): Promise<void> {
+  await SecureStore.setItemAsync(LOCK_DECLINED_KEY, "1");
+}
+
+export async function hasDeclinedLock(): Promise<boolean> {
+  return (await SecureStore.getItemAsync(LOCK_DECLINED_KEY)) === "1";
+}
+
+/** Settings → App lock → off. Removes the lock and remembers the
+ *  choice so the offer is not shown again. */
+export async function turnOffLock(): Promise<void> {
+  await clearLock();
+  await declineLock();
 }
 
 export async function isBiometricAvailable(): Promise<boolean> {
@@ -90,7 +116,7 @@ function newSalt(): string {
 
 export async function setupPin(pin: string): Promise<void> {
   if (!/^\d{6}$/.test(pin)) {
-    throw new Error("PIN must be exactly 6 digits.");
+    throw new Error(t("lock.pinSixDigits"));
   }
   const salt = newSalt();
   const hash = await hashPin(pin, salt);
@@ -130,16 +156,16 @@ async function setAttempts(n: number): Promise<void> {
 // ── Public entry points ────────────────────────────────────────────
 
 export async function tryBiometricUnlock(
-  reason = "Unlock PayTrack",
+  reason: string = t("lock.unlockPrompt"),
 ): Promise<UnlockResult> {
   if (!(await isBiometricAvailable())) {
     return { ok: false, reason: "unavailable" };
   }
   const res = await LocalAuthentication.authenticateAsync({
     promptMessage: reason,
-    fallbackLabel: "Use PIN",
+    fallbackLabel: t("lock.usePin"),
     disableDeviceFallback: false,
-    cancelLabel: "Cancel",
+    cancelLabel: t("confirm.cancel"),
   });
   if (res.success) {
     await markUnlockedNow();

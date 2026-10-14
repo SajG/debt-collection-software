@@ -5,9 +5,9 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
+import { Text } from "./Text";
 import { drainOnce, useQueue } from "@/lib/order-queue";
 import { useDocQueue, drainDocsOnce } from "@/lib/order-doc-queue";
 import { useStatusQueue, drainStatusOnce } from "@/lib/status-queue";
@@ -15,6 +15,10 @@ import { useConnectivity } from "@/lib/connectivity";
 import { isRetryableRpcError } from "@/lib/errors";
 import { formatDate } from "@/lib/format";
 import { theme } from "@/theme";
+import { t, tn } from "@/lib/i18n";
+import { orderDocLabel, queuedMeta, statusLabel } from "@/lib/labels";
+import { toast } from "@/components/Toast";
+import { amberSolid } from "@/lib/tones";
 
 // Persistent "N items waiting to sync" chip. Sits inside home screens
 // (staff + factory). Tap to expand a bottom-sheet breakdown by kind,
@@ -57,15 +61,15 @@ export function QueueSummary() {
       const failed = orders.failed + docs.failed + status.failed;
       if (sent === 0 && failed === 0) {
         Alert.alert(
-          "Still waiting",
-          online ? "Nothing new to sync." : "You're offline. The queue will drain when you're back online.",
+          t("common.stillWaiting"),
+          online ? t("common.nothingNewToSync") : t("common.youreOfflineTheQueueWill"),
         );
       } else if (failed === 0) {
-        Alert.alert("Sent", `${sent} item${sent === 1 ? "" : "s"} synced.`);
+        toast.success(tn("sync.itemsSynced", sent));
       } else {
         Alert.alert(
-          "Some failed",
-          `${sent} synced · ${failed} still waiting. Check individual items for the reason.`,
+          t("common.someFailed"),
+          t("queueSummary.syncedStillWaitingCheckIndividual", { sent, failed }),
         );
       }
     } finally {
@@ -85,15 +89,15 @@ export function QueueSummary() {
         accessibilityRole="button"
         accessibilityLabel={
           stuckCount > 0
-            ? `${stuckCount} failed to send. Tap for details.`
-            : `${total} waiting to sync. Tap for details.`
+            ? t("queueSummary.failedToSendTapFor", { stuckCount })
+            : t("queueSummary.waitingToSyncTapFor", { total })
         }
       >
         <View style={styles.dot} />
         <Text style={styles.chipText}>
           {stuckCount > 0
-            ? `${stuckCount} failed — tap to see why`
-            : `${total} waiting to sync`}
+            ? t("queueSummary.failedTapToSeeWhy", { stuckCount })
+            : t("queueSummary.waitingToSync", { total })}
         </Text>
       </Pressable>
 
@@ -107,28 +111,33 @@ export function QueueSummary() {
           <View style={styles.sheet}>
             <View style={styles.handle} />
             <View style={styles.headerRow}>
-              <Text style={styles.title}>Waiting to sync</Text>
-              <Pressable onPress={() => setOpen(false)} hitSlop={12}>
+              <Text style={styles.title}>{t("queueSummary.waitingToSync2")}</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t("common.close")}
+                onPress={() => setOpen(false)}
+                hitSlop={16}
+              >
                 <Text style={styles.closeGlyph}>×</Text>
               </Pressable>
             </View>
 
             <Text style={styles.subtitle}>
               {stuckCount > 0
-                ? "Some items failed to send. Check the reason under each — this usually means the server is missing a database migration or the action isn't allowed. Retrying won't help until that's fixed."
+                ? t("queueSummary.someItemsFailedToSend")
                 : online
-                  ? "Retrying automatically. Tap Retry now to push straight away."
-                  : "You're offline. Items will send automatically when you're back online."}
+                  ? t("queueSummary.retryingAutomaticallyTapRetryNow")
+                  : t("queueSummary.youreOfflineItemsWillSend")}
             </Text>
 
             <ScrollView contentContainerStyle={styles.list}>
               {orderQ.length > 0 ? (
-                <Section title={`Orders · ${orderQ.length}`}>
+                <Section title={t("queueSummary.orders", { count: orderQ.length })}>
                   {orderQ.map((o) => (
                     <QueueRow
                       key={o.localId}
                       title={o.display.partyName || o.display.productName}
-                      meta={`${o.display.itemCount} item${o.display.itemCount === 1 ? "" : "s"} · queued ${formatDate(new Date(o.queuedAt))}${o.attempts > 0 ? ` · ${o.attempts} retries` : ""}`}
+                      meta={`${tn("common.items", o.display.itemCount)} · ${queuedMeta(o.queuedAt, o.attempts)}`}
                       error={o.lastError}
                     />
                   ))}
@@ -136,12 +145,12 @@ export function QueueSummary() {
               ) : null}
 
               {statusQ.length > 0 ? (
-                <Section title={`Status changes · ${statusQ.length}`}>
+                <Section title={t("queueSummary.statusChanges", { count: statusQ.length })}>
                   {statusQ.map((s) => (
                     <QueueRow
                       key={s.localId}
-                      title={`${s.orderNumber} → ${s.target.replace(/_/g, " ")}`}
-                      meta={`queued ${formatDate(new Date(s.queuedAt))}${s.attempts > 0 ? ` · ${s.attempts} retries` : ""}`}
+                      title={`${s.orderNumber} → ${statusLabel(s.target)}`}
+                      meta={queuedMeta(s.queuedAt, s.attempts)}
                       error={s.lastError}
                     />
                   ))}
@@ -149,12 +158,12 @@ export function QueueSummary() {
               ) : null}
 
               {docQ.length > 0 ? (
-                <Section title={`Documents · ${docQ.length}`}>
+                <Section title={t("queueSummary.documents", { count: docQ.length })}>
                   {docQ.map((d) => (
                     <QueueRow
                       key={d.localId}
-                      title={d.type + (d.pageIndex ? ` — page ${d.pageIndex}` : "")}
-                      meta={`queued ${formatDate(new Date(d.queuedAt))}${d.attempts > 0 ? ` · ${d.attempts} retries` : ""}`}
+                      title={orderDocLabel(d.type) + (d.pageIndex ? t("queueSummary.page", { pageIndex: d.pageIndex }) : "")}
+                      meta={queuedMeta(d.queuedAt, d.attempts)}
                       error={d.lastError}
                     />
                   ))}
@@ -172,10 +181,10 @@ export function QueueSummary() {
                   pressed && { opacity: 0.85 },
                 ]}
                 accessibilityRole="button"
-                accessibilityLabel="Retry syncing now"
+                accessibilityLabel={t("common.retrySyncingNow")}
               >
                 <Text style={styles.retryText}>
-                  {retrying ? "Syncing…" : "Retry now"}
+                  {retrying ? t("common.syncing") : t("common.retryNow")}
                 </Text>
               </Pressable>
             </View>
@@ -221,7 +230,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 999,
-    backgroundColor: "#D97706",
+    backgroundColor: amberSolid,
     minHeight: 40,
     justifyContent: "center",
     alignSelf: "flex-start",
@@ -285,7 +294,7 @@ const styles = StyleSheet.create({
   },
   section: { gap: 8 },
   sectionTitle: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "800",
     letterSpacing: 0.5,
     textTransform: "uppercase",

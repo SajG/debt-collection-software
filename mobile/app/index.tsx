@@ -1,5 +1,9 @@
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { Text } from "@/components/Text";
+import { useEffect, useState } from "react";
 import { Redirect } from "expo-router";
+import { getLockKind } from "@/auth/device-lock";
+import { useLockRequired } from "@/lib/lock-policy";
 import { useAuth } from "@/auth/AuthContext";
 import { useAppUpdates } from "@/lib/app-updates";
 import { t } from "@/lib/i18n";
@@ -20,6 +24,15 @@ export default function IndexGate() {
   // user at the blocking /update-required screen so they cannot
   // reach the shell until they update.
   const { updateRequired } = useAppUpdates();
+  // Company rule "app lock required": a phone that skipped the offer
+  // (or turned the lock off before the rule existed) is sent back to
+  // set one. null = still checking / no session.
+  const lockRequired = useLockRequired(!!session && !!profile);
+  const [hasLock, setHasLock] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!session) return;
+    void getLockKind().then((k) => setHasLock(k !== null));
+  }, [session, locked]);
 
   if (loading) {
     return (
@@ -37,6 +50,9 @@ export default function IndexGate() {
   if (!session) return <Redirect href="/(auth)/email" />;
   if (locked) return <Redirect href="/unlock" />;
   if (!profile) return <Redirect href="/no-profile" />;
+  if (lockRequired === true && hasLock === false) {
+    return <Redirect href="/set-up-lock" />;
+  }
 
   switch (role) {
     case "FACTORY":

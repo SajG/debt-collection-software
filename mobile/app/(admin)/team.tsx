@@ -6,9 +6,9 @@ import {
   Pressable,
   RefreshControl,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
+import { Text } from "@/components/Text";
 import { router } from "expo-router";
 import { Screen } from "@/components/Screen";
 import { confirm } from "@/components/Confirm";
@@ -16,6 +16,9 @@ import { supabase } from "@/lib/supabase";
 import { getProfileDirectory } from "@/lib/profile-directory";
 import { formatINR } from "@/lib/format";
 import { theme } from "@/theme";
+import { t } from "@/lib/i18n";
+import { listEmpty } from "@/components/ListStates";
+import { EmptyState } from "@/components/EmptyState";
 
 // Per-salesperson performance table. Aggregates are computed
 // client-side over a bounded orders window (last 90 days) to avoid
@@ -200,15 +203,15 @@ export default function AdminTeam() {
   function askToggle(row: Row) {
     const next = !row.isActive;
     confirm({
-      title: next ? `Reactivate ${row.ownerName}?` : `Deactivate ${row.ownerName}?`,
+      title: next ? t("adminTeam.reactivate", { ownerName: row.ownerName }) : t("adminTeam.deactivate", { ownerName: row.ownerName }),
       body: next
-        ? "They will be able to sign in and place orders again."
-        : "They will be signed out and blocked from signing in. All their historical data stays.",
-      confirmLabel: next ? "Reactivate" : "Deactivate",
+        ? t("adminTeam.theyWillBeAbleTo")
+        : t("adminTeam.theyWillBeSignedOut"),
+      confirmLabel: next ? t("adminTeam.reactivate2") : t("adminTeam.deactivate2"),
       destructive: !next,
       onConfirm: async () => {
         const res = await setUserActiveRpc(row.profileId, next, null);
-        if ("error" in res) Alert.alert("Could not update", res.error);
+        if ("error" in res) Alert.alert(t("common.couldNotUpdate"), res.error);
         else await load();
       },
     });
@@ -217,10 +220,9 @@ export default function AdminTeam() {
   return (
     <Screen padded={false}>
       <View style={styles.header}>
-        <Text style={styles.title}>Team</Text>
+        <Text style={styles.title}>{t("common.team")}</Text>
         <Text style={styles.subtitle}>
-          Last {WINDOW_DAYS} days · tap a row to see orders · long-press
-          the pill to enable/disable.
+          {t("adminTeam.subtitle", { days: WINDOW_DAYS })}
         </Text>
       </View>
 
@@ -230,19 +232,23 @@ export default function AdminTeam() {
         contentContainerStyle={styles.list}
         ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.colors.primary}
+            colors={[theme.colors.primary]}
+          />
         }
-        ListEmptyComponent={
-          loading ? (
-            <View style={{ paddingTop: 40 }}>
-              <ActivityIndicator />
-            </View>
-          ) : (
-            <Text style={styles.empty}>{error ?? "No team members."}</Text>
-          )
-        }
+        ListEmptyComponent={listEmpty({
+          loading,
+          error,
+          onRetry: () => void load(),
+          empty: <EmptyState glyph="☺" title={t("adminTeam.noTeamMembers")} />,
+        })}
         renderItem={({ item }) => (
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={item.ownerName}
             onPress={() =>
               // No per-salesperson filter today; the staff home
               // "all orders" view with a name search is the closest
@@ -271,7 +277,7 @@ export default function AdminTeam() {
                 ]}
                 accessibilityRole="button"
                 accessibilityLabel={
-                  item.isActive ? "Deactivate user" : "Reactivate user"
+                  item.isActive ? t("adminTeam.deactivateUser") : t("adminTeam.reactivateUser")
                 }
               >
                 <Text
@@ -286,10 +292,10 @@ export default function AdminTeam() {
             </View>
 
             <View style={styles.stats}>
-              <Stat label="Orders" value={String(item.ordersPlaced)} />
-              <Stat label="Value" value={formatINR(item.valuePlaced)} />
+              <Stat label={t("adminTeam.orders")} value={String(item.ordersPlaced)} />
+              <Stat label={t("adminTeam.value")} value={formatINR(item.valuePlaced)} />
               <Stat
-                label="Avg O→D"
+                label={t("adminTeam.avgOD")}
                 value={
                   item.avgOrderToDispatchHours == null
                     ? "—"
@@ -299,7 +305,7 @@ export default function AdminTeam() {
                 }
               />
               <Stat
-                label="Overdue"
+                label={t("adminTeam.overdue")}
                 value={String(item.overdueCount)}
                 danger={item.overdueCount > 0}
               />
@@ -338,7 +344,7 @@ function Stat({
 const statStyles = StyleSheet.create({
   wrap: { flex: 1 },
   label: {
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: "700",
     letterSpacing: 0.5,
     textTransform: "uppercase",
@@ -407,7 +413,7 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.danger,
     backgroundColor: theme.colors.dangerBg,
   },
-  statusPillText: { fontSize: 11, fontWeight: "800", letterSpacing: 0.5 },
+  statusPillText: { fontSize: 13, fontWeight: "800", letterSpacing: 0.5 },
   stats: { flexDirection: "row", gap: 12 },
   empty: {
     marginTop: theme.spacing.xl,

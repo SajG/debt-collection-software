@@ -1,8 +1,10 @@
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { Text } from "@/components/Text";
 import { router } from "expo-router";
 import { Screen } from "@/components/Screen";
 import { Button } from "@/components/Button";
 import { theme } from "@/theme";
+import { t } from "@/lib/i18n";
 
 // Terminal screen when the admin has flipped isActive → false. The
 // signed-out session cookie is already cleared by AuthContext; the
@@ -12,14 +14,12 @@ export default function AccountDisabled() {
   return (
     <Screen scroll>
       <View style={styles.wrap}>
-        <Text style={styles.title}>Your access has been removed</Text>
+        <Text style={styles.title}>{t("accountDisabled.yourAccessHasBeenRemoved")}</Text>
         <Text style={styles.body}>
-          An administrator has disabled your Syncit account. Your
-          data is safe — nothing has been deleted. Contact your admin
-          to be reactivated.
+          {t("accountDisabled.anAdministratorHasDisabledYour")}
         </Text>
         <Button
-          label="Back to sign in"
+          label={t("accountDisabled.backToSignIn")}
           onPress={() => router.replace("/(auth)/email")}
         />
       </View>

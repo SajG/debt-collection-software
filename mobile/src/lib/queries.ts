@@ -10,7 +10,7 @@ import { handleRevocationError } from "./session-revoked";
 
 type Fetcher<T> = () => Promise<T>;
 
-function useQuery<T>(
+export function useQuery<T>(
   key: string,
   fetcher: Fetcher<T>,
 ): {

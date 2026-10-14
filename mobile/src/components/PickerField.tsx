@@ -4,12 +4,12 @@ import {
   Modal,
   Pressable,
   StyleSheet,
-  Text,
-  TextInput,
   View,
 } from "react-native";
+import { Text, TextInput } from "./Text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "@/theme";
+import { t } from "@/lib/i18n";
 
 // Searchable dropdown for rich items (id + label + sublabel). Mirrors
 // SelectField's trigger UI so brand/product/packing/size all read the
@@ -27,9 +27,9 @@ export function PickerField({
   value,
   items,
   onChange,
-  placeholder = "Choose…",
+  placeholder = t("common.choose"),
   searchable = false,
-  searchPlaceholder = "Search…",
+  searchPlaceholder = t("common.searchEllipsis"),
   recentValues,
 }: {
   label: string;
@@ -89,7 +89,7 @@ export function PickerField({
         }}
         style={({ pressed }) => [styles.trigger, pressed && { opacity: 0.85 }]}
         accessibilityRole="button"
-        accessibilityLabel={`${label}: ${current?.label ?? placeholder}. Opens picker.`}
+        accessibilityLabel={t("pickerField.opensPicker", { label, n: current?.label ?? placeholder })}
       >
         <Text style={styles.triggerLabel}>{label}</Text>
         <View style={styles.triggerRow}>
@@ -114,7 +114,12 @@ export function PickerField({
         transparent
         onRequestClose={() => setOpen(false)}
       >
-        <Pressable style={styles.backdrop} onPress={() => setOpen(false)} />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t("common.close")}
+          style={styles.backdrop}
+          onPress={() => setOpen(false)}
+        />
         <View
           style={[
             styles.sheet,
@@ -127,7 +132,7 @@ export function PickerField({
               onPress={() => setOpen(false)}
               hitSlop={16}
               accessibilityRole="button"
-              accessibilityLabel="Close picker"
+              accessibilityLabel={t("common.closePicker")}
             >
               <Text style={styles.close}>✕</Text>
             </Pressable>
@@ -153,11 +158,12 @@ export function PickerField({
             ListHeaderComponent={
               recentItems.length > 0 ? (
                 <View>
-                  <Text style={styles.sectionLabel}>Recent</Text>
+                  <Text style={styles.sectionLabel}>{t("pickerField.recent")}</Text>
                   {recentItems.map((item) => {
                     const active = item.value === value;
                     return (
                       <Pressable
+                        accessibilityLabel={item.label}
                         key={`recent-${item.value}`}
                         onPress={() => {
                           onChange(item.value);
@@ -196,7 +202,7 @@ export function PickerField({
                     );
                   })}
                   <View style={styles.divider} />
-                  <Text style={styles.sectionLabel}>All</Text>
+                  <Text style={styles.sectionLabel}>{t("pickerField.all")}</Text>
                 </View>
               ) : null
             }
@@ -204,6 +210,7 @@ export function PickerField({
               const active = item.value === value;
               return (
                 <Pressable
+                  accessibilityLabel={item.label}
                   onPress={() => {
                     onChange(item.value);
                     setOpen(false);
@@ -242,7 +249,7 @@ export function PickerField({
             }}
             ItemSeparatorComponent={() => <View style={styles.sep} />}
             ListEmptyComponent={
-              <Text style={styles.empty}>No matches.</Text>
+              <Text style={styles.empty}>{t("pickerField.noMatches")}</Text>
             }
           />
         </View>
@@ -263,7 +270,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   triggerLabel: {
-    fontSize: 11,
+    fontSize: 13,
     color: theme.colors.textMuted,
     fontWeight: "800",
     textTransform: "uppercase",
@@ -288,7 +295,7 @@ const styles = StyleSheet.create({
   },
   triggerSub: {
     marginTop: 2,
-    fontSize: 12,
+    fontSize: 13,
     color: theme.colors.textMuted,
     fontWeight: "700",
     letterSpacing: 0.5,
@@ -354,7 +361,7 @@ const styles = StyleSheet.create({
   rowLabelActive: { color: theme.colors.primary, fontWeight: "700" },
   rowSub: {
     marginTop: 2,
-    fontSize: 12,
+    fontSize: 13,
     color: theme.colors.textMuted,
     fontWeight: "700",
     letterSpacing: 0.5,
@@ -370,7 +377,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.md,
     paddingTop: 12,
     paddingBottom: 6,
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: "800",
     letterSpacing: 1,
     textTransform: "uppercase",

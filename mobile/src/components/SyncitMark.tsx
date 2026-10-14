@@ -17,6 +17,7 @@ import Svg, {
 export function SyncitMark({
   size = 24,
   color = "currentColor",
+  // i18n-ignore: brand name
   title = "Syncit",
   variant = "mono",
   tile = false,

@@ -6,9 +6,9 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
+import { Text } from "./Text";
 import { Button } from "@/components/Button";
 import { TextField } from "@/components/TextField";
 import { Segmented } from "@/components/Segmented";
@@ -27,6 +27,7 @@ import { formatINR } from "@/lib/format";
 import type { QuantityUnit } from "@/lib/database.types";
 import type { OrderDraftItem } from "@/lib/order-draft";
 import { theme } from "@/theme";
+import { t } from "@/lib/i18n";
 
 // Bottom-sheet item editor. Every field is a labelled dropdown so the
 // sheet reads as one clean column — brand, product, packing, size all
@@ -117,8 +118,8 @@ export function ItemSheet({
     }));
     rows.push({
       value: CUSTOM_PRODUCT_SENTINEL,
-      label: "Custom / not in catalogue",
-      sublabel: "Type a name below",
+      label: t("itemSheet.customNotInCatalogue"),
+      sublabel: t("itemSheet.typeNameBelow"),
     });
     return rows;
   }, [brandProducts]);
@@ -206,13 +207,13 @@ export function ItemSheet({
           <View style={styles.handle} />
           <View style={styles.headerRow}>
             <Text style={styles.title}>
-              {mode === "edit" ? "Edit item" : "Add item"}
+              {mode === "edit" ? t("itemSheet.editItem") : t("itemSheet.addItem")}
             </Text>
             <Pressable
               onPress={onCancel}
               hitSlop={12}
               accessibilityRole="button"
-              accessibilityLabel="Close"
+              accessibilityLabel={t("itemSheet.close")}
             >
               <Text style={styles.closeGlyph}>×</Text>
             </Pressable>
@@ -223,16 +224,16 @@ export function ItemSheet({
             keyboardShouldPersistTaps="handled"
           >
             <PickerField
-              label="Brand"
+              label={t("itemSheet.brand")}
               value={brandValue}
               items={brandItems}
               onChange={onBrandChange}
-              placeholder="Choose brand"
+              placeholder={t("itemSheet.chooseBrand")}
             />
             {privateLabel ? (
               <TextField
-                label="Private-label brand name"
-                placeholder="Enter the brand the customer sells under"
+                label={t("itemSheet.privateLabelBrandName")}
+                placeholder={t("itemSheet.enterTheBrandTheCustomer")}
                 value={privateLabelName}
                 onChangeText={(v) => {
                   setPrivateLabelName(v);
@@ -244,23 +245,23 @@ export function ItemSheet({
             ) : null}
 
             <PickerField
-              label="Product / grade"
+              label={t("itemSheet.productGrade")}
               value={productValue}
               items={productItems}
               onChange={onProductChange}
               recentValues={recentProductIds}
               placeholder={
                 products.loading && !products.data
-                  ? "Loading products…"
-                  : "Search by name or grade code"
+                  ? t("itemSheet.loadingProducts")
+                  : t("itemSheet.searchByNameOrGrade")
               }
               searchable
               searchPlaceholder="e.g. Polygum D3+, WR-48, PSA 55"
             />
             {customProduct ? (
               <TextField
-                label="Custom product name"
-                placeholder="Product name, grade, or private-label name"
+                label={t("itemSheet.customProductName")}
+                placeholder={t("itemSheet.productNameGradeOrPrivate")}
                 value={item.customProductName ?? ""}
                 onChangeText={(v) => {
                   setItem((prev) => ({
@@ -274,7 +275,7 @@ export function ItemSheet({
             ) : null}
 
             <TextField
-              label="Quantity"
+              label={t("itemSheet.quantity")}
               placeholder="0"
               keyboardType="decimal-pad"
               value={item.quantity}
@@ -292,14 +293,14 @@ export function ItemSheet({
             />
 
             <SelectField
-              label="Packing"
+              label={t("itemSheet.packing")}
               value={item.packingType}
               options={COMMON_PACKINGS}
               onChange={(v) => setField("packingType", v)}
             />
             <TextField
-              label="Custom packing (optional)"
-              placeholder='e.g. "310 ml cartridge", "500 ml squeeze bottle"'
+              label={t("itemSheet.customPackingOptional")}
+              placeholder={t("itemSheet.eG310MlCartridge")}
               value={
                 item.packingType && !COMMON_PACKINGS.includes(item.packingType)
                   ? item.packingType
@@ -311,14 +312,14 @@ export function ItemSheet({
             />
 
             <SelectField
-              label="Size"
+              label={t("itemSheet.size")}
               value={item.sizeKg}
               options={COMMON_SIZES_KG}
               onChange={(v) => setField("sizeKg", v)}
               formatLabel={formatSizeLabel}
             />
             <TextField
-              label="Custom size (optional, kg or ml)"
+              label={t("itemSheet.customSizeOptionalKgOr")}
               placeholder='e.g. "310 ml", "0.45 kg"'
               value={
                 item.sizeKg && !COMMON_SIZES_KG.includes(item.sizeKg)
@@ -332,7 +333,7 @@ export function ItemSheet({
             />
 
             <TextField
-              label="Rate per unit"
+              label={t("itemSheet.ratePerUnit")}
               placeholder="e.g. 185"
               keyboardType="numeric"
               value={item.productRate}
@@ -340,7 +341,7 @@ export function ItemSheet({
             />
 
             <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>Line total</Text>
+              <Text style={styles.totalLabel}>{t("itemSheet.lineTotal")}</Text>
               <Text style={styles.totalValue}>{formatINR(lineTotal)}</Text>
             </View>
           </ScrollView>
@@ -348,7 +349,7 @@ export function ItemSheet({
           <View style={styles.footer}>
             {mode === "edit" && onDelete ? (
               <Button
-                label="Delete"
+                label={t("common.delete")}
                 variant="danger"
                 fullWidth={false}
                 onPress={onDelete}
@@ -357,7 +358,7 @@ export function ItemSheet({
               <View />
             )}
             <Button
-              label={mode === "edit" ? "Save" : "Add"}
+              label={mode === "edit" ? t("itemSheet.save") : t("itemSheet.add")}
               disabled={!isComplete}
               onPress={() => onSave(item)}
             />
@@ -418,7 +419,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   sectionLabel: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "700",
     letterSpacing: 0.5,
     textTransform: "uppercase",

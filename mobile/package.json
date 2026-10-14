@@ -10,7 +10,11 @@
     "types:generate": "npx supabase gen types typescript --project-id \"$SUPABASE_PROJECT_ID\" --schema public > src/lib/database.types.ts",
     "prebuild": "node scripts/assert-no-dev-secrets.mjs && expo prebuild --clean",
     "build:apk:preview": "eas build --platform android --profile preview --local",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:i18n": "node scripts/check-i18n.mjs",
+    "check:a11y": "node scripts/check-a11y.mjs",
+    "check:contrast": "node scripts/check-contrast.mjs",
+    "lint": "npm run check:i18n && npm run check:a11y && npm run check:contrast"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",

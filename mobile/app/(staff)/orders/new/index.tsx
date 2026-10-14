@@ -5,9 +5,9 @@ import {
   Platform,
   Pressable,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
+import { Text } from "@/components/Text";
 import DateTimePicker, {
   DateTimePickerAndroid,
   type DateTimePickerEvent,
@@ -22,12 +22,12 @@ import { useParties } from "@/lib/queries";
 import { getLastUsedFor } from "@/lib/last-used";
 import { formatDate } from "@/lib/format";
 import {
-  PAYMENT_TERMS,
-  TRANSPORT_TYPES,
   TOKEN_TYPES,
 } from "@/lib/constants";
 import type { PaymentTerm, TransportType } from "@/lib/database.types";
 import { theme } from "@/theme";
+import { t } from "@/lib/i18n";
+import { paymentTerms, transportTypes } from "@/lib/labels";
 
 // Screen 1 of the 3-screen wizard: customer + delivery details on ONE
 // scrollable screen. Payment term / transport / token are chip rows —
@@ -115,7 +115,7 @@ export default function ScreenCustomerAndDelivery() {
   return (
     <Screen padded={false}>
       <View style={styles.header}>
-        <WizardHeader step={1} title="Customer & delivery" />
+        <WizardHeader step={1} title={t("common.customerDelivery")} />
       </View>
 
       <FlatList
@@ -126,7 +126,7 @@ export default function ScreenCustomerAndDelivery() {
         renderItem={() => null}
         ListHeaderComponent={
           <View>
-            <Section title="Customer">
+            <Section title={t("common.customer")}>
               {/* Single always-editable customer name field. Type freely;
                   matching ledger customers appear inline right below as
                   tap-to-pick rows (prefix match, capped list). Tapping
@@ -138,8 +138,8 @@ export default function ScreenCustomerAndDelivery() {
                   only ever shows THIS salesperson's assigned customers.
                   No cross-book leakage. */}
               <TextField
-                label="Customer name"
-                placeholder="Type customer name"
+                label={t("common.customerName")}
+                placeholder={t("common.typeCustomerName")}
                 value={draft.partyName ?? draft.newCustomerName ?? ""}
                 onChangeText={(v) => {
                   patch({
@@ -154,7 +154,7 @@ export default function ScreenCustomerAndDelivery() {
               />
               {draft.partyId ? (
                 <Text style={styles.ledgerBadge}>
-                  ✓ Ledger customer{draft.partyName ? ` — ${draft.partyName}` : ""}
+                  ✓ {t("staffOrdersNew.ledgerCustomer")}{draft.partyName ? ` — ${draft.partyName}` : ""}
                 </Text>
               ) : null}
               {!draft.partyId && search.trim().length >= 1 ? (
@@ -166,8 +166,7 @@ export default function ScreenCustomerAndDelivery() {
                   )}
                   {!parties.loading && (parties.data?.length ?? 0) === 0 ? (
                     <Text style={styles.suggestEmpty}>
-                      No ledger match — the name you typed will be saved
-                      as a new customer.
+                      {t("staffOrdersNewHome.noLedgerMatchTheName")}
                     </Text>
                   ) : null}
                   {(parties.data ?? []).slice(0, 8).map((p) => (
@@ -179,7 +178,7 @@ export default function ScreenCustomerAndDelivery() {
                         pressed && { opacity: 0.7 },
                       ]}
                       accessibilityRole="button"
-                      accessibilityLabel={`Pick ${p.name}`}
+                      accessibilityLabel={t("staffOrdersNewHome.pick", { name: p.name })}
                     >
                       <Text style={styles.partyName}>{p.name}</Text>
                       {p.city ? (
@@ -189,30 +188,31 @@ export default function ScreenCustomerAndDelivery() {
                   ))}
                   {(parties.data?.length ?? 0) > 8 ? (
                     <Text style={styles.suggestMore}>
-                      +{(parties.data?.length ?? 0) - 8} more — keep typing
-                      to narrow.
+                      {t("staffOrdersNew.moreMatches", { count: (parties.data?.length ?? 0) - 8 })}
                     </Text>
                   ) : null}
                 </View>
               ) : null}
             </Section>
 
-            <Section title="Delivery">
+            <Section title={t("common.delivery")}>
               <TextField
-                label="Dispatch location"
-                placeholder="Address, godown, or ledger location"
+                label={t("common.dispatchLocation")}
+                placeholder={t("common.addressGodownOrLedgerLocation")}
                 value={draft.dispatchLocation}
                 onChangeText={(v) => patch({ dispatchLocation: v })}
               />
               <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t("common.expectedDelivery")}
                 onPress={openDatePicker}
                 style={({ pressed }) => [styles.dateBtn, pressed && { opacity: 0.8 }]}
               >
-                <Text style={styles.dateLabel}>Expected delivery</Text>
+                <Text style={styles.dateLabel}>{t("common.expectedDelivery")}</Text>
                 <Text style={styles.dateValue}>
                   {draft.expectedDeliveryDate
                     ? formatDate(draft.expectedDeliveryDate)
-                    : "Pick a date"}
+                    : t("common.pickADate")}
                 </Text>
               </Pressable>
               {showPicker && Platform.OS === "ios" ? (
@@ -230,23 +230,23 @@ export default function ScreenCustomerAndDelivery() {
               ) : null}
             </Section>
 
-            <Section title="Payment terms">
+            <Section title={t("common.paymentTerms")}>
               <ChipRow<PaymentTerm>
-                values={PAYMENT_TERMS}
+                values={paymentTerms()}
                 selected={draft.paymentTerm}
                 onSelect={(v) => patch({ paymentTerm: v })}
               />
             </Section>
 
-            <Section title="Transport">
+            <Section title={t("common.transport")}>
               <ChipRow<TransportType>
-                values={TRANSPORT_TYPES}
+                values={transportTypes()}
                 selected={draft.transportType}
                 onSelect={(v) => patch({ transportType: v })}
               />
             </Section>
 
-            <Section title="Token / gift">
+            <Section title={t("common.tokenGift")}>
               <ChipRow
                 values={TOKEN_TYPES.map((v) => ({ value: v, label: v }))}
                 selected={draft.tokenType}
@@ -254,10 +254,10 @@ export default function ScreenCustomerAndDelivery() {
               />
             </Section>
 
-            <Section title="Notes (optional)">
+            <Section title={t("common.notesOptional")}>
               <TextField
-                label="Anything the factory should know"
-                placeholder="e.g. Fragile · call before dispatch"
+                label={t("staffOrdersNewHome.anythingTheFactoryShouldKnow")}
+                placeholder={t("staffOrdersNewHome.eGFragileCallBefore")}
                 multiline
                 value={draft.notes}
                 onChangeText={(v) => patch({ notes: v })}
@@ -265,7 +265,7 @@ export default function ScreenCustomerAndDelivery() {
             </Section>
 
             <Button
-              label="Continue to items"
+              label={t("staffOrdersNewHome.continueToItems")}
               disabled={!canProceed}
               onPress={() => router.push("/(staff)/orders/new/items")}
             />
@@ -307,6 +307,8 @@ function ChipRow<T extends string>({
         const active = opt.value === selected;
         return (
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={opt.label}
             key={opt.value}
             onPress={() => onSelect(opt.value)}
             style={({ pressed }) => [
@@ -330,7 +332,7 @@ const styles = StyleSheet.create({
   body: { padding: theme.spacing.lg, gap: 0, paddingBottom: theme.spacing.xl },
   section: { gap: 10, marginTop: theme.spacing.lg },
   sectionTitle: {
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: "800",
     letterSpacing: 1.2,
     textTransform: "uppercase",
@@ -395,7 +397,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surface,
   },
   selectedLabel: {
-    fontSize: 12,
+    fontSize: 13,
     color: theme.colors.textMuted,
     textTransform: "uppercase",
     fontWeight: "700",
@@ -429,7 +431,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   dateLabel: {
-    fontSize: 11,
+    fontSize: 13,
     color: theme.colors.textMuted,
     textTransform: "uppercase",
     fontWeight: "800",

@@ -8,9 +8,9 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
+import { Text } from "@/components/Text";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { Screen } from "@/components/Screen";
 import { Button } from "@/components/Button";
@@ -26,7 +26,6 @@ import {
   attachOrderDocument,
   groupDocsByPage,
   useOrderDocuments,
-  ORDER_DOC_LABELS,
   STAFF_UPLOADABLE_TYPES,
   type OrderDocRow,
   type OrderDocType,
@@ -38,9 +37,12 @@ import { useConnectivity } from "@/lib/connectivity";
 import { newId } from "@/lib/ids";
 import { supabase } from "@/lib/supabase";
 import { formatDate } from "@/lib/format";
-import { t } from "@/lib/i18n";
+import { t, tn } from "@/lib/i18n";
 import { theme } from "@/theme";
 import { confirm } from "@/components/Confirm";
+import { orderDocLabel } from "@/lib/labels";
+import { paymentTermLabel, transportLabel } from "@/lib/labels";
+import { toast } from "@/components/Toast";
 
 export default function OrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -115,9 +117,9 @@ export default function OrderDetailScreen() {
                 pressed && { opacity: 0.7 },
               ]}
               accessibilityRole="button"
-              accessibilityLabel="Edit order details"
+              accessibilityLabel={t("staffOrdersDetail.editOrderDetails")}
             >
-              <Text style={styles.editBtnText}>✎ Edit details</Text>
+              <Text style={styles.editBtnText}>{t("staffOrdersDetail.editDetails")}</Text>
             </Pressable>
             <Pressable
               onPress={() =>
@@ -131,9 +133,9 @@ export default function OrderDetailScreen() {
                 pressed && { opacity: 0.7 },
               ]}
               accessibilityRole="button"
-              accessibilityLabel="Edit line items"
+              accessibilityLabel={t("staffOrdersDetail.editLineItems")}
             >
-              <Text style={styles.editBtnText}>✎ Edit items</Text>
+              <Text style={styles.editBtnText}>{t("staffOrdersDetail.editItems")}</Text>
             </Pressable>
             {/* Cancel — narrower status gate than the edit buttons.
                 LR_GENERATED is edit-able (correct a wrong LR number)
@@ -153,9 +155,9 @@ export default function OrderDetailScreen() {
                   pressed && { opacity: 0.7 },
                 ]}
                 accessibilityRole="button"
-                accessibilityLabel="Cancel this order"
+                accessibilityLabel={t("staffOrdersDetail.cancelThisOrder")}
               >
-                <Text style={styles.cancelBtnText}>✕ Cancel</Text>
+                <Text style={styles.cancelBtnText}>{t("staffOrdersDetail.cancel")}</Text>
               </Pressable>
             ) : null}
           </View>
@@ -186,14 +188,13 @@ export default function OrderDetailScreen() {
         {data.currentStatus === "PENDING_APPROVAL" && role === "ADMIN" ? (
           <View style={styles.approvalPanel}>
             <Text style={styles.approvalPanelTitle}>
-              Awaiting your decision
+              {t("staffOrdersDetail.awaitingYourDecision")}
             </Text>
             <Text style={styles.approvalHint}>
-              Approve to release the order to the factory. Reject with
-              a reason — the salesperson gets a push.
+              {t("staffOrdersDetail.approveToReleaseTheOrder")}
             </Text>
             <Button
-              label={approvalBusy ? "…" : "Approve"}
+              label={approvalBusy ? "…" : t("common.approve")}
               loading={approvalBusy}
               disabled={approvalBusy}
               onPress={async () => {
@@ -204,32 +205,32 @@ export default function OrderDetailScreen() {
                 });
                 setApprovalBusy(false);
                 if (err) {
-                  Alert.alert("Approve failed", err.message);
+                  Alert.alert(t("common.approveFailed"), err.message);
                   return;
                 }
                 await refetch();
               }}
             />
             <TextField
-              label="Rejection reason"
+              label={t("staffOrdersDetail.rejectionReason")}
               value={rejectReason}
               onChangeText={setRejectReason}
-              placeholder="e.g. price too low / customer credit hold"
+              placeholder={t("staffOrdersDetail.eGPriceTooLow")}
               multiline
               numberOfLines={2}
             />
             <Button
               variant="secondary"
-              label={approvalBusy ? "…" : "Reject with reason"}
+              label={approvalBusy ? "…" : t("staffOrdersDetail.rejectWithReason")}
               loading={approvalBusy}
               disabled={approvalBusy || rejectReason.trim().length === 0}
               onPress={() => {
                 const reason = rejectReason.trim();
                 if (!reason) return;
                 confirm({
-                  title: "Reject this order?",
-                  body: `The salesperson gets a push. Reason: "${reason}"`,
-                  confirmLabel: "Reject",
+                  title: t("staffOrdersDetail.rejectThisOrder"),
+                  body: t("staffOrdersDetail.theSalespersonGetsAPush", { reason }),
+                  confirmLabel: t("common.reject"),
                   destructive: true,
                   onConfirm: async () => {
                     setApprovalBusy(true);
@@ -239,7 +240,7 @@ export default function OrderDetailScreen() {
                     });
                     setApprovalBusy(false);
                     if (err) {
-                      Alert.alert("Reject failed", err.message);
+                      Alert.alert(t("common.rejectFailed"), err.message);
                       return;
                     }
                     setRejectReason("");
@@ -278,11 +279,11 @@ export default function OrderDetailScreen() {
           </InfoCard>
 
           <InfoCard label={t("detail.payment")}>
-            <Text style={styles.value}>{(data.paymentTerm ?? "—").replace(/_/g, " ")}</Text>
+            <Text style={styles.value}>{paymentTermLabel(data.paymentTerm)}</Text>
           </InfoCard>
 
           <InfoCard label={t("detail.transport")}>
-            <Text style={styles.value}>{(data.transportType ?? "—").replace(/_/g, " ")}</Text>
+            <Text style={styles.value}>{transportLabel(data.transportType)}</Text>
           </InfoCard>
         </View>
 
@@ -327,8 +328,8 @@ function promptCancel(
     const clean = reason.trim();
     if (!clean) {
       Alert.alert(
-        "Reason required",
-        "A cancellation reason is required so the timeline reads well.",
+        t("staffOrdersDetail.reasonRequired"),
+        t("staffOrdersDetail.aCancellationReasonIsRequired"),
       );
       return;
     }
@@ -341,20 +342,21 @@ function promptCancel(
       ) => Promise<{ error: { message: string } | null }>
     )("cancel_own_order", { p_order_id: orderId, p_reason: clean });
     if (error) {
-      Alert.alert("Cancel failed", error.message);
+      Alert.alert(t("staffOrdersDetail.cancelFailed"), error.message);
       return;
     }
+    toast.success(t("staffOrdersDetail.cancelled", { orderNumber }));
     refetch();
   };
 
   if (Platform.OS === "ios") {
     Alert.prompt(
-      `Cancel ${orderNumber}?`,
-      "Give a short reason — this shows on the order timeline.",
+      t("staffOrdersDetail.cancel2", { orderNumber }),
+      t("staffOrdersDetail.cancelReasonPrompt"),
       [
-        { text: "Keep order", style: "cancel" },
+        { text: t("staffOrdersDetail.keepOrder"), style: "cancel" },
         {
-          text: "Cancel order",
+          text: t("common.cancelOrder"),
           style: "destructive",
           onPress: (text: string | undefined) => submit(text ?? ""),
         },
@@ -368,13 +370,14 @@ function promptCancel(
     // shrug compromise — the timeline still records who + when,
     // just without the specific reason.
     Alert.alert(
-      `Cancel ${orderNumber}?`,
-      "This will cancel the order and notify the factory.",
+      t("staffOrdersDetail.cancel2", { orderNumber }),
+      t("staffOrdersDetail.thisWillCancelTheOrder"),
       [
-        { text: "Keep order", style: "cancel" },
+        { text: t("staffOrdersDetail.keepOrder"), style: "cancel" },
         {
-          text: "Cancel order",
+          text: t("common.cancelOrder"),
           style: "destructive",
+          // i18n-ignore: note stored on the order timeline
           onPress: () => submit("Cancelled from mobile"),
         },
       ],
@@ -416,17 +419,18 @@ function ConfirmDeliveredCard({
         orderId,
         orderNumber,
         target: "DELIVERED",
+        // i18n-ignore: note stored on the order timeline
         note: photo ? "Delivered — proof attached" : "Delivered",
         online,
       });
       if ("error" in res) {
-        Alert.alert("Could not confirm", res.error);
+        Alert.alert(t("staffOrdersDetail.couldNotConfirm"), res.error);
         return;
       }
       if ("queued" in res) {
         Alert.alert(
-          "Saved for retry",
-          "No network right now — delivery will be confirmed automatically when the phone is back online.",
+          t("staffOrdersDetail.savedForRetry"),
+          t("staffOrdersDetail.noNetworkRightNowDelivery"),
         );
         return;
       }
@@ -439,25 +443,24 @@ function ConfirmDeliveredCard({
 
   return (
     <View style={styles.deliveredCard}>
-      <Text style={styles.deliveredTitle}>Confirm delivered</Text>
+      <Text style={styles.deliveredTitle}>{t("staffOrdersDetail.confirmDelivered")}</Text>
       <Text style={styles.deliveredBody}>
-        Closes the order and stamps the delivery time. Optional: attach a
-        photo of the signed LR / customer confirmation.
+        {t("staffOrdersDetail.closesTheOrderAndStamps")}
       </Text>
       <View style={{ height: theme.spacing.sm }} />
       <PhotoPicker photo={photo} onChange={setPhoto} />
       <View style={{ height: theme.spacing.md }} />
       <Button
-        label={busy ? "Confirming…" : "Confirm delivered"}
+        label={busy ? t("staffOrdersDetail.confirming") : t("staffOrdersDetail.confirmDelivered")}
         loading={busy}
         disabled={busy}
         onPress={() =>
           confirm({
-            title: "Confirm delivered?",
+            title: t("staffOrdersDetail.confirmDelivered2"),
             body: photo
-              ? "Stamps the delivery time and attaches the photo."
-              : "Stamps the delivery time. You can attach a photo above first, or confirm without.",
-            confirmLabel: "Confirm",
+              ? t("staffOrdersDetail.stampsTheDeliveryTimeAnd")
+              : t("staffOrdersDetail.stampsTheDeliveryTimeYou"),
+            confirmLabel: t("common.confirm"),
             onConfirm: submit,
           })
         }
@@ -484,8 +487,8 @@ function DocumentsSection({ orderId }: { orderId: string | null }) {
       id: d.id,
       storagePath: d.storagePath,
       label:
-        ORDER_DOC_LABELS[d.type] +
-        (d.pageIndex ? ` — page ${d.pageIndex}` : ""),
+        orderDocLabel(d.type) +
+        (d.pageIndex ? t("staffOrdersDetail.page", { pageIndex: d.pageIndex }) : ""),
     }));
 
   const groups = groupDocsByPage(docs ?? []);
@@ -534,24 +537,24 @@ function DocumentsSection({ orderId }: { orderId: string | null }) {
       return;
     }
     setPhoto(null);
+    toast.success(tn("uploads.pagesUploaded", 1));
     await refetch();
   }, [orderId, photo, type, refetch]);
 
   return (
     <View>
-      <Text style={styles.timelineHeader}>Documents</Text>
+      <Text style={styles.timelineHeader}>{t("common.documents")}</Text>
       <Text style={styles.docHint}>
-        Attach an order proof (customer PO, WhatsApp confirmation). Invoice
-        and LR come from the factory.
+        {t("staffOrdersDetail.attachAnOrderProofCustomer")}
       </Text>
 
       <View style={styles.docUploadCard}>
         <PhotoPicker photo={photo} onChange={setPhoto} />
         <View style={{ height: theme.spacing.md }} />
-        <Text style={docSectionStyles.fieldLabel}>Type</Text>
+        <Text style={docSectionStyles.fieldLabel}>{t("staffOrdersDetail.type")}</Text>
         <PickList
           options={STAFF_UPLOADABLE_TYPES.map((v) => ({
-            label: ORDER_DOC_LABELS[v],
+            label: orderDocLabel(v),
             value: v,
           }))}
           value={type}
@@ -562,7 +565,7 @@ function DocumentsSection({ orderId }: { orderId: string | null }) {
         )}
         <View style={{ height: theme.spacing.md }} />
         <Button
-          label={uploading ? "Uploading…" : "Upload document"}
+          label={uploading ? t("common.uploading") : t("staffOrdersDetail.uploadDocument")}
           onPress={upload}
           loading={uploading}
           disabled={!photo || uploading}
@@ -572,7 +575,7 @@ function DocumentsSection({ orderId }: { orderId: string | null }) {
       <View style={{ height: theme.spacing.md }} />
       {(docs ?? []).length === 0 ? (
         <View style={styles.docEmpty}>
-          <Text style={styles.docEmptyText}>No documents yet.</Text>
+          <Text style={styles.docEmptyText}>{t("common.noDocumentsYet")}</Text>
         </View>
       ) : (
         <View style={{ gap: theme.spacing.sm }}>
@@ -627,7 +630,11 @@ function DocGroupRow({
       onPress={() => onOpen(first.id)}
       style={({ pressed }) => [styles.docRow, pressed && { opacity: 0.85 }]}
       accessibilityRole="button"
-      accessibilityLabel={`Open ${ORDER_DOC_LABELS[group.type]}${pageCount > 1 ? `, ${pageCount} pages` : ""}`}
+      accessibilityLabel={
+        pageCount > 1
+          ? t("staffOrdersDetail.openDocPages", { name: orderDocLabel(group.type), count: pageCount })
+          : t("staffOrdersDetail.openDoc", { name: orderDocLabel(group.type) })
+      }
     >
       {isImage && thumbUrl ? (
         <Image
@@ -644,13 +651,13 @@ function DocGroupRow({
       )}
       <View style={{ flex: 1 }}>
         <Text style={styles.docType}>
-          {ORDER_DOC_LABELS[group.type]}
-          {pageCount > 1 ? ` — ${pageCount} pages` : ""}
+          {orderDocLabel(group.type)}
+          {pageCount > 1 ? t("staffOrdersDetail.pages", { pageCount }) : ""}
         </Text>
         <Text style={styles.docMeta}>
           {formatDate(new Date(group.createdAt))}
         </Text>
-        <Text style={styles.docOpen}>Open · pinch to zoom · Share</Text>
+        <Text style={styles.docOpen}>{t("staffOrdersDetail.openPinchToZoomShare")}</Text>
       </View>
     </Pressable>
   );

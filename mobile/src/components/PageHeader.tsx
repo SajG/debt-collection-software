@@ -1,5 +1,7 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import { router } from "expo-router";
+import { useCallback } from "react";
+import { Pressable, StyleSheet, View } from "react-native";
+import { Text } from "./Text";
+import { goBackOr, useHardwareBack } from "@/lib/back";
 import { t } from "@/lib/i18n";
 import { theme } from "@/theme";
 
@@ -12,23 +14,28 @@ export function PageHeader({
   subtitle,
   right,
   onBack,
+  fallback = "/(staff)",
 }: {
   title: string;
   subtitle?: string;
   right?: React.ReactNode;
   onBack?: () => void;
+  /** Where Back goes when there is no history (deep link, cold start). */
+  fallback?: string;
 }) {
+  // Hardware back mirrors the on-screen arrow: one step, never out of
+  // the app from a sub-screen.
+  const intercept = useCallback(() => {
+    if (!onBack) return false;
+    onBack();
+    return true;
+  }, [onBack]);
+  useHardwareBack(fallback, intercept);
   return (
     <View style={styles.wrap}>
       <View style={styles.row}>
         <Pressable
-          onPress={
-            onBack ??
-            (() =>
-              router.canGoBack()
-                ? router.back()
-                : router.replace("/(staff)"))
-          }
+          onPress={onBack ?? (() => goBackOr(fallback))}
           hitSlop={12}
           style={styles.backBtn}
           accessibilityRole="button"

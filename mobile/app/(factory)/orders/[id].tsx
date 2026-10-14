@@ -8,9 +8,9 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
+import { Text } from "@/components/Text";
 import DateTimePicker, {
   DateTimePickerAndroid,
   type DateTimePickerEvent,
@@ -38,7 +38,6 @@ import {
   attachOrderDocument,
   groupDocsByPage,
   useOrderDocuments,
-  ORDER_DOC_LABELS,
   type OrderDocRow,
   type OrderDocType,
 } from "@/lib/order-doc-queries";
@@ -48,11 +47,14 @@ import { ORDER_DOC_BUCKET, getSignedUrl } from "@/lib/uploads";
 import { newId } from "@/lib/ids";
 import { supabase } from "@/lib/supabase";
 import { formatDate } from "@/lib/format";
-import { t } from "@/lib/i18n";
+import { t, tn } from "@/lib/i18n";
 import { successHaptic, warningHaptic, errorHaptic } from "@/lib/haptics";
 import { humaniseError } from "@/lib/errors";
 import type { OrderStatus } from "@/lib/database.types";
 import { theme } from "@/theme";
+import { orderDocLabel } from "@/lib/labels";
+import { holdReasonLabel, lineStatusLabel, statusLabel } from "@/lib/labels";
+import { toast } from "@/components/Toast";
 
 const FACTORY_UPLOADABLE_TYPES: OrderDocType[] = [
   "INVOICE",
@@ -70,19 +72,19 @@ const NEXT_STEP: Partial<Record<OrderStatus, OrderStatus>> = {
   LR_GENERATED: "DISPATCHED",
 };
 
-const STEP_LABEL: Record<OrderStatus, string> = {
-  PENDING_APPROVAL: "Awaiting approval",
-  ORDER_PLACED: "Order placed",
-  IN_PRODUCTION: "Start production",
-  ON_HOLD: "On hold",
-  READY_TO_DISPATCH: "Mark packed / ready",
-  LR_GENERATED: "LR generated",
-  PARTIALLY_DISPATCHED: "Partially dispatched",
-  DISPATCHED: "Mark dispatched",
-  DELIVERED: "Delivered",
-  REJECTED: "Rejected",
-  CANCELLED: "Cancelled",
-};
+// Button label for moving an order to `next`.
+function stepLabel(next: OrderStatus): string {
+  switch (next) {
+    case "IN_PRODUCTION":
+      return t("factoryStep.IN_PRODUCTION");
+    case "READY_TO_DISPATCH":
+      return t("factoryStep.READY_TO_DISPATCH");
+    case "DISPATCHED":
+      return t("factoryStep.DISPATCHED");
+    default:
+      return statusLabel(next);
+  }
+}
 
 export default function FactoryOrderDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -128,18 +130,18 @@ export default function FactoryOrderDetail() {
         if ("error" in res) {
           errorHaptic();
           const hum = humaniseError(res.error, { action: "advance-status" });
-          Alert.alert("Update failed", hum.message);
+          Alert.alert(t("factoryOrdersDetail.updateFailed"), hum.message);
           return;
         }
         if ("queued" in res) {
           warningHaptic();
           Alert.alert(
-            "Saved on your phone",
-            "Will apply automatically when you're back online.",
+            t("common.savedOnYourPhone"),
+            t("factoryOrdersDetail.willApplyAutomaticallyWhenYoure"),
           );
           return;
         }
-        successHaptic();
+        toast.success(t("factoryOrdersDetail.statusUpdated", { status: statusLabel(target) }));
         await refetch();
       } finally {
         setSubmitting(false);
@@ -154,7 +156,7 @@ export default function FactoryOrderDetail() {
     // tel: with no formatting so RN dialer honours the digits verbatim.
     const uri = `tel:${phone.replace(/\s+/g, "")}`;
     void Linking.openURL(uri).catch(() =>
-      Alert.alert("Could not open dialer", phone),
+      Alert.alert(t("common.couldNotOpenDialer"), phone),
     );
   }, [data?.salesperson?.phone]);
 
@@ -171,7 +173,7 @@ export default function FactoryOrderDetail() {
   if (error || !data) {
     return (
       <Screen back>
-        <Text style={styles.error}>Order not found.</Text>
+        <Text style={styles.error}>{t("common.orderNotFound")}</Text>
       </Screen>
     );
   }
@@ -194,19 +196,18 @@ export default function FactoryOrderDetail() {
 
         {data.currentStatus === "PENDING_APPROVAL" ? (
           <View style={styles.blockedBanner}>
-            <Text style={styles.blockedTitle}>Awaiting admin approval</Text>
+            <Text style={styles.blockedTitle}>{t("common.awaitingAdminApproval")}</Text>
             <Text style={styles.blockedBody}>
-              This order isn't on the shop floor yet. An admin needs to
-              approve it before production can start.
+              {t("factoryOrdersDetail.thisOrderIsntOnThe")}
             </Text>
           </View>
         ) : null}
         {data.currentStatus === "ON_HOLD" ? (
           <View style={styles.blockedBanner}>
-            <Text style={styles.blockedTitle}>On hold</Text>
+            <Text style={styles.blockedTitle}>{t("common.onHold")}</Text>
             {data.holdReasonCategory ? (
               <Text style={styles.blockedBody}>
-                {data.holdReasonCategory.replace(/_/g, " ")}
+                {holdReasonLabel(data.holdReasonCategory)}
                 {data.holdReason ? ` — ${data.holdReason}` : ""}
               </Text>
             ) : null}
@@ -233,7 +234,7 @@ export default function FactoryOrderDetail() {
             </InfoCard>
           ) : null}
           {data.notes ? (
-            <InfoCard label="Notes">
+            <InfoCard label={t("common.notes")}>
               <Text style={styles.value}>{data.notes}</Text>
             </InfoCard>
           ) : null}
@@ -242,10 +243,7 @@ export default function FactoryOrderDetail() {
         {pendingForThisOrder > 0 && (
           <View style={styles.pendingBanner}>
             <Text style={styles.pendingBannerText}>
-              {pendingForThisOrder} status change
-              {pendingForThisOrder === 1 ? "" : "s"} waiting to sync for
-              this order. Will apply automatically when the phone is
-              back online.
+              {tn("factoryOrdersDetail.pendingChanges", pendingForThisOrder)}
             </Text>
           </View>
         )}
@@ -264,14 +262,15 @@ export default function FactoryOrderDetail() {
         <View style={styles.actions}>
           {next && data.currentStatus !== "CANCELLED" ? (
             <Button
-              label={STEP_LABEL[next]}
+              label={stepLabel(next)}
               loading={submitting}
               disabled={submitting}
               onPress={() =>
                 confirm({
-                  title: STEP_LABEL[next],
-                  body: `Move ${data.orderNumber} to ${next.replace(/_/g, " ")}?`,
-                  confirmLabel: "Confirm",
+                  title: stepLabel(next),
+                  body: t("factoryOrdersDetail.moveTo", { orderNumber: data.orderNumber, status: statusLabel(next) }),
+                  confirmLabel: t("common.confirm"),
+                  // i18n-ignore: note stored on the order timeline
                   onConfirm: () => void advance(next, `Factory → ${next}`),
                 })
               }
@@ -284,15 +283,16 @@ export default function FactoryOrderDetail() {
             data.currentStatus !== "DELIVERED" && (
               <Button
                 variant="secondary"
-                label="Cancel order"
+                label={t("common.cancelOrder")}
                 disabled={submitting}
                 onPress={() =>
                   confirm({
-                    title: "Cancel order?",
-                    body: `Mark ${data.orderNumber} as cancelled. This can't be undone from mobile.`,
-                    confirmLabel: "Cancel order",
+                    title: t("factoryOrdersDetail.cancelOrder"),
+                    body: t("factoryOrdersDetail.markAsCancelledThisCant", { orderNumber: data.orderNumber }),
+                    confirmLabel: t("common.cancelOrder"),
                     destructive: true,
                     onConfirm: () =>
+                      // i18n-ignore: note stored on the order timeline
                       void advance("CANCELLED", "Cancelled from factory"),
                   })
                 }
@@ -322,7 +322,7 @@ function SalespersonLine({
 }) {
   return (
     <View style={styles.byRow}>
-      <Text style={styles.by}>Placed by {name ?? "Unknown user"}</Text>
+      <Text style={styles.by}>{t("common.placedBy", { name: name ?? t("common.unknownUser") })}</Text>
       {phone ? (
         <Pressable
           onPress={onCall}
@@ -332,9 +332,9 @@ function SalespersonLine({
             pressed && { opacity: 0.75 },
           ]}
           accessibilityRole="button"
-          accessibilityLabel={`Call ${name ?? "salesperson"}`}
+          accessibilityLabel={t("detail.callSalesperson", { name: name ?? t("common.salesperson") })}
         >
-          <Text style={styles.callPillText}>☎ Call</Text>
+          <Text style={styles.callPillText}>{t("common.call")}</Text>
         </Pressable>
       ) : null}
     </View>
@@ -395,9 +395,10 @@ function LineItemRow({
     try {
       const res = await setLineProductionStatus(item.id, nextStatus);
       if ("error" in res) {
-        Alert.alert("Could not update", res.error);
+        Alert.alert(t("common.couldNotUpdate"), res.error);
         return;
       }
+      toast.success(t("common.saved"));
       await onChanged();
     } finally {
       setBusy(false);
@@ -406,10 +407,10 @@ function LineItemRow({
 
   const label =
     nextStatus === "IN_PRODUCTION"
-      ? "Start"
+      ? t("factoryOrdersDetail.lineStart")
       : nextStatus === "READY"
-        ? "Mark ready"
-        : "Done";
+        ? t("factoryOrdersDetail.lineMarkReady")
+        : t("factoryOrdersDetail.lineDone");
 
   return (
     <View style={styles.lineRow}>
@@ -417,7 +418,7 @@ function LineItemRow({
         <View style={{ flex: 1 }}>
           <Text style={styles.lineNumber}>
             LINE {item.lineNumber}
-            {item.needsRateApproval ? "  ·  RATE PENDING" : ""}
+            {item.needsRateApproval ? t("factoryOrdersDetail.ratePending") : ""}
           </Text>
           <Text style={styles.lineName}>
             {item.product?.name ?? "—"}
@@ -440,7 +441,7 @@ function LineItemRow({
           pressed && { opacity: 0.85 },
         ]}
         accessibilityRole="button"
-        accessibilityLabel={`Line ${item.lineNumber}: ${label}`}
+        accessibilityLabel={t("factoryOrdersDetail.line", { lineNumber: item.lineNumber, label })}
       >
         <Text
           style={[
@@ -448,7 +449,7 @@ function LineItemRow({
             nextStatus === null && styles.lineBtnTextDisabled,
           ]}
         >
-          {nextStatus === null ? "✓ Ready" : label}
+          {nextStatus === null ? t("factoryOrdersDetail.ready") : label}
         </Text>
       </Pressable>
     </View>
@@ -463,11 +464,7 @@ function LineStatusPill({ status }: { status: LineProductionStatus }) {
         ? styles.pillInProd
         : styles.pillPending;
   const label =
-    status === "READY"
-      ? "READY"
-      : status === "IN_PRODUCTION"
-        ? "IN PROD"
-        : "PENDING";
+lineStatusLabel(status);
   return (
     <View style={[styles.pill, style]}>
       <Text style={styles.pillText}>{label}</Text>
@@ -499,10 +496,11 @@ function ExpectedProductionCard({
     try {
       const res = await setExpectedProductionDate(orderId, iso);
       if ("error" in res) {
-        Alert.alert("Could not save", res.error);
+        Alert.alert(t("common.couldNotSave"), res.error);
         return;
       }
       setValue(iso);
+      toast.success(t("common.saved"));
       await onChanged();
     } finally {
       setSaving(false);
@@ -532,8 +530,10 @@ function ExpectedProductionCard({
     <View style={styles.card}>
       <Text style={styles.cardLabel}>{t("detail.expectedProduction")}</Text>
       <View style={styles.prodDateRow}>
-        <Text style={styles.value}>{value ? formatDate(value) : "Not set"}</Text>
+        <Text style={styles.value}>{value ? formatDate(value) : t("factoryOrdersDetail.notSet")}</Text>
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={saving ? t("common.saving") : value ? t("common.change") : t("factoryOrdersDetail.set")}
           onPress={open}
           disabled={saving}
           hitSlop={8}
@@ -543,7 +543,7 @@ function ExpectedProductionCard({
           ]}
         >
           <Text style={styles.prodDateBtnText}>
-            {saving ? "Saving…" : value ? "Change" : "Set"}
+            {saving ? t("common.saving") : value ? t("common.change") : t("factoryOrdersDetail.set")}
           </Text>
         </Pressable>
       </View>
@@ -601,8 +601,8 @@ function DocumentsSection({ orderId }: { orderId: string | null }) {
     [queued, orderId],
   );
 
-  function startCapture(t: OrderDocType) {
-    setType(t);
+  function startCapture(docType: OrderDocType) {
+    setType(docType);
     setPageGroupId(newId("pg"));
     setPages([]);
     setPending(null);
@@ -678,12 +678,12 @@ function DocumentsSection({ orderId }: { orderId: string | null }) {
       setPending(null);
       setPageGroupId(null);
       setType(null);
-      if (queuedCount === 0) successHaptic();
+      if (queuedCount === 0) toast.success(tn("uploads.pagesUploaded", uploaded));
       else warningHaptic();
       setUploadNote(
         queuedCount === 0
-          ? `${uploaded} page${uploaded === 1 ? "" : "s"} uploaded.`
-          : `${uploaded} uploaded · ${queuedCount} saved on your phone — will sync when you're back online.`,
+          ? tn("uploads.pagesUploaded", uploaded)
+          : t("uploads.someQueued", { uploaded, queued: queuedCount }),
       );
       await refetch();
     } finally {
@@ -693,19 +693,18 @@ function DocumentsSection({ orderId }: { orderId: string | null }) {
 
   return (
     <View>
-      <Text style={sectionStyles.heading}>Documents</Text>
+      <Text style={sectionStyles.heading}>{t("common.documents")}</Text>
       <Text style={sectionStyles.hint}>
-        Choose a document type first, then photograph every page. Multi-page
-        docs (a 3-page LR) upload as one document.
+        {t("factoryOrdersDetail.chooseADocumentTypeFirst")}
       </Text>
 
       <View style={sectionStyles.card}>
         {type === null ? (
           <>
-            <Text style={sectionStyles.fieldLabel}>What are you uploading?</Text>
+            <Text style={sectionStyles.fieldLabel}>{t("factoryOrdersDetail.whatAreYouUploading")}</Text>
             <PickList<OrderDocType>
               options={FACTORY_UPLOADABLE_TYPES.map((v) => ({
-                label: ORDER_DOC_LABELS[v],
+                label: orderDocLabel(v),
                 value: v,
               }))}
               value={null}
@@ -717,15 +716,17 @@ function DocumentsSection({ orderId }: { orderId: string | null }) {
             <View style={sectionStyles.chipRow}>
               <View style={sectionStyles.typeChip}>
                 <Text style={sectionStyles.typeChipText}>
-                  {ORDER_DOC_LABELS[type]}
+                  {orderDocLabel(type)}
                 </Text>
               </View>
               <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t("factoryOrdersDetail.changeType")}
                 onPress={cancelSession}
                 hitSlop={8}
                 style={sectionStyles.linkBtn}
               >
-                <Text style={sectionStyles.linkBtnText}>Change type</Text>
+                <Text style={sectionStyles.linkBtnText}>{t("factoryOrdersDetail.changeType")}</Text>
               </Pressable>
             </View>
 
@@ -738,7 +739,7 @@ function DocumentsSection({ orderId }: { orderId: string | null }) {
                       style={sectionStyles.pageThumb}
                     />
                     <Text style={sectionStyles.pageThumbLabel}>
-                      Page {i + 1}
+                      {t("common.pageN", { n: i + 1 })}
                     </Text>
                   </View>
                 ))}
@@ -751,8 +752,8 @@ function DocumentsSection({ orderId }: { orderId: string | null }) {
               <Button
                 label={
                   pending
-                    ? `Add page ${pages.length + 1}`
-                    : `Add page ${pages.length + 1} (take photo above)`
+                    ? t("factoryOrdersDetail.addPage", { n: pages.length + 1 })
+                    : t("factoryOrdersDetail.addPageTakePhotoAbove", { n: pages.length + 1 })
                 }
                 variant="secondary"
                 disabled={!pending}
@@ -761,8 +762,8 @@ function DocumentsSection({ orderId }: { orderId: string | null }) {
               <Button
                 label={
                   uploading
-                    ? "Uploading…"
-                    : `Upload ${pages.length + (pending ? 1 : 0)} page${pages.length + (pending ? 1 : 0) === 1 ? "" : "s"}`
+                    ? t("common.uploading")
+                    : tn("factoryOrdersDetail.uploadPages", pages.length + (pending ? 1 : 0))
                 }
                 loading={uploading}
                 disabled={
@@ -781,19 +782,17 @@ function DocumentsSection({ orderId }: { orderId: string | null }) {
       {queuedForThisOrder.length > 0 && (
         <View style={sectionStyles.queuedWrap}>
           <Text style={sectionStyles.queuedTitle}>
-            {queuedForThisOrder.length} waiting to upload
+            {t("factoryOrdersDetail.waitingToUpload", { count: queuedForThisOrder.length })}
           </Text>
           {queuedForThisOrder.map((q) => (
             <View key={q.localId} style={sectionStyles.queuedRow}>
               <Text style={sectionStyles.queuedType}>
-                {ORDER_DOC_LABELS[q.type]}
-                {q.pageIndex ? ` — page ${q.pageIndex}` : ""}
+                {orderDocLabel(q.type)}
+                {q.pageIndex ? t("factoryOrdersDetail.page", { pageIndex: q.pageIndex }) : ""}
               </Text>
               <Text style={sectionStyles.queuedMeta}>
-                Queued {formatDate(new Date(q.queuedAt))}
-                {q.attempts > 0
-                  ? ` · ${q.attempts} attempt${q.attempts === 1 ? "" : "s"}`
-                  : ""}
+                {t("common.queuedOn", { date: formatDate(new Date(q.queuedAt)) })}
+                {q.attempts > 0 ? ` · ${tn("common.attempts", q.attempts)}` : ""}
               </Text>
               {q.lastError ? (
                 <Text style={sectionStyles.queuedError}>{q.lastError}</Text>
@@ -806,7 +805,7 @@ function DocumentsSection({ orderId }: { orderId: string | null }) {
       <View style={{ height: theme.spacing.md }} />
       {(docs ?? []).length === 0 ? (
         <View style={sectionStyles.empty}>
-          <Text style={sectionStyles.emptyText}>No documents yet.</Text>
+          <Text style={sectionStyles.emptyText}>{t("common.noDocumentsYet")}</Text>
         </View>
       ) : (
         <View style={{ gap: theme.spacing.sm }}>
@@ -857,7 +856,7 @@ function DocumentGroupView({
     try {
       await Linking.openURL(url);
     } catch {
-      Alert.alert("Could not open", "Try again later.");
+      Alert.alert(t("common.couldNotOpen"), t("factoryOrdersDetail.tryAgainLater"));
     }
   }
 
@@ -878,8 +877,8 @@ function DocumentGroupView({
       )}
       <View style={{ flex: 1 }}>
         <Text style={sectionStyles.docType}>
-          {ORDER_DOC_LABELS[group.type]}
-          {pageCount > 1 ? ` — ${pageCount} pages` : ""}
+          {orderDocLabel(group.type)}
+          {pageCount > 1 ? t("factoryOrdersDetail.pages", { pageCount }) : ""}
         </Text>
         <Text style={sectionStyles.docMeta}>
           {formatDate(new Date(group.createdAt))}
@@ -887,13 +886,15 @@ function DocumentGroupView({
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 6 }}>
           {group.pages.map((p, i) => (
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={pageCount > 1 ? t("factoryOrdersDetail.page2", { n: p.pageIndex ?? i + 1 }) : t("factoryOrdersDetail.open")}
               key={p.id}
               onPress={() => open(p.id)}
               hitSlop={8}
               style={sectionStyles.pageLinkBtn}
             >
               <Text style={sectionStyles.pageLinkText}>
-                {pageCount > 1 ? `Page ${p.pageIndex ?? i + 1} →` : "Open →"}
+                {pageCount > 1 ? t("factoryOrdersDetail.page2", { n: p.pageIndex ?? i + 1 }) : t("factoryOrdersDetail.open")}
               </Text>
             </Pressable>
           ))}
@@ -962,7 +963,7 @@ const sectionStyles = StyleSheet.create({
     backgroundColor: theme.colors.surface,
   },
   pageThumbLabel: {
-    fontSize: 11,
+    fontSize: 13,
     color: theme.colors.textMuted,
     marginTop: 2,
   },
@@ -1182,7 +1183,7 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
   },
   sectionHeading: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "700",
     color: theme.colors.textMuted,
     textTransform: "uppercase",
@@ -1203,7 +1204,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   lineNumber: {
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: "700",
     letterSpacing: 0.5,
     color: theme.colors.textMuted,
@@ -1227,7 +1228,7 @@ const styles = StyleSheet.create({
   pillPending: { backgroundColor: theme.colors.border },
   pillInProd: { backgroundColor: "#FFF3B0" },
   pillReady: { backgroundColor: "#B7ECC7" },
-  pillText: { fontSize: 11, fontWeight: "800", letterSpacing: 0.5 },
+  pillText: { fontSize: 13, fontWeight: "800", letterSpacing: 0.5 },
   lineBtn: {
     minHeight: theme.tap,
     borderRadius: theme.radius,
