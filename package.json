@@ -39,8 +39,8 @@
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
     "lucide-react": "^0.454.0",
-    "next": "14.2.18",
-    "next-mdx-remote": "^5.0.0",
+    "next": "^14.2.35",
+    "next-mdx-remote": "^6.0.0",
     "papaparse": "^5.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -60,13 +60,13 @@
     "@types/react-dom": "^18",
     "autoprefixer": "^10.4.20",
     "eslint": "^8.57.1",
-    "eslint-config-next": "^14.2.18",
+    "eslint-config-next": "^14.2.35",
     "postcss": "^8.4.49",
     "prisma": "^5.22.0",
-    "sharp": "^0.35.4",
+    "sharp": "^0.35.5",
     "tailwindcss": "^3.4.15",
     "ts-node": "^10.9.2",
     "typescript": "^5.6.3",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.11"
   }
 }
