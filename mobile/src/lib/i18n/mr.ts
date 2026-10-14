@@ -809,6 +809,7 @@ export const mr: Record<Key, string> = {
 
   // ── authCode ──
   "authCode.genericError": "हा कोड चालला नाही. ईमेलच्या स्क्रीनवरून नवा कोड मागा.",
+  "authCode.networkError": "कोड तपासण्यासाठी Syncit शी जोडता आले नाही. इंटरनेट तपासा आणि पुन्हा Verify दाबा — तुमचा कोड अजून वैध आहे.",
 
   // ── factoryHome ──
   "factoryHome.lastOrderArrived": "शेवटचा ऑर्डर {when} आला",

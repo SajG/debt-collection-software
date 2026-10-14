@@ -808,6 +808,7 @@ export const en = {
 
   // ── authCode ──
   "authCode.genericError": "That code didn't work. Ask for a fresh code from the email screen.",
+  "authCode.networkError": "Couldn't reach Syncit to check the code. Check your internet and tap Verify again — your code is still valid.",
 
   // ── factoryHome ──
   "factoryHome.lastOrderArrived": "Last order arrived {when}",

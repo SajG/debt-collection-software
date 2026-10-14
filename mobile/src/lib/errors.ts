@@ -71,6 +71,20 @@ const NETWORK_HINTS = [
   "socket",
 ];
 
+/** True when the request never got a usable answer from the server —
+ *  offline, DNS, or iOS dropping an idle connection while the app was in
+ *  the background (the first call after returning fails with "Network
+ *  request failed"). supabase-js reports these as
+ *  AuthRetryableFetchError with status 0. */
+export function isNetworkError(err: unknown): boolean {
+  if (!err) return false;
+  const e = err as { name?: string; status?: number; message?: string };
+  if (e.name === "AuthRetryableFetchError" && (e.status === 0 || e.status === undefined)) return true;
+  const raw = e.message ?? (typeof err === "string" ? err : "");
+  const low = raw.toLowerCase();
+  return NETWORK_HINTS.some((h) => low.includes(h));
+}
+
 const AUTH_HINTS = [
   "jwt expired",
   "not authenticated",

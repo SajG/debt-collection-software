@@ -13,6 +13,7 @@ import { Screen } from "@/components/Screen";
 import { TextField } from "@/components/TextField";
 import { Button } from "@/components/Button";
 import { supabase } from "@/lib/supabase";
+import { isNetworkError } from "@/lib/errors";
 import { setDeviceId } from "@/auth/device-lock";
 import { requestEmailCode } from "@/lib/request-code";
 import {
@@ -106,11 +107,15 @@ export default function CodeScreen() {
           return;
         }
       } else {
-        const { error: verifyErr } = await supabase.auth.verifyOtp({
-          email: identifier,
-          token: code,
-          type: "email",
-        });
+        const verifyErr = await verifyEmailCode(identifier, code);
+        if (verifyErr && isNetworkError(verifyErr)) {
+          // The code was never checked — don't tell the user it's wrong
+          // (they'd ask for a new one and hit the send limit).
+          setError(
+            __DEV__ ? t("authCode.dev", { error: t("authCode.networkError"), message: verifyErr.message }) : t("authCode.networkError"),
+          );
+          return;
+        }
         if (verifyErr) {
           // Store reviewers (Google Play / App Store) sign in to the
           // demo company with a fixed code that only the server knows
@@ -171,10 +176,11 @@ export default function CodeScreen() {
       await setDeviceId(reg[0].device_id);
       router.replace("/set-up-lock");
     } catch (e) {
+      const base = isNetworkError(e) ? t("authCode.networkError") : genericError();
       setError(
         __DEV__ && e instanceof Error
-          ? t("authCode.dev", { error: genericError(), message: e.message })
-          : genericError(),
+          ? t("authCode.dev", { error: base, message: e.message })
+          : base,
       );
     } finally {
       setVerifying(false);
@@ -277,3 +283,18 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 });
+
+// iOS drops idle connections while the user is in Mail copying the code,
+// and the first request after coming back fails before reaching the
+// server. Try again (twice, briefly spaced) before giving up; a real
+// "wrong / expired code" answer is returned straight away.
+async function verifyEmailCode(email: string, token: string) {
+  let last: Awaited<ReturnType<typeof supabase.auth.verifyOtp>>["error"] = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 700 * attempt));
+    const { error } = await supabase.auth.verifyOtp({ email, token, type: "email" });
+    if (!error || !isNetworkError(error)) return error;
+    last = error;
+  }
+  return last;
+}
