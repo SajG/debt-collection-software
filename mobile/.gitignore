@@ -14,6 +14,24 @@ ios/
 *.p12
 *.key
 *.mobileprovision
+*.keystore
+*.pem
+
+# Store / cloud credentials. Any JSON key file dropped in mobile/ is
+# ignored; the JSON files the build needs are re-included below.
+play-service-account.json
+google-services.json
+GoogleService-Info.plist
+*service-account*.json
+*-key.json
+*.key.json
+credentials.json
+/*.json
+!/app.json
+!/eas.json
+!/package.json
+!/package-lock.json
+!/tsconfig.json
 
 # Env
 .env
