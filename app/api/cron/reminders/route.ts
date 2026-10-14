@@ -2,10 +2,13 @@ import { NextResponse, type NextRequest } from "next/server";
 import { tenantDb } from "@/lib/tenant";
 import { refreshOverdueStatuses } from "@/lib/ar/balance";
 import { refreshRiskLevels } from "@/lib/ar/refresh";
-import { sendReminder } from "@/lib/messaging/send";
+import type { MessageChannel } from "@prisma/client";
+import { configuredChannels, partyReachableOn, sendReminder } from "@/lib/messaging/send";
+import { planReminders, UPCOMING_DAYS, type ReminderKind } from "@/lib/messaging/reminder-plan";
 import { captureError } from "@/lib/monitoring";
 import { verifyBearer } from "@/lib/auth/verify-bearer";
 import { forEachActiveOrg } from "@/lib/platform/orgs";
+import { withCronRun } from "@/lib/platform/cron-run";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -13,10 +16,19 @@ export const maxDuration = 300;
 // Daily maintenance + automated reminder pass. Triggered by Vercel Cron (or
 // any scheduler) with `Authorization: Bearer $CRON_SECRET`.
 //
+// Runs once per ACTIVE company (forEachActiveOrg); every read and send is
+// scoped to that company through tenantDb. A company gets automated
+// reminders only when it switched them on (autoRemindersEnabled) AND has
+// at least one channel set up; each customer needs recorded consent.
+//
+// What is sent (lib/messaging/reminder-plan.ts), one message per customer
+// per day: an overdue reminder, else a "due today" note, else a "due in
+// 3 days" note.
+//
 // Sequencing per party: WhatsApp first; SMS then email only as fallbacks
 // when the previous channel FAILED (provider/config error). A gate BLOCK is
 // final for the party — the gate rules the party, not the channel.
-export async function GET(request: NextRequest) {
+async function handle(request: NextRequest) {
   if (!verifyBearer(request.headers.get("authorization"), process.env.CRON_SECRET)) {
     return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   }
@@ -40,6 +52,11 @@ type OrgSummary = {
   remindersSent: number;
   remindersBlocked: number;
   remindersFailed: number;
+  /** Planned, but the customer has no phone/email for any set-up channel. */
+  remindersSkippedNoContact: number;
+  byKind: Record<ReminderKind, number>;
+  /** Channels this company has set up; empty = nothing was attempted. */
+  channels: MessageChannel[];
   autoRemindersEnabled: boolean;
 };
 
@@ -65,40 +82,83 @@ async function runForOrg(orgId: string, orgSlug: string): Promise<OrgSummary> {
     remindersSent: 0,
     remindersBlocked: 0,
     remindersFailed: 0,
+    remindersSkippedNoContact: 0,
+    byKind: { overdue: 0, due_today: 0, upcoming: 0 },
+    channels: [],
     autoRemindersEnabled: settings?.autoRemindersEnabled ?? false,
   };
   if (!settings?.autoRemindersEnabled) return summary;
 
-  const parties = await db.party.findMany({
+  // Only on channels this company has actually set up. A company with
+  // no WhatsApp number, and a deployment with no SMS/email transport,
+  // sends nothing at all.
+  const channels = await configuredChannels(orgId);
+  summary.channels = channels;
+  if (channels.length === 0) return summary;
+
+  // Open invoices that are overdue, due today, or due in 3 days — for
+  // customers who have opted in and are not paused. (The gate re-checks
+  // consent and pause on every send; this only avoids pointless work.)
+  const now = new Date();
+  const horizon = new Date(now.getTime() + (UPCOMING_DAYS + 1) * 24 * 60 * 60 * 1000);
+  const invoices = await db.invoice.findMany({
     where: {
       organizationId: orgId,
-      isActive: true,
-      consentStatus: "OPTED_IN",
-      outreachPaused: false,
-      totalOutstanding: { gt: 0 },
-      invoices: { some: { status: "OVERDUE" } },
+      status: { in: ["UNPAID", "PARTIAL", "OVERDUE"] },
+      dueDate: { lte: horizon },
+      party: {
+        isActive: true,
+        consentStatus: "OPTED_IN",
+        outreachPaused: false,
+        totalOutstanding: { gt: 0 },
+      },
     },
-    take: 500,
+    select: {
+      id: true,
+      partyId: true,
+      dueDate: true,
+      totalAmount: true,
+      paidAmount: true,
+      creditedAmount: true,
+      party: { select: { phone: true, email: true } },
+    },
+    orderBy: { dueDate: "asc" },
+    take: 5000,
   });
+  const contact = new Map(invoices.map((i) => [i.partyId, i.party]));
 
-  for (const party of parties) {
-    const oldestOverdue = await db.invoice.findFirst({
-      where: { partyId: party.id, status: "OVERDUE" },
-      orderBy: { dueDate: "asc" },
-      select: { id: true },
-    });
+  const plan = planReminders(
+    invoices.map((i) => ({
+      id: i.id,
+      partyId: i.partyId,
+      dueDate: i.dueDate,
+      pending: Number(i.totalAmount.minus(i.paidAmount).minus(i.creditedAmount)),
+    })),
+    now,
+    settings.timezone,
+  ).slice(0, 500);
+
+  for (const item of plan) {
+    const party = contact.get(item.partyId)!;
+    const usable = channels.filter((c) => partyReachableOn(c, party));
+    if (usable.length === 0) {
+      summary.remindersSkippedNoContact++;
+      continue;
+    }
 
     let done = false;
-    for (const channel of ["WHATSAPP", "SMS", "EMAIL"] as const) {
+    for (const channel of usable) {
       const result = await sendReminder({
         organizationId: orgId,
-        partyId: party.id,
+        partyId: item.partyId,
         channel,
-        invoiceId: oldestOverdue?.id ?? null,
+        invoiceId: item.invoiceId,
         sentById: null,
+        kind: item.kind,
       });
       if (result.status === "sent") {
         summary.remindersSent++;
+        summary.byKind[item.kind]++;
         done = true;
         break;
       }
@@ -124,3 +184,6 @@ async function runCronPass() {
     perOrg: ok.map((r) => r.result),
   });
 }
+
+// SY40 — records a CronRun row (duration, companies, failures).
+export const GET = withCronRun("reminders", handle);

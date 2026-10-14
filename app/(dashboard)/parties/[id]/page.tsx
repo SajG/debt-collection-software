@@ -18,6 +18,7 @@ import { formatDateTime } from "@/lib/format";
 import { scoreAndPersistParty } from "@/lib/ar/refresh";
 import { ComplianceControls } from "./compliance-controls";
 import { SendReminder } from "./send-reminder";
+import { StatementLinkButton } from "./statement-link";
 
 export default async function PartyDetailPage({
   params,
@@ -70,10 +71,18 @@ export default async function PartyDetailPage({
           .filter(Boolean)
           .join(" · ")}
         action={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <LinkButton href={`/parties/${party.id}/edit`} variant="secondary">
               Edit
             </LinkButton>
+            {profile.role !== "FACTORY" ? (
+              <>
+                <LinkButton href={`/api/parties/${party.id}/statement`} variant="secondary">
+                  Statement (PDF)
+                </LinkButton>
+                <StatementLinkButton partyId={party.id} />
+              </>
+            ) : null}
             <LinkButton href={`/invoices/new?partyId=${party.id}`} variant="secondary">
               Add invoice
             </LinkButton>

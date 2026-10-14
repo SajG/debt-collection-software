@@ -3,6 +3,8 @@ import { requireAdmin } from "@/lib/authz";
 import { getLogoSignedUrl } from "@/lib/storage";
 import { PageHeader, LinkButton, Card } from "../_components/ui";
 import { SettingsForm, type SettingsFormValues } from "./settings-form";
+import { ReferralLink } from "./referral-card";
+import { referralSummary } from "@/lib/platform/referrals";
 
 const EXPORT_ENTITIES = [
   "parties",
@@ -38,10 +40,15 @@ export default async function SettingsPage() {
     orderApprovalMode: settings?.orderApprovalMode ?? "EXCEPTIONS_ONLY",
     requireApprovalForAllOrders:
       settings?.requireApprovalForAllOrders ?? true,
+    requireAppLock: settings?.requireAppLock ?? false,
     whatsappPhoneNumberId: settings?.whatsappPhoneNumberId ?? "",
     whatsappBusinessAccountId: settings?.whatsappBusinessAccountId ?? "",
     whatsappTemplateName: settings?.whatsappTemplateName ?? "",
     whatsappApiToken: "", // write-only; the stored token never reaches the client
+    // write-only; stored Razorpay keys never reach the client
+    razorpayKeyId: "",
+    razorpayKeySecret: "",
+    razorpayWebhookSecret: "",
     bankAccountName: settings?.bankAccountName ?? "",
     bankAccountNumber: "", // write-only; the stored number never reaches the client
     bankIfscCode: settings?.bankIfscCode ?? "",
@@ -54,6 +61,11 @@ export default async function SettingsPage() {
   const logoUrl = settings?.companyLogoPath
     ? await getLogoSignedUrl(settings.companyLogoPath)
     : null;
+
+  // SY38 — "Invite another business". Owner only: the reward is a
+  // month off this company's own bill.
+  const referral = profile.isOwner ? await referralSummary(organizationId) : null;
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://getsyncit.app").replace(/\/+$/, "");
 
   return (
     <div className="p-4 sm:p-8">
@@ -106,10 +118,33 @@ export default async function SettingsPage() {
           </Card>
         </div>
       )}
+      {referral && (
+        <div className="mb-6">
+          <Card title="Invite another business">
+            <p className="mb-3 text-sm text-muted-foreground">
+              Know a manufacturer or distributor who would use Syncit? Send
+              them this link. When they pay for their first month, you both
+              get one month free.
+            </p>
+            <ReferralLink url={`${appUrl}/r/${referral.code}`} />
+            <p className="mt-3 text-sm text-muted-foreground">
+              Code <span className="font-mono text-foreground">{referral.code}</span>
+              {" · "}
+              {referral.signedUp} signed up
+              {" · "}
+              {referral.rewarded} free {referral.rewarded === 1 ? "month" : "months"} earned
+              {referral.pendingManual > 0
+                ? ` (${referral.pendingManual} being applied by our team)`
+                : ""}
+            </p>
+          </Card>
+        </div>
+      )}
       <SettingsForm
         initial={initial}
         tokenConfigured={Boolean(settings?.whatsappApiToken)}
         bankAccountConfigured={Boolean(settings?.bankAccountNumber)}
+        razorpayConfigured={Boolean(settings?.razorpayKeyId && settings?.razorpayKeySecret)}
         logoUrl={logoUrl}
       />
     </div>

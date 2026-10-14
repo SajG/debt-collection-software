@@ -19,10 +19,14 @@ export type SettingsFormValues = {
   autoRemindersEnabled: boolean;
   orderApprovalMode: "NONE" | "EXCEPTIONS_ONLY" | "ALL";
   requireApprovalForAllOrders: boolean;
+  requireAppLock: boolean;
   whatsappPhoneNumberId: string;
   whatsappBusinessAccountId: string;
   whatsappTemplateName: string;
   whatsappApiToken: string;
+  razorpayKeyId: string;
+  razorpayKeySecret: string;
+  razorpayWebhookSecret: string;
   bankAccountName: string;
   bankAccountNumber: string;
   bankIfscCode: string;
@@ -65,11 +69,14 @@ export function SettingsForm({
   initial,
   tokenConfigured,
   bankAccountConfigured,
+  razorpayConfigured,
   logoUrl,
 }: {
   initial: SettingsFormValues;
   tokenConfigured: boolean;
   bankAccountConfigured: boolean;
+  /** Both Razorpay keys are stored (the values never reach the browser). */
+  razorpayConfigured: boolean;
   /** Short-lived signed URL for the settings preview; null when no logo. */
   logoUrl: string | null;
 }) {
@@ -95,7 +102,14 @@ export function SettingsForm({
       if ("error" in result) setError(result.error);
       else {
         setSaved(true);
-        setValues((prev) => ({ ...prev, whatsappApiToken: "", bankAccountNumber: "" }));
+        setValues((prev) => ({
+          ...prev,
+          whatsappApiToken: "",
+          bankAccountNumber: "",
+          razorpayKeyId: "",
+          razorpayKeySecret: "",
+          razorpayWebhookSecret: "",
+        }));
       }
     });
   }
@@ -395,6 +409,30 @@ export function SettingsForm({
       </Section>
 
       <Section
+        title="Mobile app lock"
+        hint="By default the phone app offers a fingerprint or PIN lock after sign-in and people may skip it."
+      >
+        <label className="flex items-start gap-2 text-sm text-foreground">
+          <input
+            type="checkbox"
+            checked={values.requireAppLock}
+            onChange={(e) => set("requireAppLock", e.target.checked)}
+            className="mt-1 accent-primary"
+          />
+          <span>
+            <span className="font-semibold">
+              Require app lock on every phone
+            </span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              Everyone must set a fingerprint or 6-digit PIN before using
+              the app, and cannot turn it off. Phones already signed in are
+              asked the next time the app opens.
+            </span>
+          </span>
+        </label>
+      </Section>
+
+      <Section
         title="WhatsApp Business API"
         hint="Use a pre-approved UTILITY-category template. The API token is stored encrypted and never shown again."
       >
@@ -434,6 +472,51 @@ export function SettingsForm({
                 tokenConfigured ? "Configured — enter to replace" : "Paste token"
               }
               autoComplete="off"
+            />
+          </Field>
+        </div>
+      </Section>
+
+      <Section
+        title="Online payments (Razorpay)"
+        hint="Your own Razorpay account. With both keys saved, reminders and statements of account carry a Pay now link (UPI, cards, net banking) and the money settles to you. Keys are stored encrypted and never shown again."
+      >
+        <p className="mb-3 text-sm text-muted-foreground">
+          {razorpayConfigured
+            ? "Pay now links are on."
+            : "Pay now links are off until both keys are saved."}
+        </p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field label="Key ID">
+            <input
+              className={inputCls}
+              value={values.razorpayKeyId}
+              onChange={(e) => set("razorpayKeyId", e.target.value)}
+              placeholder={razorpayConfigured ? "Configured — enter to replace" : "rzp_live_…"}
+              autoComplete="off"
+              maxLength={128}
+            />
+          </Field>
+          <Field label="Key secret">
+            <input
+              className={inputCls}
+              type="password"
+              value={values.razorpayKeySecret}
+              onChange={(e) => set("razorpayKeySecret", e.target.value)}
+              placeholder={razorpayConfigured ? "Configured — enter to replace" : "Paste secret"}
+              autoComplete="off"
+              maxLength={256}
+            />
+          </Field>
+          <Field label="Webhook secret">
+            <input
+              className={inputCls}
+              type="password"
+              value={values.razorpayWebhookSecret}
+              onChange={(e) => set("razorpayWebhookSecret", e.target.value)}
+              placeholder="Marks links as paid — set the same value in Razorpay"
+              autoComplete="off"
+              maxLength={256}
             />
           </Field>
         </div>

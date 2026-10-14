@@ -23,6 +23,18 @@
     {
       "path": "/api/cron/company-deletion",
       "schedule": "30 4 * * *"
+    },
+    {
+      "path": "/api/cron/daily-followups",
+      "schedule": "30 3 * * 1-6"
+    },
+    {
+      "path": "/api/cron/weekly-summary",
+      "schedule": "30 3 * * 1"
+    },
+    {
+      "path": "/api/cron/lifecycle",
+      "schedule": "15 4 * * *"
     }
   ]
 }

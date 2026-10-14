@@ -3,6 +3,7 @@ import { tenantDb } from "@/lib/tenant";
 import { captureError } from "@/lib/monitoring";
 import { verifyBearer } from "@/lib/auth/verify-bearer";
 import { forEachActiveOrg } from "@/lib/platform/orgs";
+import { withCronRun } from "@/lib/platform/cron-run";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -25,7 +26,7 @@ export const maxDuration = 60;
 
 const PENDING_WINDOW_MS = 30 * 60 * 1000;
 
-export async function GET(request: NextRequest) {
+async function handle(request: NextRequest) {
   if (
     !verifyBearer(
       request.headers.get("authorization"),
@@ -101,7 +102,6 @@ async function runForOrg(orgId: string, orgSlug: string): Promise<OrgSummary> {
   ).map((m) => m.profileId);
 
   for (const o of orders) {
-    const customer = o.party?.name ?? o.newCustomerName ?? "Unknown";
     const waitedMin = Math.max(
       1,
       Math.round((Date.now() - o.createdAt.getTime()) / 60_000),
@@ -109,16 +109,20 @@ async function runForOrg(orgId: string, orgSlug: string): Promise<OrgSummary> {
     try {
       const res = await fetch(url, {
         method: "POST",
+        // SY40 — the notify function authenticates with x-notify-secret
+        // and routes on `event`. This used to send `Authorization` and
+        // `type`, which the function refused, so no nudge ever went out.
+        // The customer's name is not sent: the push shows the order
+        // number only.
         headers: {
           "content-type": "application/json",
-          authorization: `Bearer ${secret}`,
+          "x-notify-secret": secret,
         },
         body: JSON.stringify({
-          type: "pending_approval",
+          event: "pending_approval",
           organizationId: orgId,
-          orderId: o.id,
+          salesOrderId: o.id,
           orderNumber: o.orderNumber,
-          customer,
           waitedMinutes: waitedMin,
           adminProfileIds: adminIds,
         }),
@@ -156,3 +160,6 @@ async function run() {
     perOrg: ok.map((r) => r.result),
   });
 }
+
+// SY40 — records a CronRun row (duration, companies, failures).
+export const GET = withCronRun("notify-pending-approval", handle);

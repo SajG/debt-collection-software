@@ -23,7 +23,7 @@ export function renderStaffDigest(
   entries: PlanParty[],
   date: Date
 ): string {
-  const header = `PayTrack — ${formatDate(date)}\n${staffName}, today's follow-ups:`;
+  const header = `Syncit — ${formatDate(date)}\n${staffName}, today's follow-ups:`;
   if (entries.length === 0) {
     return `${header}\nNo follow-ups due today. All clear.`;
   }
@@ -57,7 +57,7 @@ export function renderAdminDigest(
     .slice(0, 3)
     .map((e) => `• ${e.partyName} ${formatINR(e.outstanding)}`);
   return [
-    `PayTrack recovery digest — ${formatDate(date)}`,
+    `Syncit follow-up digest — ${formatDate(date)}`,
     `${total} follow-ups today.`,
     ...rows,
     top.length ? `Biggest exposure:\n${top.join("\n")}` : "",

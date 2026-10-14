@@ -34,12 +34,18 @@ const settingsSchema = z
     autoRemindersEnabled: z.coerce.boolean(),
     orderApprovalMode: z.enum(["NONE", "EXCEPTIONS_ONLY", "ALL"]),
     requireApprovalForAllOrders: z.coerce.boolean(),
+    requireAppLock: z.coerce.boolean(),
 
     whatsappPhoneNumberId: optional(64),
     whatsappBusinessAccountId: optional(64),
     whatsappTemplateName: optional(128),
     /** Blank = keep the currently stored (encrypted) token. */
     whatsappApiToken: z.string().trim().max(512).optional(),
+    /** SY29 — the company's own Razorpay keys ("Pay now" links). All
+     *  three are write-only: blank = keep what is stored. */
+    razorpayKeyId: z.string().trim().max(128).optional(),
+    razorpayKeySecret: z.string().trim().max(256).optional(),
+    razorpayWebhookSecret: z.string().trim().max(256).optional(),
 
     // Company branding & bank details (rendered on PDFs)
     bankAccountName: optional(120),
@@ -100,10 +106,14 @@ export type SettingsInput = {
   autoRemindersEnabled: boolean;
   orderApprovalMode: "NONE" | "EXCEPTIONS_ONLY" | "ALL";
   requireApprovalForAllOrders: boolean;
+  requireAppLock: boolean;
   whatsappPhoneNumberId?: string;
   whatsappBusinessAccountId?: string;
   whatsappTemplateName?: string;
   whatsappApiToken?: string;
+  razorpayKeyId?: string;
+  razorpayKeySecret?: string;
+  razorpayWebhookSecret?: string;
   bankAccountName?: string;
   bankAccountNumber?: string;
   bankIfscCode?: string;
@@ -123,12 +133,22 @@ export async function updateSettingsAction(
   if (!parsed.success) {
     return { error: parsed.error.errors[0].message };
   }
-  const { whatsappApiToken, bankAccountNumber, ...data } = parsed.data;
+  const {
+    whatsappApiToken,
+    bankAccountNumber,
+    razorpayKeyId,
+    razorpayKeySecret,
+    razorpayWebhookSecret,
+    ...data
+  } = parsed.data;
 
   // Both secrets are write-only: blank means "keep existing".
   const secrets = {
     ...(whatsappApiToken ? { whatsappApiToken: encryptSecret(whatsappApiToken) } : {}),
     ...(bankAccountNumber ? { bankAccountNumber: encryptSecret(bankAccountNumber) } : {}),
+    ...(razorpayKeyId ? { razorpayKeyId: encryptSecret(razorpayKeyId) } : {}),
+    ...(razorpayKeySecret ? { razorpayKeySecret: encryptSecret(razorpayKeySecret) } : {}),
+    ...(razorpayWebhookSecret ? { razorpayWebhookSecret: encryptSecret(razorpayWebhookSecret) } : {}),
   };
 
   const organizationId = profile.organizationId;

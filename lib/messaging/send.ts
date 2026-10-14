@@ -10,13 +10,15 @@ import { tenantDb } from "@/lib/tenant";
 import { decryptSecret } from "@/lib/crypto";
 import { captureError } from "@/lib/monitoring";
 import { formatINR, formatDate } from "@/lib/format";
-import { getOrCreatePaymentLink, razorpayConfigured } from "@/lib/payments/razorpay";
+import { getOrCreatePaymentLink, razorpayCredsFor } from "@/lib/payments/razorpay";
 import { evaluateGate } from "./gate";
 import type { ChannelProvider } from "./types";
 import { createWhatsAppProvider } from "./providers/whatsapp";
 import { orgHasFeature } from "@/lib/platform/billing";
 import { createSmsProvider } from "./providers/sms";
 import { createEmailProvider } from "./providers/email";
+import type { ReminderKind } from "./reminder-plan";
+import { capture } from "@/lib/analytics-events/posthog";
 
 export type SendReminderParams = {
   /** SY32 — the company sending. Every read/write below is scoped to it. */
@@ -27,6 +29,12 @@ export type SendReminderParams = {
   invoiceId?: string | null;
   /** Profile id for manual sends; null for the automated cron pass. */
   sentById: string | null;
+  /**
+   * Wording only: "upcoming" (due in a few days) and "due_today" are
+   * courtesy notices sent before anything is late; "overdue" (default)
+   * is the payment reminder. The gate treats all three identically.
+   */
+  kind?: ReminderKind;
   /**
    * Attach a document PDF (EMAIL only). The body becomes a document cover
    * note instead of a payment reminder; everything else — the gate, the
@@ -69,6 +77,34 @@ function destinationFor(channel: MessageChannel, party: Party): string | null {
   return channel === "EMAIL" ? party.email : party.phone;
 }
 
+/**
+ * Channels this company can actually send on right now, in fallback
+ * order: its own WhatsApp number + approved template (and a plan that
+ * includes WhatsApp), then SMS and email when those transports are
+ * set up. The automated pass sends nothing for a company with none —
+ * no attempts, no FAILED rows.
+ */
+export async function configuredChannels(organizationId: string): Promise<MessageChannel[]> {
+  const settings = await tenantDb(organizationId).businessSettings.findFirst();
+  if (!settings) return [];
+  const out: MessageChannel[] = [];
+  const whatsapp = await resolveProvider("WHATSAPP", settings);
+  if (whatsapp.isConfigured() && (await orgHasFeature(organizationId, "whatsappSending"))) {
+    out.push("WHATSAPP");
+  }
+  if ((await resolveProvider("SMS", settings)).isConfigured()) out.push("SMS");
+  if ((await resolveProvider("EMAIL", settings)).isConfigured()) out.push("EMAIL");
+  return out;
+}
+
+/** Does this customer have an address for the channel? */
+export function partyReachableOn(
+  channel: MessageChannel,
+  party: { phone: string | null; email: string | null },
+): boolean {
+  return Boolean(channel === "EMAIL" ? party.email : party.phone);
+}
+
 export async function sendReminder(
   params: SendReminderParams
 ): Promise<SendReminderResult> {
@@ -76,6 +112,7 @@ export async function sendReminder(
     return { status: "failed", error: "Documents can only be sent by email" };
   }
   const db = tenantDb(params.organizationId);
+  const kind: ReminderKind = params.kind ?? "overdue";
 
   const [party, settings] = await Promise.all([
     db.party.findUnique({ where: { id: params.partyId } }),
@@ -193,8 +230,10 @@ export async function sendReminder(
   // Proforma documents get no link: nothing is owed yet.
   let paymentLinkUrl: string | null = null;
   const wantsLink = !params.document || params.document.type === "INVOICE";
-  if (wantsLink && razorpayConfigured() && pending > 0) {
-    const link = await getOrCreatePaymentLink(db, {
+  // "Pay now" appears only when THIS company has its own Razorpay keys.
+  const razorpay = wantsLink && pending > 0 ? await razorpayCredsFor(params.organizationId) : null;
+  if (razorpay) {
+    const link = await getOrCreatePaymentLink(db, razorpay, {
       partyId: party.id,
       invoiceId: invoice?.id ?? null,
       amount: pending,
@@ -210,9 +249,17 @@ export async function sendReminder(
   const body = docText
     ? `Dear ${party.name}, please find ${docText} from ${businessName} ` +
       `attached.${linkText} Reply STOP to opt out.`
-    : `Dear ${party.name}, this is a payment reminder from ${businessName}. ` +
-      `${invoiceText[0].toUpperCase()}${invoiceText.slice(1)}${dueText} has ` +
-      `${pendingText} pending.${linkText} Reply STOP to opt out.`;
+    : kind === "upcoming" && invoice
+      ? `Dear ${party.name}, a note from ${businessName}: ${invoiceText} for ` +
+        `${pendingText} is due on ${formatDate(invoice.dueDate)}.${linkText} ` +
+        `Please ignore this if already paid. Reply STOP to opt out.`
+      : kind === "due_today" && invoice
+        ? `Dear ${party.name}, a note from ${businessName}: ${invoiceText} for ` +
+          `${pendingText} is due today.${linkText} ` +
+          `Please ignore this if already paid. Reply STOP to opt out.`
+        : `Dear ${party.name}, this is a payment reminder from ${businessName}. ` +
+          `${invoiceText[0].toUpperCase()}${invoiceText.slice(1)}${dueText} has ` +
+          `${pendingText} pending.${linkText} Reply STOP to opt out.`;
 
   // Meta's 24-hour customer-service window: after an inbound WhatsApp
   // message we may send free-form text instead of a template. The gate has
@@ -238,7 +285,9 @@ export async function sendReminder(
     whatsappMessageType,
     subject: docText
       ? `${docText[0].toUpperCase()}${docText.slice(1)} — ${businessName}`
-      : `Payment reminder — ${invoiceText} (${pendingText})`,
+      : kind === "overdue"
+        ? `Payment reminder — ${invoiceText} (${pendingText})`
+        : `${invoiceText[0].toUpperCase()}${invoiceText.slice(1)} is due ${kind === "due_today" ? "today" : `on ${invoice ? formatDate(invoice.dueDate) : "soon"}`} (${pendingText})`,
     attachment: params.document
       ? {
           filename: params.document.filename,
@@ -275,6 +324,20 @@ export async function sendReminder(
       sentAt: outcome.ok ? new Date() : null,
     },
   });
+
+  if (outcome.ok) {
+    // Channel and kind only — never who it went to or how much.
+    await capture({
+      event: "reminder_sent",
+      profileId: params.sentById,
+      organizationId: params.organizationId,
+      properties: {
+        channel: params.channel.toLowerCase(),
+        kind: params.document ? "document" : kind,
+        automated: params.sentById === null,
+      },
+    });
+  }
 
   if (!outcome.ok) {
     await captureError(new Error(outcome.error), {

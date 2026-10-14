@@ -1,17 +1,27 @@
 // Razorpay Payment Links via REST (no SDK). Supports UPI and partial
-// payments. SERVER-ONLY — uses the secret key.
+// payments. SERVER-ONLY — uses the company's secret key.
 
 import type { TenantClient } from "@/lib/tenant";
+import { getRazorpaySecrets } from "@/lib/settings/secrets";
 
 const API_BASE = "https://api.razorpay.com/v1";
 
-export function razorpayConfigured(): boolean {
-  return Boolean(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET);
+export type RazorpayCreds = { keyId: string; keySecret: string };
+
+/**
+ * The company's OWN Razorpay key pair (Settings → Payments), or null
+ * when it has none. Money from a "Pay now" link lands in that company's
+ * Razorpay account, so there is deliberately no shared fallback: a
+ * company without keys gets no link. (The env pair is honoured only
+ * for the legacy Synergy tenant — see lib/settings/secrets.ts.)
+ */
+export async function razorpayCredsFor(organizationId: string): Promise<RazorpayCreds | null> {
+  const { keyId, keySecret } = await getRazorpaySecrets(organizationId);
+  return keyId && keySecret ? { keyId, keySecret } : null;
 }
 
-function authHeader(): string {
-  const creds = `${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`;
-  return `Basic ${Buffer.from(creds).toString("base64")}`;
+function authHeader(creds: RazorpayCreds): string {
+  return `Basic ${Buffer.from(`${creds.keyId}:${creds.keySecret}`).toString("base64")}`;
 }
 
 export type PaymentLinkResult =
@@ -24,6 +34,7 @@ export type PaymentLinkResult =
  */
 export async function getOrCreatePaymentLink(
   db: TenantClient,
+  creds: RazorpayCreds | null,
   params: {
   partyId: string;
   invoiceId?: string | null;
@@ -33,27 +44,32 @@ export async function getOrCreatePaymentLink(
   email?: string | null;
   description: string;
 }): Promise<PaymentLinkResult> {
-  if (!razorpayConfigured()) {
-    return { ok: false, error: "Razorpay is not configured" };
+  if (!creds) {
+    return { ok: false, error: "Razorpay is not configured for this company" };
   }
 
-  // Reuse an existing open link for the same invoice to avoid duplicates.
-  if (params.invoiceId) {
-    const existing = await db.paymentLink.findFirst({
-      where: {
-        invoiceId: params.invoiceId,
-        status: { in: ["created", "partially_paid"] },
-      },
-      orderBy: { createdAt: "desc" },
-    });
-    if (existing) return { ok: true, shortUrl: existing.shortUrl };
-  }
+  // Reuse an open link instead of minting a new one every time: the
+  // same invoice, or — for a whole-account link (statement, account
+  // reminder) — the same customer and amount within the last 7 days.
+  const existing = await db.paymentLink.findFirst({
+    where: params.invoiceId
+      ? { invoiceId: params.invoiceId, status: { in: ["created", "partially_paid"] } }
+      : {
+          partyId: params.partyId,
+          invoiceId: null,
+          amount: params.amount,
+          status: "created",
+          createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
+        },
+    orderBy: { createdAt: "desc" },
+  });
+  if (existing) return { ok: true, shortUrl: existing.shortUrl };
 
   try {
     const res = await fetch(`${API_BASE}/payment_links`, {
       method: "POST",
       headers: {
-        Authorization: authHeader(),
+        Authorization: authHeader(creds),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({

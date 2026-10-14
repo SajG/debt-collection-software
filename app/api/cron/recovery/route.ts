@@ -7,11 +7,12 @@ import { renderStaffDigest, renderAdminDigest } from "@/lib/recovery/digest";
 import { sendStaffWhatsApp } from "@/lib/messaging/internal";
 import { forEachActiveOrg } from "@/lib/platform/orgs";
 import { orgHasFeature } from "@/lib/platform/billing";
+import { withCronRun } from "@/lib/platform/cron-run";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-export async function GET(request: NextRequest) {
+async function handle(request: NextRequest) {
   const secret = process.env.CRON_SECRET;
   const auth = request.headers.get("authorization");
   if (!secret || auth !== `Bearer ${secret}`) {
@@ -138,3 +139,6 @@ export async function GET(request: NextRequest) {
     perOrg: ok.map((r) => r.result),
   });
 }
+
+// SY40 — records a CronRun row (duration, companies, failures).
+export const GET = withCronRun("recovery", handle);

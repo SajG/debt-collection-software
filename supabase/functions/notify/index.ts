@@ -54,6 +54,29 @@ type EventPayload =
       preview: string;
     };
 
+// SY29 — the 9:00 "Today: 6 customers, ₹3.4L to follow up" push. Sent
+// by the web cron /api/cron/daily-followups, once per company, with the
+// text already worked out per salesperson. Handled separately from the
+// order events above (handleDailyFollowups).
+type DailyFollowupsPayload = {
+  event: "daily_followups";
+  organizationId: string;
+  recipients: { profileId: string; title: string; body: string }[];
+};
+
+// SY40 — "an order has waited 30 minutes for approval". Sent by the web
+// cron /api/cron/notify-pending-approval. Until SY40 that cron posted a
+// shape this function did not know, with the wrong auth header, so the
+// nudge was refused every time. Handled by handlePendingApproval.
+type PendingApprovalPayload = {
+  event: "pending_approval";
+  organizationId: string;
+  salesOrderId: string;
+  orderNumber: string | number;
+  waitedMinutes: number;
+  adminProfileIds: string[];
+};
+
 type OrderStatus =
   | "PENDING_APPROVAL"
   | "ORDER_PLACED"
@@ -115,6 +138,26 @@ Deno.serve(async (req) => {
     return new Response("bad json", { status: 400 });
   }
 
+  if ((body as unknown as { event?: string }).event === "daily_followups") {
+    try {
+      const sent = await handleDailyFollowups(body as unknown as DailyFollowupsPayload);
+      return json({ ok: true, sent });
+    } catch (e) {
+      console.error("daily_followups failed", e);
+      return json({ ok: false, error: String(e) }, 500);
+    }
+  }
+
+  if ((body as unknown as { event?: string }).event === "pending_approval") {
+    try {
+      const sent = await handlePendingApproval(body as unknown as PendingApprovalPayload);
+      return json({ ok: true, sent });
+    } catch (e) {
+      console.error("pending_approval failed", e);
+      return json({ ok: false, error: String(e) }, 500);
+    }
+  }
+
   try {
     const messages = await buildMessages(body);
     if (messages.length === 0) {
@@ -128,6 +171,118 @@ Deno.serve(async (req) => {
     return json({ ok: false, error: String(e) }, 500);
   }
 });
+
+// Returns how many pushes were handed to Expo. A recipient is dropped
+// unless they are an ACTIVE member of the named company, their account
+// is active, and they have left "Daily follow-up summary" switched on —
+// so a stale or wrong list from the caller cannot reach another
+// company's people.
+async function handleDailyFollowups(p: DailyFollowupsPayload): Promise<number> {
+  const wanted = (p.recipients ?? []).slice(0, 1000);
+  const ids = wanted.map((r) => r.profileId);
+  if (!p.organizationId || ids.length === 0) return 0;
+
+  const { data: members, error: mErr } = await supabase
+    .from("Membership")
+    .select("profileId")
+    .eq("organizationId", p.organizationId)
+    .eq("isActive", true)
+    .in("profileId", ids);
+  if (mErr) throw mErr;
+  const { data: opted, error: pErr } = await supabase
+    .from("Profile")
+    .select("id")
+    .eq("isActive", true)
+    .eq("notifyDailyPlan", true)
+    .in("id", ids);
+  if (pErr) throw pErr;
+
+  const memberIds = new Set((members ?? []).map((m) => m.profileId));
+  const allowed = new Set((opted ?? []).map((o) => o.id).filter((id) => memberIds.has(id)));
+  if (allowed.size === 0) return 0;
+
+  const { data: tokens, error: tErr } = await supabase
+    .from("PushToken")
+    .select("token, profileId")
+    .in("profileId", Array.from(allowed));
+  if (tErr) throw tErr;
+
+  const textFor = new Map(wanted.map((r) => [r.profileId, r]));
+  const messages: ExpoMessage[] = (tokens ?? []).map((t) => {
+    const r = textFor.get(t.profileId)!;
+    return {
+      to: t.token,
+      title: String(r.title).slice(0, 80),
+      body: String(r.body).slice(0, 200),
+      data: { event: "daily_followups", url: "syncit://" },
+      sound: "default",
+      priority: "high",
+      channelId: "default",
+    };
+  });
+  if (messages.length === 0) return 0;
+  const receipts = await sendToExpo(messages);
+  await cleanupStaleTokens(receipts, messages);
+  return messages.length;
+}
+
+// Only people who are ACTIVE Management (ADMIN) members of the named
+// company and whose account is active are notified — whatever list the
+// caller sent. The order must belong to that company too.
+async function handlePendingApproval(p: PendingApprovalPayload): Promise<number> {
+  const ids = (p.adminProfileIds ?? []).slice(0, 200);
+  if (!p.organizationId || !p.salesOrderId || ids.length === 0) return 0;
+
+  const { data: order, error: oErr } = await supabase
+    .from("SalesOrder")
+    .select("id")
+    .eq("id", p.salesOrderId)
+    .eq("organizationId", p.organizationId)
+    .maybeSingle();
+  if (oErr) throw oErr;
+  if (!order) return 0;
+
+  const { data: members, error: mErr } = await supabase
+    .from("Membership")
+    .select("profileId")
+    .eq("organizationId", p.organizationId)
+    .eq("role", "ADMIN")
+    .eq("isActive", true)
+    .in("profileId", ids);
+  if (mErr) throw mErr;
+  const memberIds = (members ?? []).map((m) => m.profileId);
+  if (memberIds.length === 0) return 0;
+
+  const { data: active, error: pErr } = await supabase
+    .from("Profile")
+    .select("id")
+    .eq("isActive", true)
+    .in("id", memberIds);
+  if (pErr) throw pErr;
+  const allowed = (active ?? []).map((a) => a.id);
+  if (allowed.length === 0) return 0;
+
+  const { data: tokens, error: tErr } = await supabase
+    .from("PushToken")
+    .select("token, profileId")
+    .in("profileId", allowed);
+  if (tErr) throw tErr;
+
+  const minutes = Math.max(1, Math.round(Number(p.waitedMinutes) || 0));
+  const messages: ExpoMessage[] = (tokens ?? []).map((t) => ({
+    to: t.token,
+    title: "Order waiting for approval",
+    body: `Order ${String(p.orderNumber).slice(0, 40)} has waited ${minutes} min.`,
+    data: { event: "pending_approval", salesOrderId: p.salesOrderId, url: "syncit://" },
+    sound: "default",
+    priority: "high",
+    channelId: "default",
+  }));
+  if (messages.length === 0) return 0;
+  const receipts = await sendToExpo(messages);
+  await cleanupStaleTokens(receipts, messages);
+  return messages.length;
+}
 
 async function buildMessages(payload: EventPayload): Promise<ExpoMessage[]> {
   const title = titleFor(payload);
