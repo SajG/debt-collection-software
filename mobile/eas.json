@@ -1,24 +1,39 @@
 {
-  "cli": { "version": ">= 5.0.0", "appVersionSource": "local" },
+  "cli": {
+    "version": ">= 12.0.0",
+    "appVersionSource": "remote"
+  },
   "build": {
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "android": { "buildType": "apk" },
+      "android": {
+        "buildType": "apk"
+      },
       "channel": "development"
     },
     "preview": {
+      "environment": "preview",
       "distribution": "internal",
-      "android": { "buildType": "apk" },
+      "android": {
+        "buildType": "apk"
+      },
       "channel": "preview"
     },
     "production": {
-      "android": { "buildType": "app-bundle" },
+      "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      },
       "channel": "production"
     },
     "production-apk": {
       "extends": "production",
-      "android": { "buildType": "apk" }
+      "autoIncrement": false,
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
     }
   },
   "submit": {

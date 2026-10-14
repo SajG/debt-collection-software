@@ -2,22 +2,23 @@ import type { Metadata } from "next";
 import { Download as DownloadIcon, Smartphone } from "lucide-react";
 import { SiteShell, H2 } from "@/components/marketing/site-shell";
 import { mkt } from "@/components/marketing/tokens";
+import { storeLinks } from "@/lib/store-links";
 
 export const metadata: Metadata = {
   title: "Download Syncit",
   description:
-    "Download Syncit for Android, iOS, and the Windows Tally connector.",
+    "Get Syncit on your phone, in the browser, and the Windows Tally connector.",
   alternates: { canonical: "https://getsyncit.app/download" },
 };
 
-// TODO: replace these placeholder URLs with the real Play Store / App
-// Store / connector download links when live.
-const ANDROID_URL = "https://play.google.com/store/apps/details?id=app.getsyncit";
-const IOS_LIVE = false; // flip true when App Store is live
-const IOS_URL = "https://apps.apple.com/app/syncit/id0000000000";
+// Store buttons are driven by env (ANDROID_LIVE / IOS_LIVE /
+// IOS_APP_STORE_URL — see lib/store-links.ts) so they appear only once
+// each listing is public. Read at build time: change the variable, then
+// redeploy.
 const TALLY_CONNECTOR_URL = "https://getsyncit.app/downloads/syncit-tally-connector-setup.exe";
 
 export default function DownloadPage() {
+  const { android, ios } = storeLinks();
   return (
     <SiteShell>
       <div className="max-w-4xl mx-auto px-5 sm:px-8">
@@ -41,16 +42,16 @@ export default function DownloadPage() {
           <PlatformCard
             title="Android"
             body="Requires Android 10+. Works on budget phones — designed for Sales and Factory field use."
-            cta="Google Play"
-            ctaHref={ANDROID_URL}
-            available
+            cta={android.live ? "Google Play" : "Coming soon"}
+            ctaHref={android.live ? android.url : ""}
+            available={android.live}
           />
           <PlatformCard
             title="iOS"
             body="Requires iOS 15+. Same feature set as Android."
-            cta={IOS_LIVE ? "App Store" : "Coming soon"}
-            ctaHref={IOS_LIVE ? IOS_URL : ""}
-            available={IOS_LIVE}
+            cta={ios.live ? "App Store" : "Coming soon"}
+            ctaHref={ios.live ? ios.url : ""}
+            available={ios.live}
           />
           <PlatformCard
             title="Windows Tally connector"
