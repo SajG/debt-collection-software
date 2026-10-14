@@ -10,6 +10,7 @@ import {
   lockExpiredTrials,
 } from "@/lib/platform/billing";
 import { PAST_DUE_GRACE_DAYS } from "@/lib/billing/events";
+import { pruneCronRuns, withCronRun } from "@/lib/platform/cron-run";
 
 // SY23 — nightly trial lifecycle mails.
 //
@@ -28,7 +29,7 @@ import { PAST_DUE_GRACE_DAYS } from "@/lib/billing/events";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-export async function GET(request: NextRequest) {
+async function handle(request: NextRequest) {
   if (
     !verifyBearer(
       request.headers.get("authorization"),
@@ -111,5 +112,11 @@ async function run() {
   // Cancelled at period end, and the period is over → read-only.
   summary.cancellationsEnded = (await lockEndedCancellations(now)).length;
 
+  // SY40 — housekeeping: CronRun rows are kept for 90 days.
+  await pruneCronRuns(now).catch(() => 0);
+
   return NextResponse.json(summary);
 }
+
+// SY40 — records a CronRun row (duration, companies, failures).
+export const GET = withCronRun("trial-reminders", handle);

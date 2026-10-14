@@ -8,6 +8,7 @@ import {
   purgeCompany,
   takeDeletionReminders,
 } from "@/lib/platform/company-deletion";
+import { withCronRun } from "@/lib/platform/cron-run";
 
 // SY35 — nightly company-deletion pass.
 //   * DELETING companies 5 days from their purge date (day 25) → reminder
@@ -20,7 +21,7 @@ import {
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-export async function GET(request: NextRequest) {
+async function handle(request: NextRequest) {
   if (!verifyBearer(request.headers.get("authorization"), process.env.CRON_SECRET)) {
     return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   }
@@ -54,3 +55,6 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json(summary);
 }
+
+// SY40 — records a CronRun row (duration, companies, failures).
+export const GET = withCronRun("company-deletion", handle);

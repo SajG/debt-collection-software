@@ -24,10 +24,18 @@ after `verifyOtp`.
    → stamps syncit_auth_since cookie (90-day absolute cap)
         │
         ▼
-5. Role branch (matches loginAction):
+5. Which company? pinActiveOrgClaim(user)
+     no active Membership        → /onboarding
+     one Membership              → that company (claim active_org_id set)
+     several, claim still valid  → that company
+     several, no valid claim     → /onboarding (company picker)
+        │
+        ▼
+6. Role branch — role = the ACTIVE Membership's role, never Profile.role:
      FACTORY  → /production
      STAFF    → /dashboard
-     ADMIN    → getMfaFactorState + currentAssuranceLevel
+     ADMIN    → /dashboard, unless that company has
+                BusinessSettings.requireManagement2fa on:
                 → no factor    → /settings/security?first=1
                 → aal1         → /login/challenge?next=…
                 → aal2         → /dashboard  (or callbackUrl)
@@ -44,7 +52,8 @@ hit to `/login/challenge` bounces to `/login`.
 | Loop back to /login when opening /login/email-code | PUBLIC_PATHS regressed. | Confirm middleware.ts treats `/login/*` public (except `/login/challenge`). |
 | Code never arrives | SMTP misconfigured OR EMAIL_FROM not verified at Resend/Postmark. | Dashboard → Auth → SMTP; SPF+DKIM on `getsyncit.app`. |
 | "That code didn't work" for a fresh code | Clock skew on the Supabase project OR the OTP expired before delivery. | Set Auth → Providers → Email → OTP Expiration = 600s. |
-| Signed-in but stuck at /login/challenge | ADMIN, aal1 only. Enter TOTP. Recovery-code link on that page falls back to /login?recovered=1. | Enrol TOTP once; then it's one 6-digit code per new device. |
+| Lands on /onboarding after a correct code | No active Membership — see "More than one company" below. | Re-invite the exact email from Team. |
+| Signed-in but stuck at /login/challenge | ADMIN in a company that requires 2FA, aal1 only. Enter TOTP. Recovery-code link on that page falls back to /login?recovered=1. | Enrol TOTP once; then it's one 6-digit code per new device. |
 | "Too many code requests" | 3 sends per email per 15 min (`checkEmailOtpSendLimit`) OR the IP burst cap in middleware. | Wait 15 min. |
 
 Provisioning the first ADMIN on a fresh Supabase project:
@@ -55,6 +64,47 @@ node scripts/create-owner.mjs \
 ```
 
 No password is set; the emailed code is the only credential.
+
+## More than one company (SY21–SY35)
+
+A person is a `Profile`; what they may do is decided per company by a
+`Membership` row (role, `isActive`, `isOwner`). So "can't sign in" now
+has two different meanings — ask which:
+
+1. **Cannot get past the code screen** → the chains in this document.
+2. **Signs in, but lands somewhere unexpected** → almost always a
+   Membership question:
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Lands on `/onboarding` ("Create your company") | No active Membership. Invited under a different email, or removed from the team. | The company's Management re-invites the exact email at Team (`/admin/users`). |
+| Lands on a company picker | Belongs to several companies and the session has no current choice. | Pick one. Switch later from the company name at the top of the sidebar. |
+| Sees the wrong company's data | They are in their *other* company. | Company switcher. Nothing is mixed — a session works in one company at a time. |
+| Has Sales screens but should be Management (or the reverse) | Role is per company. Their Membership role in *this* company is what counts. | Management changes the role in Team. Takes effect on their next page load. |
+| "Account disabled" | `Profile.isActive = false` — the person is blocked everywhere (rare; platform action or self-deleted account). | Re-activate the Profile. Being removed from one company does **not** cause this — that deactivates the Membership only. |
+| Everything is read-only, banner about billing | The company is `LOCKED` (trial ended, or renewal failed and 7 days passed) or `DELETING`. Not a sign-in problem. | Owner: Settings → Billing, or cancel the deletion in Settings → Company. |
+| Management is asked for an authenticator code in one company but not another | `requireManagement2fa` is a per-company setting. | Expected. |
+| New self-serve owner sees **Sales** screens in the mobile app | Known gap: the mobile app still picks its home screen from `Profile.role`, and a self-serve owner's Profile says STAFF while their Membership says ADMIN. Data access is still correct (the database uses Membership). | Until fixed (docs/LAUNCH.md, open items): set `Profile.role` to match in the SQL editor for that one person. |
+
+Quick look-up (SQL editor — read-only):
+
+```sql
+select o.name, o.status, m.role, m."isActive", m."isOwner"
+from "Membership" m join "Organization" o on o.id = m."organizationId"
+where m."profileId" = (select id from "Profile" where lower(email) = lower('person@example.com'));
+```
+
+No rows = no company → they will land on `/onboarding`.
+
+**Sign-up vs sign-in.** `/signup` (only when `SIGNUP_ENABLED=true`) is
+the one place a code is sent to an address Syncit has never seen; it
+creates the Organization, its settings and an owner Membership in one
+transaction. `/login` and the mobile app only send codes to existing
+people (`shouldCreateUser:false`).
+
+**Store reviewers** sign in with `review-*@getsyncit.app` and a fixed
+code — docs/PLAY-STORE.md §5. If that stops working, check
+`REVIEW_LOGIN_EMAILS` / `REVIEW_LOGIN_CODE` on the deployment.
 
 ## Mobile chain (Expo app)
 
@@ -181,6 +231,12 @@ successful load (RLS allows own-row UPDATE).
 | Signed out immediately with no screen change | Profile row missing for this auth.users id. Rare — usually a hand-created auth user without the matching Profile insert. | Delete the orphan auth user in Supabase → recreate via `/admin/users`. |
 | Bounces to `/account-disabled` | `Profile.isActive = false`. | Re-activate in `/admin/users`. |
 | Bounces to `/unsupported-role` | `Profile.role` is not one of ADMIN / STAFF / FACTORY. | Fix the row via SQL editor or admin/users. |
+
+Multi-company note: the database decides what the phone may read from
+the person's **Membership** in their active company
+(`current_org_id()` / `current_user_role()`), but this screen-routing
+step still reads `Profile.role`. The two normally agree; see "More than
+one company" above for the case where they do not.
 
 ### 7. Root gate — `app/index.tsx`
 

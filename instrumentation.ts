@@ -6,6 +6,11 @@
 
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
+    // SY40 — refuse to serve a Preview that points at production data.
+    const { checkPreviewIsolation } = await import("./lib/platform/env-guard");
+    const guard = checkPreviewIsolation(process.env);
+    if (!guard.ok) throw new Error(guard.reason);
+    if (guard.warning) console.warn(`[env-guard] ${guard.warning}`);
     await import("./sentry.server.config");
   }
   if (process.env.NEXT_RUNTIME === "edge") {

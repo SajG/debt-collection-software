@@ -32,8 +32,11 @@ export async function captureError(
   console.error("[monitoring]", JSON.stringify(context), error);
   const s = client();
   if (!s) return;
+  // `scope` is also a tag so Sentry alert rules can filter on it
+  // (e.g. "scope starts with cron.") — extras are not filterable.
   s.captureException(error instanceof Error ? error : new Error(String(error)), {
     extra: context,
+    tags: typeof context.scope === "string" ? { scope: context.scope } : undefined,
   });
   await s.flush(2000).catch(() => {});
 }

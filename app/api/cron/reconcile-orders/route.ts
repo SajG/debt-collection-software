@@ -5,6 +5,7 @@ import { tenantDb } from "@/lib/tenant";
 import { verifyBearer } from "@/lib/auth/verify-bearer";
 import { isTallyEnabled } from "@/lib/settings";
 import { forEachActiveOrg } from "@/lib/platform/orgs";
+import { withCronRun } from "@/lib/platform/cron-run";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -17,7 +18,7 @@ export const maxDuration = 120;
 // distributor can trigger reconciliation right after a Tally push without
 // waiting for the nightly window.
 
-export async function GET(request: NextRequest) {
+async function handle(request: NextRequest) {
   if (
     !verifyBearer(
       request.headers.get("authorization"),
@@ -85,3 +86,6 @@ export async function GET(request: NextRequest) {
     perOrg: ok.map((r) => r.result),
   });
 }
+
+// SY40 — records a CronRun row (duration, companies, failures).
+export const GET = withCronRun("reconcile-orders", handle);
