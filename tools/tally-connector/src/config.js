@@ -18,6 +18,11 @@ const CONFIG_PATH = path.join(dataDir(), "config.json");
 const LOG_PATH = path.join(dataDir(), "connector.log");
 const STATE_PATH = path.join(dataDir(), "state.json");
 
+// Loopback port the service's HTTP API listens on. The tray talks to this,
+// and install-service.js probes /health on it to confirm the service really
+// came up rather than trusting the SCM's "Running".
+const SERVICE_PORT = 9876;
+
 function ensureDir() {
   fs.mkdirSync(dataDir(), { recursive: true });
 }
@@ -71,6 +76,7 @@ module.exports = {
   CONFIG_PATH,
   LOG_PATH,
   STATE_PATH,
+  SERVICE_PORT,
   dataDir,
   readConfig,
   writeConfig,

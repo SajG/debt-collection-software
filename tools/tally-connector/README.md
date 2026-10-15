@@ -112,6 +112,23 @@ staying signed in).
 
 ## Sanity checks after install
 
-- `sc query "Syncit Tally Connector"` → should show `RUNNING`
+Note the **service name** is `syncittallyconnector.exe` — `Syncit Tally
+Connector` is only its display name, and `sc` will not accept it.
+
+- `sc query syncittallyconnector.exe` → should show `RUNNING`
 - `curl http://127.0.0.1:9876/health` → `{"ok":true}`
 - Web dashboard `/import` page → last-sync timestamp updates after first successful run
+
+`install-service.js` performs all of the above itself and exits non-zero if
+the service is not left running, so a successful install has already been
+verified. If it does fail, the installer says so (and `/S` installs set a
+non-zero exit code); re-run it by hand to see why:
+
+```bat
+cd "%PROGRAMFILES%\Syncit Tally Connector\resources\app\src"
+node install-service.js
+```
+
+If it reports the registration is stale or orphaned, it repairs it in place.
+To start over completely: `node uninstall-service.js` then
+`node install-service.js`, both from an elevated prompt.

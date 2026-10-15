@@ -16,9 +16,10 @@ const {
   writeState,
   appendLog,
   LOG_PATH,
+  SERVICE_PORT,
 } = require("./config");
 
-const PORT = 9876;
+const PORT = SERVICE_PORT;
 
 let running = false;
 let currentAbort = null;
