@@ -34,7 +34,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartyCredit } from "@/lib/stock-queries";
 import { useProducts } from "@/lib/queries";
 import { recordLastUsed } from "@/lib/last-used";
-import { formatDate, formatINR } from "@/lib/format";
+import { formatDate, formatINR, formatSize } from "@/lib/format";
 import { humaniseError, isRetryableRpcError } from "@/lib/errors";
 import { successHaptic, warningHaptic, errorHaptic } from "@/lib/haptics";
 import { theme } from "@/theme";
@@ -448,7 +448,7 @@ function ItemRow({ item, idx }: { item: OrderDraftItem; idx: number }) {
         <Text style={styles.itemMeta}>
           {item.brand ?? "—"} · {item.quantity} {item.quantityUnit}
           {item.packingType ? ` · ${item.packingType}` : ""}
-          {item.sizeKg ? ` · ${item.sizeKg} kg` : ""} · @{item.productRate}
+          {item.sizeKg ? ` · ${formatSize(item.sizeKg)}` : ""} · @{item.productRate}
         </Text>
       </View>
       <Text style={styles.itemValue}>{formatINR(total)}</Text>

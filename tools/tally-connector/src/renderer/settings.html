@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>PayTrack Connector — Settings</title>
+    <title>Syncit Tally Connector — Settings</title>
     <style>
       body {
         font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -86,18 +86,18 @@
     </style>
   </head>
   <body>
-    <h1>PayTrack Tally Connector</h1>
+    <h1>Syncit Tally Connector</h1>
     <p class="sub">
-      Settings are stored in <code>C:\ProgramData\PayTrack\config.json</code> and
+      Settings are stored in <code>C:\ProgramData\Syncit\config.json</code> and
       applied by the Windows Service the next time it syncs.
     </p>
 
-    <label>PayTrack URL</label>
-    <input id="paytrackUrl" placeholder="https://your-deployment.example" />
+    <label>Syncit web address</label>
+    <input id="syncitUrl" placeholder="https://getsyncit.app" />
 
-    <label>Sync Secret</label>
-    <input id="secret" type="password" placeholder="paste the TALLY_SYNC_SECRET" />
-    <div class="hint">Must match the deployment's TALLY_SYNC_SECRET env var.</div>
+    <label>Pairing code</label>
+    <input id="secret" type="password" placeholder="8-character code from Syncit" />
+    <div class="hint">On the Syncit website: Settings → Tally → Generate pairing code. The code works once and expires in 15 minutes; after the first sync this PC stays connected.</div>
 
     <div class="row">
       <div>
@@ -136,10 +136,10 @@
       async function load() {
         try {
           const cfg = await window.api.getConfig();
-          $("paytrackUrl").value = cfg.paytrackUrl || "";
+          $("syncitUrl").value = cfg.syncitUrl || "https://getsyncit.app";
           // secret comes back masked ("••••••••") if set; leave blank so user
           // only overwrites when they type a new one.
-          $("secret").placeholder = cfg.secret ? "(unchanged)" : "paste the TALLY_SYNC_SECRET";
+          $("secret").placeholder = cfg.secret ? "(connected — leave blank)" : "8-character code from Syncit";
           $("tallyHost").value = cfg.tallyHost || "localhost";
           $("tallyPort").value = cfg.tallyPort || 9000;
           $("intervalMinutes").value = cfg.intervalMinutes ?? 15;
@@ -172,7 +172,7 @@
         $("saveBtn").disabled = true;
         try {
           const patch = {
-            paytrackUrl: $("paytrackUrl").value.trim(),
+            syncitUrl: ($("syncitUrl").value.trim() || "https://getsyncit.app").replace(/\/+$/, ""),
             tallyHost: $("tallyHost").value.trim(),
             tallyPort: Number($("tallyPort").value),
             intervalMinutes: Number($("intervalMinutes").value),

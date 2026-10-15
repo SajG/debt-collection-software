@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireProfileApi } from "@/lib/authz";
+import { requireProfileApi, canViewOrder } from "@/lib/authz";
+import { tenantDb } from "@/lib/tenant";
+import { isOrgLocked } from "@/lib/platform/billing";
 import {
   uploadOrderDocument,
   uploadPaymentDocument,
@@ -46,8 +48,20 @@ const bodySchema = z.object({
 });
 
 export async function POST(req: Request) {
-  const { profile, failure } = await requireProfileApi();
+  // Go-live fix: the phone sends its Supabase access token (no cookies).
+  // Before this, the route only looked at the web cookie, so every
+  // upload from the app (payment proof, LR / invoice photo) failed.
+  const authHeader = req.headers.get("authorization");
+  const { profile, organizationId, failure } = await requireProfileApi(
+    authHeader ? { bearer: authHeader } : undefined,
+  );
   if (failure) return failure;
+  if (await isOrgLocked(organizationId)) {
+    return NextResponse.json(
+      { error: "Your company is read-only until a plan is chosen." },
+      { status: 403 },
+    );
+  }
 
   // Coarse size gate on the request body itself, before JSON parse.
   const cl = req.headers.get("content-length");
@@ -72,6 +86,28 @@ export async function POST(req: Request) {
     );
   }
   const { kind, scopeId, fileName, base64 } = parsed.data;
+
+  // The file is stored with the service role, so check here that the
+  // order / payment belongs to the caller's company (and, for Sales,
+  // to them) before writing anything.
+  const tdb = tenantDb(organizationId);
+  if (kind === "order") {
+    const order = await tdb.salesOrder.findUnique({
+      where: { id: scopeId },
+      select: { salespersonId: true },
+    });
+    if (!order || !canViewOrder(profile, order)) {
+      return NextResponse.json({ error: "Order not found." }, { status: 404 });
+    }
+  } else {
+    const payment = await tdb.payment.findUnique({
+      where: { id: scopeId },
+      select: { id: true },
+    });
+    if (!payment) {
+      return NextResponse.json({ error: "Payment not found." }, { status: 404 });
+    }
+  }
 
   // Decode base64 → Buffer. Guard against a payload that decodes
   // larger than our per-bucket ceiling — the JSON body limit above

@@ -762,7 +762,10 @@ const inviteSchema = z.object({
 });
 
 export type InviteMemberResult =
-  | { ok: true; email: string; emailed: boolean }
+  // joinUrl goes back to the inviting manager only, so they can share
+  // it on WhatsApp / copy it when the person doesn't read email. It is
+  // the same link the email carries; resending rotates it.
+  | { ok: true; email: string; emailed: boolean; joinUrl: string; phone: string | null }
   | { error: string };
 
 async function emailInvitation(params: {
@@ -831,7 +834,13 @@ export async function inviteMemberAction(input: {
   });
   await syncMilestonesQuietly(organizationId, { actorId: admin.id, source: "web" });
   revalidatePath("/admin/users");
-  return { ok: true, email: res.email, emailed };
+  return {
+    ok: true,
+    email: res.email,
+    emailed,
+    joinUrl: `${appUrl()}/join/${res.token}`,
+    phone: phone ?? null,
+  };
 }
 
 export async function resendInvitationAction(input: {
@@ -857,7 +866,13 @@ export async function resendInvitationAction(input: {
     inviteeName: res.ownerName,
   });
   revalidatePath("/admin/users");
-  return { ok: true, email: res.email, emailed };
+  return {
+    ok: true,
+    email: res.email,
+    emailed,
+    joinUrl: `${appUrl()}/join/${res.token}`,
+    phone: null,
+  };
 }
 
 export async function revokeInvitationAction(input: {

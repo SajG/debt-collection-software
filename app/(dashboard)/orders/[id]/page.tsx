@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { tenantDb } from "@/lib/tenant";
 import { requireProfile, canAccessOrder } from "@/lib/authz";
-import { formatDate, formatDateTime, formatINR, toNumber } from "@/lib/format";
+import { formatDate, formatDateTime, formatINR, formatSize, toNumber } from "@/lib/format";
 import { getOrderDocumentSignedUrl } from "@/lib/storage";
 import {
   customerName,
@@ -211,7 +211,7 @@ export default async function SalesOrderDetailPage({
                     {toNumber(li.quantity)} {li.quantityUnit}
                   </td>
                   <td className="py-2">
-                    {[li.packingType, li.sizeKg ? `${li.sizeKg} kg` : null]
+                    {[li.packingType, li.sizeKg ? formatSize(li.sizeKg) : null]
                       .filter(Boolean)
                       .join(" · ") || "—"}
                   </td>

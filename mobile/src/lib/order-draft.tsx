@@ -172,18 +172,19 @@ function isHeaderComplete(d: OrderDraft): boolean {
       d.dispatchLocation.trim() &&
       d.paymentTerm &&
       d.transportType &&
-      d.expectedDeliveryDate &&
-      d.tokenType,
+      d.expectedDeliveryDate,
   );
 }
 
+// Minimum any business needs on a line: product, quantity, rate.
+// Companies with their own brand list (catalogue form) are made to
+// fill brand / packing / size in the ItemSheet itself, and the token
+// chip on the order header (orders/new/index.tsx); the draft check
+// stays generic so a company without those lists can place orders.
 function isItemComplete(it: OrderDraftItem): boolean {
   return Boolean(
-    it.brand &&
-      (it.productId || (it.customProductName && it.customProductName.trim())) &&
+    (it.productId || (it.customProductName && it.customProductName.trim())) &&
       Number(it.quantity) > 0 &&
-      it.packingType &&
-      it.sizeKg &&
       it.productRate.trim(),
   );
 }

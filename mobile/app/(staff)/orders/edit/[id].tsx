@@ -31,6 +31,7 @@ import { paymentTerms, transportTypes } from "@/lib/labels";
 import { statusLabel } from "@/lib/labels";
 import { toast } from "@/components/Toast";
 import { goBackOr } from "@/lib/back";
+import { useOrgCatalog } from "@/lib/catalog";
 
 // Any STAFF / ADMIN can edit customer + delivery details on any
 // pre-dispatch order. The server-side RLS + trigger
@@ -45,6 +46,7 @@ import { goBackOr } from "@/lib/back";
 // status) is handled by other flows.
 
 export default function EditOrderScreen() {
+  const { configured: catalogMode } = useOrgCatalog();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { profile } = useAuth();
 
@@ -296,13 +298,15 @@ export default function EditOrderScreen() {
           />
         </Section>
 
-        <Section title={t("common.tokenGift")}>
-          <ChipRow<string>
-            values={TOKEN_TYPES.map((v) => ({ value: v, label: v }))}
-            selected={tokenType}
-            onSelect={setTokenType}
-          />
-        </Section>
+        {catalogMode || tokenType ? (
+          <Section title={t("common.tokenGift")}>
+            <ChipRow<string>
+              values={TOKEN_TYPES.map((v) => ({ value: v, label: v }))}
+              selected={tokenType}
+              onSelect={setTokenType}
+            />
+          </Section>
+        ) : null}
 
         <Section title={t("common.notes")}>
           <TextField

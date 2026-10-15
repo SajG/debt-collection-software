@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { tenantDb } from "@/lib/tenant";
 import { requireFactoryOrAdmin, canAccessOrder } from "@/lib/authz";
-import { formatDate, formatDateTime, toNumber } from "@/lib/format";
+import { formatDate, formatDateTime, formatSize, toNumber } from "@/lib/format";
 import { getOrderDocumentSignedUrl } from "@/lib/storage";
 import {
   customerName,
@@ -142,7 +142,7 @@ export default async function ProductionOrderPage({
                     {toNumber(li.quantity)} {li.quantityUnit}
                   </td>
                   <td className="py-2 text-sm text-muted-foreground">
-                    {[li.packingType, li.sizeKg ? `${li.sizeKg} kg` : null]
+                    {[li.packingType, li.sizeKg ? formatSize(li.sizeKg) : null]
                       .filter(Boolean)
                       .join(" · ") || "—"}
                   </td>

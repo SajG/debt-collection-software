@@ -36,7 +36,7 @@ import { submitStatusAdvance } from "@/lib/status-queue";
 import { useConnectivity } from "@/lib/connectivity";
 import { newId } from "@/lib/ids";
 import { supabase } from "@/lib/supabase";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatSize } from "@/lib/format";
 import { t, tn } from "@/lib/i18n";
 import { theme } from "@/theme";
 import { confirm } from "@/components/Confirm";
@@ -266,7 +266,7 @@ export default function OrderDetailScreen() {
               <Text style={styles.valueUnit}>{data.quantityUnit}</Text>
             </Text>
             <Text style={styles.sub}>
-              {data.packingType} · {data.sizeKg} kg
+              {[data.packingType, formatSize(data.sizeKg)].filter(Boolean).join(" · ") || "—"}
             </Text>
           </InfoCard>
 

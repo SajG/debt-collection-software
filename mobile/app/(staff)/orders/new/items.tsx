@@ -18,7 +18,7 @@ import {
   useWizard,
   type OrderDraftItem,
 } from "@/lib/order-draft";
-import { formatINR } from "@/lib/format";
+import { formatINR, formatSize } from "@/lib/format";
 import { theme } from "@/theme";
 import { t } from "@/lib/i18n";
 
@@ -112,7 +112,7 @@ export default function ScreenItems() {
                 <Text style={styles.itemMeta}>
                   {item.quantity || "0"} {item.quantityUnit}
                   {item.packingType ? ` · ${item.packingType}` : ""}
-                  {item.sizeKg ? ` · ${item.sizeKg} kg` : ""}
+                  {item.sizeKg ? ` · ${formatSize(item.sizeKg)}` : ""}
                   {" · @"}
                   {item.productRate || "0"}
                 </Text>

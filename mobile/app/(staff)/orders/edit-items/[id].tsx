@@ -14,7 +14,7 @@ import { Screen } from "@/components/Screen";
 import { Button } from "@/components/Button";
 import { ItemSheet } from "@/components/ItemSheet";
 import { supabase } from "@/lib/supabase";
-import { formatINR } from "@/lib/format";
+import { formatINR, formatSize } from "@/lib/format";
 import type { QuantityUnit } from "@/lib/database.types";
 import type { OrderDraftItem } from "@/lib/order-draft";
 import { theme } from "@/theme";
@@ -264,7 +264,7 @@ export default function EditItemsScreen() {
                 <Text style={styles.itemMeta}>
                   {item.quantity || "0"} {item.quantityUnit}
                   {item.packingType ? ` · ${item.packingType}` : ""}
-                  {item.sizeKg ? ` · ${item.sizeKg} kg` : ""}
+                  {item.sizeKg ? ` · ${formatSize(item.sizeKg)}` : ""}
                   {" · @"}
                   {item.productRate || "0"}
                 </Text>

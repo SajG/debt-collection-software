@@ -46,7 +46,7 @@ import { submitStatusAdvance, useStatusQueue } from "@/lib/status-queue";
 import { ORDER_DOC_BUCKET, getSignedUrl } from "@/lib/uploads";
 import { newId } from "@/lib/ids";
 import { supabase } from "@/lib/supabase";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatSize } from "@/lib/format";
 import { t, tn } from "@/lib/i18n";
 import { successHaptic, warningHaptic, errorHaptic } from "@/lib/haptics";
 import { humaniseError } from "@/lib/errors";
@@ -427,7 +427,7 @@ function LineItemRow({
             {item.brand || item.product?.brand || "—"} ·{" "}
             {String(item.quantity)} {item.quantityUnit}
             {item.packingType ? ` · ${item.packingType}` : ""}
-            {item.sizeKg ? ` · ${item.sizeKg} kg` : ""}
+            {item.sizeKg ? ` · ${formatSize(item.sizeKg)}` : ""}
           </Text>
         </View>
         <LineStatusPill status={item.productionStatus} />

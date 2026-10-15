@@ -218,6 +218,10 @@ export default async function UsersAdminPage({
     SELECT public.is_notification_config_ready() AS ready`;
   const notifyReady = notifyStatus[0]?.ready ?? false;
   const seats = await checkSeatAvailable(organizationId);
+  const orgRow = await db.organization.findUnique({
+    where: { id: organizationId },
+    select: { name: true },
+  });
 
   return (
     <div className="p-4 sm:p-8">
@@ -257,7 +261,7 @@ export default async function UsersAdminPage({
       ) : null}
 
       <Card title="Invite a team member" className="mb-6">
-        <CreateUserForm />
+        <CreateUserForm companyName={orgRow?.name ?? null} />
       </Card>
 
       <div className="mb-6">

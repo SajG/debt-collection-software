@@ -251,7 +251,7 @@ function TeamStep({
     <div className="space-y-4">
       <h2 className="text-xl font-semibold">Invite your team</h2>
       <p className="text-sm text-muted-foreground">
-        Each teammate gets a code emailed to sign in. Add rows now or skip and invite later from Admin → Users.
+        Each teammate gets an email with a link to join. You can also copy each link or share it on WhatsApp from Admin → Users. Add rows now or skip and invite later.
       </p>
       <div className="space-y-3">
         {rows.map((row, i) => (

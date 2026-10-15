@@ -3,18 +3,20 @@
 import { useState, useTransition } from "react";
 import type { Role } from "@prisma/client";
 import { inviteMemberAction } from "./actions";
+import { ShareInviteLink } from "./share-invite-link";
 
 // SY42 — email-first invite. No account is created until the invitee
 // accepts the emailed link and chooses a password, so a pending invite
 // never takes a seat. Phone is optional (shown to the team once joined).
 
-export function CreateUserForm() {
+export function CreateUserForm({ companyName }: { companyName?: string | null } = {}) {
   const [ownerName, setOwnerName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [role, setRole] = useState<Role>("STAFF");
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [share, setShare] = useState<{ joinUrl: string; phone: string | null } | null>(null);
   const [pending, startTransition] = useTransition();
 
   const emailValid = /.+@.+\..+/.test(email.trim());
@@ -24,6 +26,7 @@ export function CreateUserForm() {
   function submit() {
     setError(null);
     setMsg(null);
+    setShare(null);
     startTransition(async () => {
       const res = await inviteMemberAction({
         email: email.trim().toLowerCase(),
@@ -38,8 +41,9 @@ export function CreateUserForm() {
       setMsg(
         res.emailed
           ? `Invitation emailed to ${res.email}.`
-          : `Invitation created for ${res.email}, but the email could not be sent. Use Resend below.`,
+          : `Invitation created for ${res.email}, but the email could not be sent. Share the link below instead.`,
       );
+      setShare({ joinUrl: res.joinUrl, phone: res.phone });
       setOwnerName("");
       setEmail("");
       setPhone("");
@@ -105,8 +109,11 @@ export function CreateUserForm() {
       </label>
       {error ? <p className="mt-2 text-xs text-red-600">{error}</p> : null}
       {msg ? <p className="mt-2 text-xs text-emerald-700">{msg}</p> : null}
+      {share ? (
+        <ShareInviteLink joinUrl={share.joinUrl} phone={share.phone} companyName={companyName} />
+      ) : null}
       <p className="mt-2 text-xs text-muted-foreground">
-        They get an email with a link, choose a password, and join with this role.
+        They get an email with a link (you can also share it on WhatsApp), choose a password, and join with this role.
         Links work for 7 days. A pending invite does not use a seat.
       </p>
     </div>

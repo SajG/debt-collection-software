@@ -5,18 +5,18 @@
 ; install to register the Windows Service via node-windows.
 
 !macro customInstall
-  DetailPrint "Registering PayTrack Tally Connector Windows Service…"
+  DetailPrint "Registering Syncit Tally Connector Windows Service…"
   nsExec::ExecToLog 'cmd /C "node "$INSTDIR\resources\app\src\install-service.js""'
   Pop $0
   ${If} $0 != 0
     MessageBox MB_OK|MB_ICONEXCLAMATION "Could not register the Windows Service. Ensure Node.js 18+ is installed and on PATH, then run 'node install-service.js' from an admin command prompt."
   ${EndIf}
   ; Auto-start the tray at user login.
-  CreateShortCut "$SMSTARTUP\PayTrack Tally Connector.lnk" "$INSTDIR\PayTrack Tally Connector.exe"
+  CreateShortCut "$SMSTARTUP\Syncit Tally Connector.lnk" "$INSTDIR\Syncit Tally Connector.exe"
 !macroend
 
 !macro customUnInstall
-  DetailPrint "Removing PayTrack Tally Connector Windows Service…"
+  DetailPrint "Removing Syncit Tally Connector Windows Service…"
   nsExec::ExecToLog 'cmd /C "node "$INSTDIR\resources\app\src\uninstall-service.js""'
-  Delete "$SMSTARTUP\PayTrack Tally Connector.lnk"
+  Delete "$SMSTARTUP\Syncit Tally Connector.lnk"
 !macroend

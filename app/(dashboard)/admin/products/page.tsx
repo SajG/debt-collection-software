@@ -89,14 +89,14 @@ export default async function ProductsAdminPage() {
                 name="name"
                 required
                 className={inputCls}
-                placeholder="Polygum Waterproof"
+                placeholder="e.g. Waterproof adhesive 1 kg"
               />
             </Field>
             <Field label="Brand (optional)">
               <input
                 name="brand"
                 className={inputCls}
-                placeholder="Polygum / Ombond / Omcol / Stick-onn — leave empty for generic material"
+                placeholder="Your brand name — leave empty if you do not use brands"
               />
             </Field>
             <Field label="Sort order">

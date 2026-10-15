@@ -1,15 +1,19 @@
 import { useEffect, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "./supabase";
-import {
-  BRAND_LIST as FALLBACK_BRANDS,
-  COMMON_PACKINGS as FALLBACK_PACKINGS,
-} from "./constants";
+
+// Last catalogue this phone saw, so an order taken offline still gets
+// the company's own form (same idea as lock-policy.ts).
+const STORAGE_KEY = "syncit:orgCatalog";
 
 // SY24 — per-organization brand + packing chips.
 //
-// Falls back to the Synergy-derived starter lists in constants.ts
-// when the tenant hasn't customised them. Managed on the web at
-// /admin/products; changes propagate on next mount.
+// Managed on the web at /admin/products; changes propagate on next
+// mount. A company that has not set up brand / packing lists gets
+// EMPTY lists (generic order form: brand hidden, packing and size
+// optional free text) — never another company's catalogue. Synergy's
+// lists live in its own BusinessSettings row (seeded by
+// 20260930000000_org_catalogue_and_factory_rates).
 //
 // One in-memory cache per Supabase session — good enough because
 // the list is rarely edited and re-mounting the ItemSheet is the
@@ -19,7 +23,25 @@ import {
 type OrgCatalog = {
   brands: readonly string[];
   packings: readonly string[];
+  /** True when the company has its own brand list. Turns on the
+   *  catalogue-style order form (brand, packing and size required,
+   *  token/gift chips). False = generic order form for any business. */
+  configured: boolean;
 };
+
+const EMPTY: OrgCatalog = { brands: [], packings: [], configured: false };
+
+// The cache belongs to one signed-in user in one company: drop it
+// whenever the session changes (sign-out, another user, company
+// switch refreshes the token's active_org_id).
+supabase.auth.onAuthStateChange((event) => {
+  if (event === "SIGNED_OUT" || event === "SIGNED_IN" || event === "USER_UPDATED") {
+    cache = null;
+  }
+  if (event === "SIGNED_OUT") {
+    void AsyncStorage.removeItem(STORAGE_KEY).catch(() => undefined);
+  }
+});
 
 let cache: OrgCatalog | null = null;
 let inflight: Promise<OrgCatalog> | null = null;
@@ -39,18 +61,23 @@ async function fetchOnce(): Promise<OrgCatalog> {
     })
       .select("brandList,packingList")
       .maybeSingle();
-    if (error || !data) {
-      cache = {
-        brands: FALLBACK_BRANDS,
-        packings: FALLBACK_PACKINGS,
-      };
-      return cache;
+    if (error) {
+      // Offline / transient: use what this phone last saw, and don't
+      // cache in memory, so the next mount retries the network.
+      return (await readStored()) ?? EMPTY;
     }
-    const brands = arrayOrFallback(data.brandList, FALLBACK_BRANDS);
-    const packings = arrayOrFallback(data.packingList, FALLBACK_PACKINGS);
-    cache = { brands, packings };
+    if (!data) {
+      // Every company has a settings row, so "no row" means the phone
+      // could not read it (e.g. the 20261015 read-policy migration is
+      // not applied yet). Same as offline: last known, retry later.
+      return (await readStored()) ?? EMPTY;
+    }
+    const brands = cleanList(data.brandList);
+    const packings = cleanList(data.packingList);
+    cache = { brands, packings, configured: brands.length > 0 };
+    void AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(cache)).catch(() => undefined);
     return cache;
-  })();
+  })().catch(async () => (await readStored()) ?? EMPTY);
   try {
     return await inflight;
   } finally {
@@ -58,19 +85,25 @@ async function fetchOnce(): Promise<OrgCatalog> {
   }
 }
 
-function arrayOrFallback(
-  v: unknown,
-  fallback: readonly string[],
-): readonly string[] {
-  if (!Array.isArray(v)) return fallback;
-  const clean = v.filter((x): x is string => typeof x === "string" && x.length > 0);
-  return clean.length > 0 ? clean : fallback;
+async function readStored(): Promise<OrgCatalog | null> {
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as Partial<OrgCatalog>;
+    const brands = cleanList(v.brands);
+    return { brands, packings: cleanList(v.packings), configured: brands.length > 0 };
+  } catch {
+    return null;
+  }
+}
+
+function cleanList(v: unknown): readonly string[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter((x): x is string => typeof x === "string" && x.trim().length > 0);
 }
 
 export function useOrgCatalog(): OrgCatalog {
-  const [value, setValue] = useState<OrgCatalog>(
-    cache ?? { brands: FALLBACK_BRANDS, packings: FALLBACK_PACKINGS },
-  );
+  const [value, setValue] = useState<OrgCatalog>(cache ?? EMPTY);
   useEffect(() => {
     let cancelled = false;
     void fetchOnce().then((next) => {

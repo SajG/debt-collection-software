@@ -336,13 +336,7 @@ async function recipientsFor(payload: EventPayload): Promise<string[]> {
     //   author is anyone else               → notify the salesperson
     // Everyone respects their own notifyComments pref.
     if (payload.authorId === payload.salespersonId) {
-      const { data, error } = await supabase
-        .from("Profile")
-        .select("id")
-        .in("role", ["FACTORY", "ADMIN"])
-        .eq(prefColumn, true);
-      if (error) throw error;
-      return (data ?? []).map((p) => p.id);
+      return companyMembersOptedIn(payload.salesOrderId, ["FACTORY", "ADMIN"], prefColumn);
     }
     const { data, error } = await supabase
       .from("Profile")
@@ -354,12 +348,45 @@ async function recipientsFor(payload: EventPayload): Promise<string[]> {
     return data ? [data.id] : [];
   }
 
-  // credit_issue / stale_order: all ADMINs opted in.
+  // credit_issue / stale_order: the order's company's ADMINs opted in.
+  return companyMembersOptedIn(payload.salesOrderId, ["ADMIN"], prefColumn);
+}
+
+// Go-live fix (LAUNCH.md B3): broadcast pushes used to pick recipients
+// by Profile.role across EVERY company. Now: active members of the
+// order's own company, by their role in that company (Membership.role),
+// who are active and have the matching notification switched on.
+async function companyMembersOptedIn(
+  salesOrderId: string,
+  roles: string[],
+  prefColumn: string,
+): Promise<string[]> {
+  if (!salesOrderId) return [];
+  const { data: order, error: oErr } = await supabase
+    .from("SalesOrder")
+    .select("organizationId")
+    .eq("id", salesOrderId)
+    .maybeSingle();
+  if (oErr) throw oErr;
+  const organizationId = (order as { organizationId?: string } | null)?.organizationId;
+  if (!organizationId) return [];
+
+  const { data: members, error: mErr } = await supabase
+    .from("Membership")
+    .select("profileId")
+    .eq("organizationId", organizationId)
+    .eq("isActive", true)
+    .in("role", roles);
+  if (mErr) throw mErr;
+  const ids = (members ?? []).map((m) => m.profileId);
+  if (ids.length === 0) return [];
+
   const { data, error } = await supabase
     .from("Profile")
     .select("id")
-    .eq("role", "ADMIN")
-    .eq(prefColumn, true);
+    .eq("isActive", true)
+    .eq(prefColumn, true)
+    .in("id", ids);
   if (error) throw error;
   return (data ?? []).map((p) => p.id);
 }

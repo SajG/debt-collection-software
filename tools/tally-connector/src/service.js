@@ -34,10 +34,11 @@ async function doSync({ full = false } = {}) {
   const started = new Date().toISOString();
   writeState({ ...readState(), runningSince: started });
   try {
-    const cfg = readConfig();
+    let cfg = readConfig();
     if (!cfg.syncitUrl || !cfg.secret) {
-      throw new Error("Not configured — set Syncit URL and secret in tray Settings.");
+      throw new Error("Not configured — enter the pairing code from Syncit (Settings → Tally) in tray Settings.");
     }
+    cfg = await exchangePairingCodeIfNeeded(cfg);
     log(`Sync start (full=${full})`);
     // Dynamic import — sync-core is ESM.
     const { runSync } = await import("./sync-core.mjs");
@@ -73,6 +74,39 @@ async function doSync({ full = false } = {}) {
     running = false;
     currentAbort = null;
   }
+}
+
+// The website hands the admin a one-time 8-character pairing code
+// (Settings → Tally). The first sync trades it at /api/sync/tally/pair
+// for this PC's long-lived syt_ token, which replaces the code in
+// config.json. A legacy shared secret (64 hex chars) or an existing
+// syt_ token is left alone.
+const PAIRING_CODE_RE = /^[A-Z2-9]{8}$/;
+
+async function exchangePairingCodeIfNeeded(cfg) {
+  const raw = String(cfg.secret || "").trim();
+  if (raw.startsWith("syt_")) return cfg;
+  const code = raw.toUpperCase().replace(/[^A-Z2-9]/g, "");
+  if (!PAIRING_CODE_RE.test(code)) return cfg;
+
+  const base = String(cfg.syncitUrl).replace(/\/+$/, "");
+  const name = (require("node:os").hostname() || "Tally PC").slice(0, 80);
+  log(`Pairing this PC (${name}) with Syncit…`);
+  const res = await fetch(`${base}/api/sync/tally/pair`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code, name }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !body.token) {
+    throw new Error(
+      `Pairing failed: ${body.error || res.status}. Generate a new code in Syncit → Settings → Tally and enter it again.`,
+    );
+  }
+  const next = { ...cfg, syncitUrl: base, secret: body.token };
+  writeConfig(next);
+  log("Paired. This PC will now sync automatically.");
+  return next;
 }
 
 function scheduleNext() {

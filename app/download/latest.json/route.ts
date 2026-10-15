@@ -15,7 +15,7 @@ export const runtime = "edge";
 // GitHub outage doesn't stop connectors from starting up cleanly.
 
 const RELEASES_LATEST =
-  "https://api.github.com/repos/sajal-ghatpande/debt-collection-software/releases/latest";
+  "https://api.github.com/repos/SajG/debt-collection-software/releases/latest";
 
 type LatestJson = {
   version: string;

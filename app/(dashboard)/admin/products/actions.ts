@@ -42,10 +42,21 @@ export async function upsertProductAction(fd: FormData): Promise<UpsertResult> {
     sortOrder: data.sortOrder ?? 0,
     isActive: data.isActive,
   };
-  if (data.id) {
-    await db.product.update({ where: { id: data.id }, data: payload });
-  } else {
-    await db.product.create({ data: payload });
+  try {
+    if (data.id) {
+      await db.product.update({ where: { id: data.id }, data: payload });
+    } else {
+      await db.product.create({ data: payload });
+    }
+  } catch (e) {
+    // (organizationId, name, brand) is unique — say so instead of a 500.
+    if ((e as { code?: string })?.code === "P2002") {
+      return {
+        error: "A product with this name and brand already exists.",
+        fieldErrors: { name: "Already in your product list." },
+      };
+    }
+    throw e;
   }
   revalidatePath("/admin/products");
   return { ok: true };

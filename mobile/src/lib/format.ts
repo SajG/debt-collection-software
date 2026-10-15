@@ -53,3 +53,13 @@ export function formatDateTime(d: Date | string | null | undefined): string {
     })
   );
 }
+
+
+/** Size as entered on an order line. Plain numbers are kilograms (the
+ *  catalogue chips); anything else ("310 ml", "XL", "6 ft") is shown as
+ *  typed, so " kg" is never glued onto a non-weight size. */
+export function formatSize(v: string | null | undefined): string {
+  const s = (v ?? "").trim();
+  if (!s) return "";
+  return /^\d+(\.\d+)?$/.test(s) ? `${s} kg` : s;
+}

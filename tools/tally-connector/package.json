@@ -22,6 +22,7 @@
   "build": {
     "appId": "com.syncit.connector",
     "productName": "Syncit Tally Connector",
+    "asar": false,
     "directories": {
       "output": "dist",
       "buildResources": "assets"

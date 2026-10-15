@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { resendInvitationAction, revokeInvitationAction } from "./actions";
+import { ShareInviteLink } from "./share-invite-link";
 
 export type PendingInvite = {
   id: string;
@@ -19,16 +20,35 @@ export function PendingInvites({ invites }: { invites: PendingInvite[] }) {
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, startTransition] = useTransition();
+  const [share, setShare] = useState<{ email: string; joinUrl: string } | null>(null);
 
   if (invites.length === 0) return null;
 
-  function run(fn: () => Promise<{ error?: string; emailed?: boolean } | { ok: true; emailed?: boolean }>) {
+  function run(
+    fn: () => Promise<
+      | { error?: string; emailed?: boolean; joinUrl?: string; email?: string }
+      | { ok: true; emailed?: boolean; joinUrl?: string; email?: string }
+    >,
+  ) {
     setNote(null);
     setError(null);
+    setShare(null);
     startTransition(async () => {
       const res = await fn();
-      if ("error" in res && res.error) setError(res.error);
-      else setNote("Done.");
+      if ("error" in res && res.error) {
+        setError(res.error);
+        return;
+      }
+      if (res.joinUrl && res.email) {
+        setShare({ email: res.email, joinUrl: res.joinUrl });
+        setNote(
+          res.emailed
+            ? `New link emailed to ${res.email}. You can also share it below.`
+            : `The email could not be sent to ${res.email}. Share the link below instead.`,
+        );
+      } else {
+        setNote("Done.");
+      }
     });
   }
 
@@ -73,6 +93,11 @@ export function PendingInvites({ invites }: { invites: PendingInvite[] }) {
       </ul>
       {error ? <p className="px-4 py-2 text-xs text-red-600">{error}</p> : null}
       {note ? <p className="px-4 py-2 text-xs text-emerald-700">{note}</p> : null}
+      {share ? (
+        <div className="px-4 pb-3">
+          <ShareInviteLink joinUrl={share.joinUrl} />
+        </div>
+      ) : null}
     </div>
   );
 }

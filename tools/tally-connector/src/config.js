@@ -40,7 +40,7 @@ function defaults() {
   return {
     tallyHost: "localhost",
     tallyPort: 9000,
-    syncitUrl: "",
+    syncitUrl: "https://getsyncit.app",
     secret: "",
     // How often the service auto-syncs, in minutes. 0 = disabled (manual only).
     intervalMinutes: 15,

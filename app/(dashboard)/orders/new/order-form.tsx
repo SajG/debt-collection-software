@@ -473,7 +473,7 @@ export function OrderForm({
                 type="text"
                 name="tokenType"
                 className={inputCls}
-                placeholder="With Synergy Barcode Token / With Customer Token / Without Token / Gift inside"
+                placeholder="e.g. With customer token / Without token / Gift inside"
                 value={tokenType}
                 onChange={(e) => setTokenType(e.target.value)}
               />

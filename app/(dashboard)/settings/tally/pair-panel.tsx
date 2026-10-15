@@ -103,8 +103,10 @@ export function PairPanel() {
           <a href="/download#tally" className="text-primary underline underline-offset-4">
             /download
           </a>
-          , install on the Tally PC, and paste the code on the first
-          screen. Syncit URL defaults to https://getsyncit.app.
+          , install it on the Tally PC (Run as administrator), then
+          right-click the Syncit icon near the clock → Settings, paste the
+          code into <strong>Pairing code</strong>, click Save, then Sync
+          now. The web address is already set to https://getsyncit.app.
         </p>
       </div>
     </div>

@@ -15,7 +15,12 @@ export const metadata: Metadata = {
 // IOS_APP_STORE_URL — see lib/store-links.ts) so they appear only once
 // each listing is public. Read at build time: change the variable, then
 // redeploy.
-const TALLY_CONNECTOR_URL = "https://getsyncit.app/downloads/syncit-tally-connector-setup.exe";
+// Where the Windows installer is hosted. Set TALLY_CONNECTOR_URL in
+// Vercel to the real file (e.g. a public Supabase Storage object); the
+// default path only works once the .exe is placed in public/downloads/.
+const TALLY_CONNECTOR_URL =
+  process.env.TALLY_CONNECTOR_URL ||
+  "https://getsyncit.app/downloads/syncit-tally-connector-setup.exe";
 
 export default function DownloadPage() {
   const { android, ios } = storeLinks();

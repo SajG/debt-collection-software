@@ -17,12 +17,11 @@ import { PickerField, type PickerItem } from "@/components/PickerField";
 import { useProducts } from "@/lib/queries";
 import { getRecent, recordRecent } from "@/lib/recent-picks";
 import {
-  BRAND_LIST,
-  COMMON_PACKINGS,
   COMMON_SIZES_KG,
   PRIVATE_LABEL_SENTINEL,
   QUANTITY_UNITS,
 } from "@/lib/constants";
+import { useOrgCatalog } from "@/lib/catalog";
 import { formatINR } from "@/lib/format";
 import type { QuantityUnit } from "@/lib/database.types";
 import type { OrderDraftItem } from "@/lib/order-draft";
@@ -34,6 +33,13 @@ import { t } from "@/lib/i18n";
 // use the same trigger UI. The escape hatches (custom product / custom
 // packing / custom size / private-label brand) sit inline as text
 // fields shown only when needed.
+//
+// Two shapes, decided by the company's own catalogue (web → Products):
+//   * catalogue form — the company has a brand list (e.g. Synergy):
+//     brand, packing and size are required, chips come from ITS lists.
+//   * generic form — no brand list: brand is hidden, packing and size
+//     are optional free text. Product + quantity + rate is enough, so
+//     any business can take orders without set-up.
 
 type Draft = Omit<OrderDraftItem, "localId">;
 
@@ -71,6 +77,8 @@ export function ItemSheet({
   const [customProduct, setCustomProduct] = useState(false);
   const [recentProductIds, setRecentProductIds] = useState<string[]>([]);
   const products = useProducts();
+  const catalog = useOrgCatalog();
+  const catalogMode = catalog.configured;
 
   useEffect(() => {
     if (!visible) return;
@@ -80,7 +88,7 @@ export function ItemSheet({
   useEffect(() => {
     if (visible) {
       setItem(initial);
-      const known = new Set<string>([...BRAND_LIST]);
+      const known = new Set<string>([...catalog.brands]);
       if (initial.brand && !known.has(initial.brand)) {
         setPrivateLabel(true);
         setPrivateLabelName(initial.brand);
@@ -96,6 +104,8 @@ export function ItemSheet({
         ),
       );
     }
+    // catalog.brands only matters when the sheet opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, initial]);
 
   const setField = <K extends keyof Draft>(k: K, v: Draft[K]) =>
@@ -127,11 +137,11 @@ export function ItemSheet({
   // Brand dropdown items — chip list + private-label sentinel.
   const brandItems = useMemo<PickerItem[]>(
     () =>
-      BRAND_LIST.map((b) => ({
+      catalog.brands.map((b) => ({
         value: b,
         label: b,
       })),
-    [],
+    [catalog.brands],
   );
 
   const brandValue = privateLabel
@@ -146,13 +156,14 @@ export function ItemSheet({
     return Math.round(q * r * 100) / 100;
   }, [item.quantity, item.productRate]);
 
+  const hasProduct = Boolean(
+    item.productId || (item.customProductName && item.customProductName.trim()),
+  );
   const isComplete = Boolean(
-    item.brand &&
-      (item.productId || (item.customProductName && item.customProductName.trim())) &&
+    hasProduct &&
       Number(item.quantity) > 0 &&
-      item.packingType &&
-      item.sizeKg &&
-      item.productRate.trim(),
+      item.productRate.trim() &&
+      (!catalogMode || (item.brand && item.packingType && item.sizeKg)),
   );
 
   function onBrandChange(v: string) {
@@ -223,14 +234,16 @@ export function ItemSheet({
             contentContainerStyle={styles.body}
             keyboardShouldPersistTaps="handled"
           >
-            <PickerField
-              label={t("itemSheet.brand")}
-              value={brandValue}
-              items={brandItems}
-              onChange={onBrandChange}
-              placeholder={t("itemSheet.chooseBrand")}
-            />
-            {privateLabel ? (
+            {catalogMode ? (
+              <PickerField
+                label={t("itemSheet.brand")}
+                value={brandValue}
+                items={brandItems}
+                onChange={onBrandChange}
+                placeholder={t("itemSheet.chooseBrand")}
+              />
+            ) : null}
+            {catalogMode && privateLabel ? (
               <TextField
                 label={t("itemSheet.privateLabelBrandName")}
                 placeholder={t("itemSheet.enterTheBrandTheCustomer")}
@@ -256,7 +269,7 @@ export function ItemSheet({
                   : t("itemSheet.searchByNameOrGrade")
               }
               searchable
-              searchPlaceholder="e.g. Polygum D3+, WR-48, PSA 55"
+              searchPlaceholder={t("itemSheet.searchProducts")}
             />
             {customProduct ? (
               <TextField
@@ -292,17 +305,23 @@ export function ItemSheet({
               onChange={(v) => setField("quantityUnit", v)}
             />
 
-            <SelectField
-              label={t("itemSheet.packing")}
-              value={item.packingType}
-              options={COMMON_PACKINGS}
-              onChange={(v) => setField("packingType", v)}
-            />
+            {catalog.packings.length > 0 ? (
+              <SelectField
+                label={t("itemSheet.packing")}
+                value={item.packingType}
+                options={catalog.packings}
+                onChange={(v) => setField("packingType", v)}
+              />
+            ) : null}
             <TextField
-              label={t("itemSheet.customPackingOptional")}
+              label={
+                catalog.packings.length > 0
+                  ? t("itemSheet.customPackingOptional")
+                  : t("itemSheet.packingOptional")
+              }
               placeholder={t("itemSheet.eG310MlCartridge")}
               value={
-                item.packingType && !COMMON_PACKINGS.includes(item.packingType)
+                item.packingType && !catalog.packings.includes(item.packingType)
                   ? item.packingType
                   : ""
               }
@@ -311,18 +330,24 @@ export function ItemSheet({
               autoCorrect={false}
             />
 
-            <SelectField
-              label={t("itemSheet.size")}
-              value={item.sizeKg}
-              options={COMMON_SIZES_KG}
-              onChange={(v) => setField("sizeKg", v)}
-              formatLabel={formatSizeLabel}
-            />
+            {catalogMode ? (
+              <SelectField
+                label={t("itemSheet.size")}
+                value={item.sizeKg}
+                options={COMMON_SIZES_KG}
+                onChange={(v) => setField("sizeKg", v)}
+                formatLabel={formatSizeLabel}
+              />
+            ) : null}
             <TextField
-              label={t("itemSheet.customSizeOptionalKgOr")}
+              label={
+                catalogMode
+                  ? t("itemSheet.customSizeOptionalKgOr")
+                  : t("itemSheet.sizeOptional")
+              }
               placeholder='e.g. "310 ml", "0.45 kg"'
               value={
-                item.sizeKg && !COMMON_SIZES_KG.includes(item.sizeKg)
+                item.sizeKg && !(catalogMode && COMMON_SIZES_KG.includes(item.sizeKg))
                   ? item.sizeKg
                   : ""
               }

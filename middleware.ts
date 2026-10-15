@@ -78,6 +78,10 @@ const PUBLIC_PREFIXES = [
   // requireProfileApi({ bearer }) → Membership; nothing under here may
   // skip that.
   "/api/mobile/",
+  // Mobile document upload: called with a Bearer access token and no
+  // cookies; the route authenticates itself (requireProfileApi with
+  // bearer → Membership) and checks the order / payment's company.
+  "/api/uploads/",
   // SY38 — public content and its helpers. /api/t receives anonymous
   // marketing page views; /r/<code> is a referral link; /unsubscribe/
   // carries its own signed token.

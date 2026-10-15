@@ -28,6 +28,7 @@ import type { PaymentTerm, TransportType } from "@/lib/database.types";
 import { theme } from "@/theme";
 import { t } from "@/lib/i18n";
 import { paymentTerms, transportTypes } from "@/lib/labels";
+import { useOrgCatalog } from "@/lib/catalog";
 
 // Screen 1 of the 3-screen wizard: customer + delivery details on ONE
 // scrollable screen. Payment term / transport / token are chip rows —
@@ -72,6 +73,10 @@ export default function ScreenCustomerAndDelivery() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.partyId, hydrated]);
 
+  // Token / gift chips are part of the catalogue-style form only
+  // (companies with their own brand list, e.g. Synergy).
+  const { configured: catalogMode } = useOrgCatalog();
+
   const canProceed = useMemo(
     () =>
       Boolean(
@@ -80,9 +85,9 @@ export default function ScreenCustomerAndDelivery() {
           draft.paymentTerm &&
           draft.transportType &&
           draft.expectedDeliveryDate &&
-          draft.tokenType,
+          (!catalogMode || draft.tokenType),
       ),
-    [draft],
+    [draft, catalogMode],
   );
 
   function pickParty(id: string, name: string) {
@@ -246,13 +251,15 @@ export default function ScreenCustomerAndDelivery() {
               />
             </Section>
 
-            <Section title={t("common.tokenGift")}>
-              <ChipRow
-                values={TOKEN_TYPES.map((v) => ({ value: v, label: v }))}
-                selected={draft.tokenType}
-                onSelect={(v) => patch({ tokenType: v })}
-              />
-            </Section>
+            {catalogMode ? (
+              <Section title={t("common.tokenGift")}>
+                <ChipRow
+                  values={TOKEN_TYPES.map((v) => ({ value: v, label: v }))}
+                  selected={draft.tokenType}
+                  onSelect={(v) => patch({ tokenType: v })}
+                />
+              </Section>
+            ) : null}
 
             <Section title={t("common.notesOptional")}>
               <TextField
