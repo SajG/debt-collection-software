@@ -387,21 +387,27 @@ export async function runSync(config, opts = {}) {
   const ingest = await res.json();
   if (!res.ok) throw new Error(`Ingest failed: ${JSON.stringify(ingest)}`);
 
-  await sleep(REQUEST_GAP_MS);
-  log("Reconciling new-customer orders…");
+  // The reconcile endpoint only accepts the cron / legacy shared secret.
+  // Paired PCs (syt_ token) get 401 there; the nightly cron covers them.
   let reconcile = null;
-  try {
-    const rec = await fetch(`${syncitUrl}/api/cron/reconcile-orders`, {
-      headers: { Authorization: `Bearer ${secret}` },
-    });
-    reconcile = await rec.json();
-    if (!rec.ok) log(`  Reconcile warned: ${JSON.stringify(reconcile)}`);
-    else
-      log(
-        `  scanned=${reconcile.scanned} matched=${reconcile.matched} ambiguous=${reconcile.ambiguous} unmatched=${reconcile.unmatched}`,
-      );
-  } catch (e) {
-    log(`  Reconcile call failed: ${e.message}`);
+  if (secret.startsWith("syt_")) {
+    log("Skipping reconcile (runs nightly on the server for paired PCs).");
+  } else {
+    await sleep(REQUEST_GAP_MS);
+    log("Reconciling new-customer orders…");
+    try {
+      const rec = await fetch(`${syncitUrl}/api/cron/reconcile-orders`, {
+        headers: { Authorization: `Bearer ${secret}` },
+      });
+      reconcile = await rec.json();
+      if (!rec.ok) log(`  Reconcile warned: ${JSON.stringify(reconcile)}`);
+      else
+        log(
+          `  scanned=${reconcile.scanned} matched=${reconcile.matched} ambiguous=${reconcile.ambiguous} unmatched=${reconcile.unmatched}`,
+        );
+    } catch (e) {
+      log(`  Reconcile call failed: ${e.message}`);
+    }
   }
 
   const durationMs = Date.now() - started;

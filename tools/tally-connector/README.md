@@ -28,7 +28,8 @@ tools/tally-connector/
 
 1. Tally.ERP9 or Prime installed.
 2. In Tally: **F12 Configure → Advanced → Allow ODBC/HTTP = Yes**, port 9000 (default). Keep Tally open with the target company loaded.
-3. **Node.js 18+ LTS** installed and on PATH (the installer shells out to `node.exe` to register the Windows Service). Download from <https://nodejs.org>.
+3. Nothing else — the background service runs on the Node.js bundled inside
+   the app (`ELECTRON_RUN_AS_NODE=1`), so Node.js does not need to be installed.
 
 ## Build the installer (from macOS or Windows)
 
@@ -53,10 +54,10 @@ add a code-signing cert (DigiCert / Sectigo, ~$100–300/yr) and set
 
 1. Copy the produced `Syncit Tally Connector Setup <version>.exe` to the machine.
 2. Right-click → **Run as administrator** (needed to register the service).
-3. On first launch, right-click the tray icon → **Settings…**
+3. Settings opens by itself on first launch (later: click the tray icon).
 4. Enter:
-   - **Syncit URL** — e.g. `https://syncit.example.com`
-   - **Sync Secret** — must match `TALLY_SYNC_SECRET` on the deployment
+   - **Syncit web address** — `https://getsyncit.app`
+   - **Pairing code** — Syncit website → Settings → Tally → Generate pairing code
    - Tally host/port (defaults are `localhost:9000`)
    - Sync interval in minutes (default 15; 0 = manual only)
 5. Click **Save**, then **Sync Now** to verify.

@@ -1,4 +1,6 @@
-// Register the daemon as a Windows Service. Run once, with admin rights:
+// Register the daemon as a Windows Service. The NSIS installer runs this
+// with the app's own exe (ELECTRON_RUN_AS_NODE=1); for dev, with admin
+// rights:
 //   node install-service.js
 // Uses node-windows (a thin wrapper over winsw.exe) so uninstall is symmetric.
 //
@@ -17,6 +19,11 @@ const svc = new Service({
   description:
     "Bridges Tally (localhost:9000 XML/HTTP) to the Syncit cloud on a schedule.",
   script: path.join(__dirname, "service.js"),
+  // The installer runs this file with the app's own exe in Node mode, so
+  // node-windows records that exe (process.execPath) as the service
+  // executable. The service needs the same flag to start as Node rather
+  // than as the Electron GUI. Harmless when run under a plain node.exe.
+  env: [{ name: "ELECTRON_RUN_AS_NODE", value: "1" }],
   nodeOptions: [],
   wait: 2,
   grow: 0.25,

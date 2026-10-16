@@ -184,12 +184,33 @@ ipcMain.handle("service:status", async () => {
 
 // ── App lifecycle ──────────────────────────────────────────────────────
 
-app.whenReady().then(() => {
-  const iconPath = path.join(__dirname, "..", "assets", "iconTemplate.png");
-  tray = new Tray(iconPath);
-  refreshTray();
-  statusPollTimer = setInterval(refreshTray, 15000);
-});
+// One tray per user session. A second launch (Start menu, installer
+// "Run") just brings the settings window forward.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on("second-instance", () => openSettings());
+
+  app.whenReady().then(async () => {
+    const iconPath = path.join(__dirname, "..", "assets", "iconTemplate.png");
+    tray = new Tray(iconPath);
+    tray.on("click", () => openSettings());
+    refreshTray();
+    statusPollTimer = setInterval(refreshTray, 15000);
+
+    // The tray icon sits in Windows' hidden-icons area (^), so on a fresh
+    // install it looks like nothing happened. Open Settings straight away
+    // until the PC is paired.
+    let configured = false;
+    try {
+      const { body } = await svc("GET", "/status");
+      configured = Boolean(body.config?.syncitUrl && body.config?.secret);
+    } catch {
+      // service unreachable — settings window explains it
+    }
+    if (!configured) openSettings();
+  });
+}
 
 app.on("window-all-closed", (e) => {
   // Keep running in the tray after the settings window closes.

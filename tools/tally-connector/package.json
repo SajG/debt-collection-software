@@ -1,6 +1,6 @@
 {
   "name": "syncit-tally-connector",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Windows Service + tray app that bridges Tally XML/HTTP (localhost:9000) to the Syncit cloud.",
   "main": "src/main.js",
@@ -33,7 +33,12 @@
     ],
     "win": {
       "target": [
-        "nsis"
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "assets/icon.ico"
     },
